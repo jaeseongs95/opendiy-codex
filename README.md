@@ -2,23 +2,22 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-**Inspect the patch. Know what was tested.**
+A fork of Codex CLI and Rust App Server that addresses stalled requests and child-process cleanup on Windows.
 
-Windows-focused source patches for Codex CLI and Rust App Server.
+The published r22 patches cover MCP request cancellation, server shutdown and waits, and configuration reads.
 
-## Why it matters
+## What changes
 
-- **Follow cleanup and cancellation.** Inspect changes to Windows process/Job lifetimes, stdio, sockets and MCP request cancellation.
-- **See the test boundary.** The r22 Windows candidate passed 18 targeted Cargo tests; the methods and unverified areas are documented.
-- **Trace every change.** Compare the full Rust workspace against a pinned upstream revision and recorded source hashes.
+- Clean up work owned by a cancelled MCP read request, including its private connections and processes, before returning the cancellation response.
+- Continue cleanup until an MCP server's child processes have actually exited, and wait for the previous process to be cleaned up before retrying a launch.
+- Avoid unnecessarily occupying filesystem I/O threads while waiting for a quiet MCP server.
+- Remove a redundant configuration load so the configuration response and feature settings use values from the same point in time.
 
-## Explore
+## Source and documentation
 
-- [CLI source](codex-rs/cli) · [Rust App Server source](codex-rs/app-server)
-- [Test methods and limits](docs/TESTING.md)
-- [Source baseline](SOURCE_BASELINE.json) · [Modifications](MODIFICATIONS.md)
+- [CLI source](codex-rs/cli) · [App Server source](codex-rs/app-server) · [Source layout and building](docs/source-import.md)
+- [Modifications](MODIFICATIONS.md) · [Testing methods and limitations](docs/TESTING.md)
 
-Historical r22 tests do not establish a fresh public-clone release build or full desktop validation.
+An independent, unofficial project based on [OpenAI Codex](https://github.com/openai/codex), under [Apache-2.0](LICENSE) and the applicable [third-party notices](NOTICE).
 
-Independent and unofficial, based on [OpenAI Codex](https://github.com/openai/codex). [Apache-2.0](LICENSE); applicable [third-party notices](NOTICE) remain in place.
-Source only: no installable patched binary; proprietary desktop assets are not redistributed.
+Only r22 source is provided; installable patched binaries and proprietary desktop UI assets are not included. Full desktop validation and complete resolution of memory leaks or UI latency have not been established.
