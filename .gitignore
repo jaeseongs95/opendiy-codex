@@ -1,0 +1,11 @@
+/target/
+/codex-rs/target/
+**/__pycache__/
+/.import-tmp/
+/verification/
+*.exe
+*.dll
+*.asar
+*.pdb
+*.sqlite
+*.db

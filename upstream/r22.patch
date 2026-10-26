@@ -1,0 +1,3894 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 1eb38f328..a60da2878 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -287,7 +287,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+ 
+ [[package]]
+ name = "app_test_support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1888,7 +1888,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -1900,7 +1900,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-graph-store"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-state",
+@@ -1915,7 +1915,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-identity"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1935,7 +1935,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-message-board-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -1958,7 +1958,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-message-board-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-extension-api",
+  "codex-message-board",
+@@ -1972,7 +1972,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-roles"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-config",
+  "codex-file-system",
+@@ -1985,7 +1985,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-analytics"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-app-server-protocol",
+  "codex-git-utils",
+@@ -2008,7 +2008,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-ansi-escape"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "ansi-to-tui",
+  "pretty_assertions",
+@@ -2019,7 +2019,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-api"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "assert_matches",
+@@ -2057,7 +2057,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2175,7 +2175,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-app-server",
+  "codex-app-server-protocol",
+@@ -2202,7 +2202,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-daemon"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "blake3",
+@@ -2232,7 +2232,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-protocol"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-app-server-protocol-noop-macros",
+@@ -2266,11 +2266,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-protocol-noop-macros"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ 
+ [[package]]
+ name = "codex-app-server-test-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2292,7 +2292,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-transport"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "axum",
+  "base64 0.22.1",
+@@ -2335,7 +2335,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-apply-patch"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -2355,7 +2355,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-arg0"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-apply-patch",
+@@ -2378,7 +2378,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-async-utils"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "rand 0.9.3",
+@@ -2388,7 +2388,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-attachment-store"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde",
+@@ -2398,7 +2398,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-aws-auth"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "aws-config",
+  "aws-credential-types",
+@@ -2424,7 +2424,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-backend-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-api",
+@@ -2444,7 +2444,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-backend-openapi-models"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "serde",
+  "serde_json",
+@@ -2453,7 +2453,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-build-info"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-install-context",
+  "pretty_assertions",
+@@ -2466,7 +2466,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-bwrap"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "cc",
+  "libc",
+@@ -2475,7 +2475,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-chatgpt"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2497,7 +2497,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cli"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2601,7 +2601,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-http-client",
+  "eventsource-stream",
+@@ -2615,7 +2615,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "async-stream",
+@@ -2639,7 +2639,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-config"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -2665,7 +2665,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2698,7 +2698,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2713,7 +2713,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks-mock-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "chrono",
+  "codex-cloud-tasks-client",
+@@ -2722,7 +2722,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-code-mode-protocol",
+  "codex-http-client",
+@@ -2746,7 +2746,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-host"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2775,7 +2775,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-protocol"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "glob",
+@@ -2793,7 +2793,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-runtime"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-code-mode-protocol",
+@@ -2811,11 +2811,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-collaboration-mode-templates"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ 
+ [[package]]
+ name = "codex-config"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2868,7 +2868,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-config-schema"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2877,7 +2877,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-connectors"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -2899,7 +2899,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-connectors-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-connectors",
+  "codex-core-plugins",
+@@ -2913,7 +2913,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-context-fragments"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-protocol-test-support",
+@@ -2924,7 +2924,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3070,7 +3070,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core-api"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-app-server-protocol",
+@@ -3093,7 +3093,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core-plugin-common"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "semver",
+@@ -3104,7 +3104,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core-plugins"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3161,7 +3161,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-diagnostics"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -3169,7 +3169,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-direct-tool-timing"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-critical-path",
+  "pretty_assertions",
+@@ -3177,7 +3177,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -3230,7 +3230,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3302,7 +3302,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server-protocol"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-file-system",
+@@ -3320,7 +3320,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server-test-support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-exec-server",
+@@ -3335,7 +3335,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-execpolicy"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3353,7 +3353,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-experimental-api-macros"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -3362,7 +3362,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-extension-api"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-api",
+  "codex-config",
+@@ -3385,7 +3385,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-extension-items"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "pretty_assertions",
+@@ -3397,7 +3397,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-external-agent-migration"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "chrono",
+  "codex-analytics",
+@@ -3428,7 +3428,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-features"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-network-proxy",
+  "codex-protocol",
+@@ -3442,7 +3442,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-feedback"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -3470,7 +3470,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-search"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3486,7 +3486,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-system"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "bytes",
+  "codex-protocol",
+@@ -3500,7 +3500,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-watcher"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "notify",
+  "pretty_assertions",
+@@ -3511,7 +3511,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-git-attribution"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-backend-client",
+  "codex-extension-api",
+@@ -3524,7 +3524,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-git-utils"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3552,7 +3552,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-goal-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3577,7 +3577,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-context"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-context-fragments",
+  "codex-history",
+@@ -3590,7 +3590,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-reviewer"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3615,7 +3615,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-v2"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3654,7 +3654,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-history"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-protocol",
+@@ -3666,7 +3666,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-history-notes-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-client",
+@@ -3691,7 +3691,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-home"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-extension-api",
+  "codex-utils-absolute-path",
+@@ -3703,7 +3703,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-hooks"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "async-channel",
+@@ -3732,7 +3732,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-http-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "bytes",
+  "codex-utils-cargo-bin",
+@@ -3772,7 +3772,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-image-generation-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -3804,7 +3804,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-install-context"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+@@ -3817,7 +3817,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-keyring-store"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "keyring",
+  "pretty_assertions",
+@@ -3828,7 +3828,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-linux-sandbox"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "clap",
+  "codex-core",
+@@ -3857,7 +3857,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-lmstudio"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-core",
+  "codex-http-client",
+@@ -3871,7 +3871,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-login"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -3917,7 +3917,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mcp"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3960,7 +3960,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mcp-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -3993,7 +3993,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-core",
+  "codex-extension-api",
+@@ -4015,7 +4015,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-read"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4025,7 +4025,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-write"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4062,7 +4062,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mermaid"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "insta",
+  "pretty_assertions",
+@@ -4071,7 +4071,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-message-board"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "caseless",
+@@ -4094,7 +4094,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-message-history"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-config",
+  "memchr",
+@@ -4108,7 +4108,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-model-provider"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -4142,7 +4142,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-model-provider-info"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-client",
+  "codex-http-client",
+@@ -4160,7 +4160,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-models-manager"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "chrono",
+  "codex-http-client",
+@@ -4179,7 +4179,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-multi-env-copy-file"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-config",
+@@ -4205,7 +4205,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mxc-sandbox"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-network-proxy",
+@@ -4226,7 +4226,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-network-proxy"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4275,7 +4275,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-ollama"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "assert_matches",
+  "async-stream",
+@@ -4295,7 +4295,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-otel"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "bytes",
+  "chrono",
+@@ -4332,7 +4332,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-otel-trace-websocket"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4343,7 +4343,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-plugin"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-config",
+  "codex-core-plugin-common",
+@@ -4358,7 +4358,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-process-hardening"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -4366,7 +4366,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-prompts"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-collaboration-mode-templates",
+@@ -4384,7 +4384,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-protocol"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chardetng",
+@@ -4430,14 +4430,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-protocol-test-support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-queue-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -4458,7 +4458,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-realtime-webrtc"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-build-info",
+@@ -4477,7 +4477,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-response-debug-context"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -4488,7 +4488,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-responses-api-proxy"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -4512,7 +4512,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rmcp-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4563,7 +4563,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rollout"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4596,7 +4596,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rollout-trace"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-code-mode",
+@@ -4612,7 +4612,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-runtime-agent-instance"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-agent-identity",
+@@ -4638,7 +4638,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-sandboxing"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-mxc-sandbox",
+@@ -4666,7 +4666,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-secrets"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "age",
+  "anyhow",
+@@ -4687,7 +4687,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-shell-command"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4710,7 +4710,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-skills"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4727,7 +4727,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-skills-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "assert_matches",
+  "blake3",
+@@ -4767,7 +4767,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-state"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4795,7 +4795,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-stdio-to-uds"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-uds",
+@@ -4807,7 +4807,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tcp-tunnel"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -4828,7 +4828,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-terminal-detection"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "tracing",
+@@ -4836,7 +4836,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-test-binary-support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-arg0",
+  "tempfile",
+@@ -4844,7 +4844,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-thread-manager-sample"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4855,7 +4855,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-thread-store"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "chrono",
+  "codex-app-server-protocol",
+@@ -4886,7 +4886,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tools"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "bitflags 2.13.1",
+  "codex-attachment-store",
+@@ -4911,7 +4911,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tui"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -5039,7 +5039,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-uds"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "async-io",
+  "libc",
+@@ -5053,7 +5053,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-user-verification"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "block2",
+@@ -5074,7 +5074,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-absolute-path"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "dirs",
+  "dunce",
+@@ -5088,14 +5088,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-approval-presets"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-audio"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-protocol",
+@@ -5109,7 +5109,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cache"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "lru",
+  "sha1 0.10.6",
+@@ -5118,7 +5118,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cargo-bin"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "assert_cmd",
+  "runfiles",
+@@ -5127,7 +5127,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cli"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "clap",
+  "codex-protocol",
+@@ -5139,22 +5139,22 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-critical-path"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-elapsed"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ 
+ [[package]]
+ name = "codex-utils-fuzzy-match"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ 
+ [[package]]
+ name = "codex-utils-git-discovery"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-git-utils",
+  "codex-utils-absolute-path",
+@@ -5167,7 +5167,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-home-dir"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dirs",
+@@ -5177,7 +5177,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-image"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-cache",
+@@ -5191,7 +5191,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-json-to-toml"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde_json",
+@@ -5200,7 +5200,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-oss"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-core",
+  "codex-lmstudio",
+@@ -5210,7 +5210,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-output-truncation"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -5220,7 +5220,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-path"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dunce",
+@@ -5231,7 +5231,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-path-uri"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-absolute-path",
+@@ -5247,7 +5247,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-plugins"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-exec-server",
+  "codex-exec-server-protocol",
+@@ -5261,7 +5261,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-process"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "tokio",
+@@ -5269,7 +5269,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-pty"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-utils-cargo-bin",
+@@ -5288,7 +5288,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-readiness"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "assert_matches",
+  "thiserror 2.0.18",
+@@ -5298,7 +5298,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-redacted-string"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "schemars 0.8.22",
+  "serde",
+@@ -5306,14 +5306,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-rustls-provider"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "rustls",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-sandbox-summary"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-absolute-path",
+@@ -5323,7 +5323,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-sleep-inhibitor"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "core-foundation 0.9.4",
+  "libc",
+@@ -5333,14 +5333,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-stream-parser"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-string"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "regex-lite",
+@@ -5350,14 +5350,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-template"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-v8-poc"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "pretty_assertions",
+  "v8",
+@@ -5365,7 +5365,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-voice-host"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-install-context",
+@@ -5392,7 +5392,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-web-search-extension"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-api",
+  "codex-core",
+@@ -5414,7 +5414,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-websocket-auth"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -5433,7 +5433,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-websocket-client"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-http-client",
+  "codex-utils-rustls-provider",
+@@ -5449,7 +5449,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-windows-sandbox"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -5479,7 +5479,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-windows-sandbox-service"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-cloud-config",
+@@ -5497,14 +5497,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-windows-sandbox-test-support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "dirs",
+ ]
+ 
+ [[package]]
+ name = "codex-workload-identity"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "codex-http-client",
+  "pretty_assertions",
+@@ -5519,7 +5519,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-worktree"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "codex-git-utils",
+@@ -5772,7 +5772,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "core_test_support"
+-version = "0.0.0"
++version = "0.164.0-alpha.11.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -10279,9 +10279,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "mio"
+-version = "1.2.0"
++version = "1.2.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
++checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
+ dependencies = [
+  "libc",
+  "log",
+diff --git a/codex-rs/app-server/src/config_manager_service.rs b/codex-rs/app-server/src/config_manager_service.rs
+index df807ba4b..2b932b331 100644
+--- a/codex-rs/app-server/src/config_manager_service.rs
++++ b/codex-rs/app-server/src/config_manager_service.rs
+@@ -117,24 +117,42 @@ impl ConfigManagerError {
+ }
+ 
+ impl ConfigManager {
++    #[cfg(test)]
+     pub(crate) async fn read(
+         &self,
+         params: ConfigReadParams,
+     ) -> Result<ConfigReadResponse, ConfigManagerError> {
+-        let layers = match params.cwd.as_deref() {
++        self.read_with_config(params)
++            .await
++            .map(|(response, _)| response)
++    }
++
++    /// Derive the API view and runtime features from one validated set of layers.
++    pub(crate) async fn read_with_config(
++        &self,
++        params: ConfigReadParams,
++    ) -> Result<(ConfigReadResponse, codex_core::config::Config), ConfigManagerError> {
++        let cwd = match params.cwd.as_deref() {
+             Some(cwd) => {
+                 let cwd = AbsolutePathBuf::try_from(PathBuf::from(cwd)).map_err(|err| {
+                     ConfigManagerError::io("failed to resolve config cwd to an absolute path", err)
+                 })?;
+-                self.load_config_layers(Some(cwd)).await.map_err(|err| {
+-                    ConfigManagerError::io("failed to read configuration layers", err)
+-                })?
++                Some(cwd.to_path_buf())
+             }
+-            None => self.load_thread_agnostic_config().await.map_err(|err| {
+-                ConfigManagerError::io("failed to read configuration layers", err)
+-            })?,
++            None => None,
+         };
++        let loaded = self
++            .load_latest_config(cwd)
++            .await
++            .map_err(|err| ConfigManagerError::io("failed to read configuration layers", err))?;
++        let response = Self::read_loaded_layers(&loaded.config_layer_stack, params.include_layers)?;
++        Ok((response, loaded))
++    }
+ 
++    fn read_loaded_layers(
++        layers: &ConfigLayerStack,
++        include_layers: bool,
++    ) -> Result<ConfigReadResponse, ConfigManagerError> {
+         let effective = layers.effective_config();
+         let mut effective_config_toml: ConfigToml = effective
+             .try_into()
+@@ -165,7 +183,7 @@ impl ConfigManager {
+                 .into_iter()
+                 .map(|(path, metadata)| (path, config_layer_metadata_to_api(metadata)))
+                 .collect(),
+-            layers: params.include_layers.then(|| {
++            layers: include_layers.then(|| {
+                 layers
+                     .all_layers_high_to_low()
+                     .filter(|layer| {
+diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
+index ed787e10f..2ddd1c087 100644
+--- a/codex-rs/app-server/src/lib.rs
++++ b/codex-rs/app-server/src/lib.rs
+@@ -130,6 +130,7 @@ pub mod in_process;
+ mod log_write_warning;
+ #[cfg(unix)]
+ mod managed_daemon;
++mod mcp_read_lifetime;
+ mod mcp_refresh;
+ mod message_processor;
+ mod model_catalog;
+diff --git a/codex-rs/app-server/src/mcp_read_lifetime.rs b/codex-rs/app-server/src/mcp_read_lifetime.rs
+new file mode 100644
+index 000000000..e7a2a9ad2
+--- /dev/null
++++ b/codex-rs/app-server/src/mcp_read_lifetime.rs
+@@ -0,0 +1,121 @@
++//! Cancellation owns the MCP read future; acceptance is not a terminal response.
++use std::future::Future;
++
++use codex_app_server_protocol::JSONRPCErrorError;
++use tokio_util::sync::CancellationToken;
++
++pub(crate) fn supports(method: &str) -> bool {
++    matches!(method, "mcpServerStatus/list" | "mcpServer/resource/read")
++}
++
++pub(crate) async fn run<T>(
++    cancellation: CancellationToken,
++    work: impl Future<Output = Result<T, JSONRPCErrorError>>,
++) -> Result<T, JSONRPCErrorError> {
++    if cancellation.is_cancelled() {
++        return Err(cancelled_error());
++    }
++    // A ready completed operation wins the race. On cancellation the owned
++    // future is dropped before this function returns to the response sender.
++    tokio::select! {
++        biased;
++        result = work => result,
++        () = cancellation.cancelled() => Err(cancelled_error()),
++    }
++}
++
++pub(crate) fn cancelled_error() -> JSONRPCErrorError {
++    JSONRPCErrorError {
++        code: -32800,
++        message: "MCP read cancelled".to_string(),
++        data: None,
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Arc;
++    use std::sync::atomic::AtomicBool;
++    use std::sync::atomic::Ordering;
++    use tokio::sync::oneshot;
++
++    struct WorkGuard(Arc<AtomicBool>);
++    impl Drop for WorkGuard {
++        fn drop(&mut self) {
++            self.0.store(false, Ordering::SeqCst);
++        }
++    }
++
++    #[tokio::test]
++    async fn cancellation_drops_actual_owned_work_before_terminal_error() {
++        let cancellation = CancellationToken::new();
++        let active = Arc::new(AtomicBool::new(false));
++        let observed = Arc::clone(&active);
++        let (started, ready) = oneshot::channel();
++        let work = async move {
++            observed.store(true, Ordering::SeqCst);
++            let _guard = WorkGuard(observed);
++            let _ = started.send(());
++            std::future::pending::<Result<(), JSONRPCErrorError>>().await
++        };
++        let task = tokio::spawn(run(cancellation.clone(), work));
++        ready.await.expect("native read started");
++        assert!(active.load(Ordering::SeqCst));
++        cancellation.cancel();
++        assert_eq!(
++            task.await
++                .expect("read joined")
++                .expect_err("cancelled")
++                .code,
++            -32800
++        );
++        assert!(
++            !active.load(Ordering::SeqCst),
++            "terminal error precedes no owned work"
++        );
++    }
++
++    #[tokio::test]
++    async fn completed_work_wins_a_simultaneous_cancel() {
++        let cancellation = CancellationToken::new();
++        let cancel_at_completion = cancellation.clone();
++        assert_eq!(
++            run(cancellation, async move {
++                cancel_at_completion.cancel();
++                Ok(7)
++            })
++            .await
++            .expect("completed"),
++            7
++        );
++    }
++
++    #[tokio::test]
++    async fn already_cancelled_request_never_polls_queued_work() {
++        let cancellation = CancellationToken::new();
++        cancellation.cancel();
++        let error = run(cancellation, async {
++            panic!("cancelled queued work started");
++            #[allow(unreachable_code)]
++            Ok(())
++        })
++        .await
++        .expect_err("cancelled before polling");
++        assert_eq!(error.code, -32800);
++    }
++
++    #[test]
++    fn mutations_and_unreviewed_blocking_reads_are_not_cancellable() {
++        assert!(supports("mcpServerStatus/list"));
++        assert!(supports("mcpServer/resource/read"));
++        for method in [
++            "turn/start",
++            "thread/resume",
++            "plugin/installed",
++            "userVerification/verify",
++        ] {
++            assert!(!supports(method));
++        }
++    }
++}
+diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+index e1e5a7a94..e0275754f 100644
+--- a/codex-rs/app-server/src/message_processor.rs
++++ b/codex-rs/app-server/src/message_processor.rs
+@@ -648,6 +648,46 @@ impl MessageProcessor {
+         transport: &AppServerTransport,
+         session: Arc<ConnectionSessionState>,
+     ) {
++        // Local hotfix extension. Bypass the saturated work scheduler, but never
++        // initialization or the connection-scoped, read-only cancellation guard.
++        if request.method == "hotfix/mcpRead/cancel" {
++            let control_id = ConnectionRequestId {
++                connection_id,
++                request_id: request.id.clone(),
++            };
++            #[derive(serde::Deserialize)]
++            #[serde(rename_all = "camelCase", deny_unknown_fields)]
++            struct CancelRead {
++                request_id: codex_app_server_protocol::RequestId,
++            }
++            let target = request
++                .params
++                .and_then(|params| serde_json::from_value::<CancelRead>(params).ok());
++            if session.initialized()
++                && let Some(target) = target
++                && self
++                    .outgoing
++                    .cancel_mcp_read(&ConnectionRequestId {
++                        connection_id,
++                        request_id: target.request_id,
++                    })
++                    .await
++            {
++                // This existing empty payload is wire {}. It acknowledges only
++                // cancellation acceptance; the original ID settles after drop.
++                self.outgoing
++                    .send_response(control_id, UserVerificationCancelResponse {})
++                    .await;
++            } else {
++                self.outgoing
++                    .send_error(
++                        control_id,
++                        invalid_params("No cancellable MCP read on this connection"),
++                    )
++                    .await;
++            }
++            return;
++        }
+         let request_method = request.method.as_str();
+         tracing::trace!(
+             ?connection_id,
+@@ -664,12 +704,18 @@ impl MessageProcessor {
+             traceparent: trace.traceparent.clone(),
+             tracestate: trace.tracestate.clone(),
+         });
+-        let request_context = RequestContext::new(
++        let mut request_context = RequestContext::new(
+             request_id.clone(),
+             request_method,
+             request_span,
+             request_trace,
+         );
++        request_context.restrict_mcp_read_to_owned(request.params.as_ref().is_some_and(|params| {
++            params.is_object()
++                && params
++                    .get("threadId")
++                    .is_none_or(serde_json::Value::is_null)
++        }));
+         Self::run_request_with_context(
+             Arc::clone(&self.outgoing),
+             request_context.clone(),
+@@ -725,6 +771,11 @@ impl MessageProcessor {
+             /*parent_trace*/ None,
+         );
+         request_context.cancellation = cancellation;
++        request_context.restrict_mcp_read_to_owned(match &request {
++            ClientRequest::McpServerStatusList { params, .. } => params.thread_id.is_none(),
++            ClientRequest::McpResourceRead { params, .. } => params.thread_id.is_none(),
++            _ => false,
++        });
+         tracing::trace!(
+             ?connection_id,
+             request_id = ?request_id.request_id,
+@@ -1743,12 +1794,16 @@ impl MessageProcessor {
+             }
+             ClientRequest::McpServerStatusList { params, .. } => {
+                 self.mcp_processor
+-                    .mcp_server_status_list(&request_id, params)
++                    .mcp_server_status_list(
++                        &request_id,
++                        params,
++                        request_context.cancellation.clone(),
++                    )
+                     .await
+             }
+             ClientRequest::McpResourceRead { params, .. } => {
+                 self.mcp_processor
+-                    .mcp_resource_read(&request_id, params)
++                    .mcp_resource_read(&request_id, params, request_context.cancellation.clone())
+                     .await
+             }
+             ClientRequest::McpServerEventStreamStart { params, .. } => {
+diff --git a/codex-rs/app-server/src/outgoing_message.rs b/codex-rs/app-server/src/outgoing_message.rs
+index f893d3d20..a1174d769 100644
+--- a/codex-rs/app-server/src/outgoing_message.rs
++++ b/codex-rs/app-server/src/outgoing_message.rs
+@@ -75,6 +75,7 @@ pub(crate) struct RequestContext {
+ enum RequestCancellationScope {
+     Unavailable,
+     UserVerification,
++    McpRead,
+     ThreadSample,
+ }
+ 
+@@ -93,6 +94,9 @@ impl RequestContext {
+                 | "userVerification/enroll"
+                 | "userVerification/delete"
+                 | "userVerification/verify" => RequestCancellationScope::UserVerification,
++                method if crate::mcp_read_lifetime::supports(method) => {
++                    RequestCancellationScope::McpRead
++                }
+                 "thread/sample" => RequestCancellationScope::ThreadSample,
+                 _ => RequestCancellationScope::Unavailable,
+             },
+@@ -106,6 +110,12 @@ impl RequestContext {
+         span_w3c_trace_context(&self.span).or_else(|| self.parent_trace.clone())
+     }
+ 
++    pub(crate) fn restrict_mcp_read_to_owned(&mut self, owned: bool) {
++        if !owned && self.cancellation_scope == RequestCancellationScope::McpRead {
++            self.cancellation_scope = RequestCancellationScope::Unavailable;
++        }
++    }
++
+     pub(crate) fn span(&self) -> Span {
+         self.span.clone()
+     }
+@@ -280,6 +290,17 @@ impl OutgoingMessageSender {
+         }
+     }
+ 
++    pub(crate) async fn cancel_mcp_read(&self, request_id: &ConnectionRequestId) -> bool {
++        let contexts = self.request_contexts.lock().await;
++        if let Some(context) = contexts.get(request_id)
++            && context.cancellation_scope == RequestCancellationScope::McpRead
++        {
++            context.cancellation.cancel();
++            return true;
++        }
++        false
++    }
++
+     pub(crate) async fn cancel_thread_sample_request(&self, request_id: &ConnectionRequestId) {
+         let contexts = self.request_contexts.lock().await;
+         if let Some(context) = contexts.get(request_id)
+@@ -293,6 +314,13 @@ impl OutgoingMessageSender {
+         self.disconnect_user_verification_connection(connection_id)
+             .await;
+         let mut request_contexts = self.request_contexts.lock().await;
++        for (request_id, context) in request_contexts.iter() {
++            if request_id.connection_id == connection_id
++                && context.cancellation_scope == RequestCancellationScope::McpRead
++            {
++                context.cancellation.cancel();
++            }
++        }
+         request_contexts.retain(|request_id, _| request_id.connection_id != connection_id);
+     }
+ 
+@@ -1333,6 +1361,80 @@ mod tests {
+         assert_eq!(outgoing.request_context_count().await, 0);
+     }
+ 
++    #[tokio::test]
++    async fn mcp_read_lifetime_cancel_is_connection_and_ownership_scoped() {
++        let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(4);
++        let outgoing =
++            OutgoingMessageSender::new(tx, codex_analytics::AnalyticsEventsClient::disabled());
++        let id = ConnectionRequestId {
++            connection_id: ConnectionId(42),
++            request_id: RequestId::Integer(7),
++        };
++        for (method, owned, accepted) in [
++            ("mcpServer/resource/read", true, true),
++            ("mcpServerStatus/list", false, false),
++            ("turn/start", true, false),
++        ] {
++            let mut context =
++                RequestContext::new(id.clone(), method, tracing::info_span!("test"), None);
++            context.restrict_mcp_read_to_owned(owned);
++            let cancellation = context.cancellation.clone();
++            outgoing.register_request_context(context).await;
++            let other = ConnectionRequestId {
++                connection_id: ConnectionId(43),
++                request_id: id.request_id.clone(),
++            };
++            assert!(!outgoing.cancel_mcp_read(&other).await);
++            assert!(!cancellation.is_cancelled());
++            assert_eq!(outgoing.cancel_mcp_read(&id).await, accepted);
++            assert_eq!(cancellation.is_cancelled(), accepted);
++            assert_eq!(
++                outgoing.request_context_count().await,
++                1,
++                "cancel acceptance is not terminal"
++            );
++            outgoing
++                .send_error(id.clone(), crate::mcp_read_lifetime::cancelled_error())
++                .await;
++            assert_eq!(outgoing.request_context_count().await, 0);
++            assert!(
++                !outgoing.cancel_mcp_read(&id).await,
++                "completed original context cannot be cancelled again"
++            );
++        }
++    }
++
++    #[tokio::test]
++    async fn mcp_read_lifetime_disconnect_cancels_only_owned_connection_work() {
++        let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(4);
++        let outgoing =
++            OutgoingMessageSender::new(tx, codex_analytics::AnalyticsEventsClient::disabled());
++        let mut tokens = Vec::new();
++        for (connection, owned) in [(42, true), (43, true), (42, false)] {
++            let id = ConnectionRequestId {
++                connection_id: ConnectionId(connection),
++                request_id: RequestId::Integer(tokens.len() as i64),
++            };
++            let mut context = RequestContext::new(
++                id,
++                "mcpServer/resource/read",
++                tracing::info_span!("test"),
++                None,
++            );
++            context.restrict_mcp_read_to_owned(owned);
++            tokens.push(context.cancellation.clone());
++            outgoing.register_request_context(context).await;
++        }
++        outgoing.connection_closed(ConnectionId(42)).await;
++        assert!(tokens[0].is_cancelled());
++        assert!(!tokens[1].is_cancelled());
++        assert!(
++            !tokens[2].is_cancelled(),
++            "shared transport work is not dropped by this extension"
++        );
++        assert_eq!(outgoing.request_context_count().await, 1);
++    }
++
+     #[tokio::test]
+     async fn send_error_routes_to_target_connection() {
+         let (tx, mut rx) = mpsc::channel::<OutgoingEnvelope>(4);
+diff --git a/codex-rs/app-server/src/request_processors/config_processor.rs b/codex-rs/app-server/src/request_processors/config_processor.rs
+index 1500cd82a..075062836 100644
+--- a/codex-rs/app-server/src/request_processors/config_processor.rs
++++ b/codex-rs/app-server/src/request_processors/config_processor.rs
+@@ -110,9 +110,11 @@ impl ConfigRequestProcessor {
+         &self,
+         params: ConfigReadParams,
+     ) -> Result<ConfigReadResponse, JSONRPCErrorError> {
+-        let fallback_cwd = params.cwd.as_ref().map(PathBuf::from);
+-        let mut response = self.config_manager.read(params).await.map_err(map_error)?;
+-        let config = self.load_latest_config(fallback_cwd).await?;
++        let (mut response, config) = self
++            .config_manager
++            .read_with_config(params)
++            .await
++            .map_err(|err| internal_error(format!("{:#}", anyhow::Error::new(err))))?;
+         for feature_key in SUPPORTED_EXPERIMENTAL_FEATURE_ENABLEMENT {
+             let Some(feature) = feature_for_key(feature_key) else {
+                 continue;
+@@ -919,6 +921,10 @@ fn config_write_error(code: ConfigWriteErrorCode, message: impl Into<String>) ->
+     error
+ }
+ 
++#[cfg(test)]
++#[path = "config_processor_tests.rs"]
++mod read_tests;
++
+ #[cfg(test)]
+ mod tests {
+     use super::map_requirements_to_api;
+diff --git a/codex-rs/app-server/src/request_processors/config_processor_tests.rs b/codex-rs/app-server/src/request_processors/config_processor_tests.rs
+new file mode 100644
+index 000000000..6d767eb29
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/config_processor_tests.rs
+@@ -0,0 +1,438 @@
++//! Exercise config/read through its real handler and ConfigBuilder, without starting a thread.
++
++use super::ConfigRequestProcessor;
++use crate::config_manager::ConfigManager;
++use crate::error_code::INTERNAL_ERROR_CODE;
++use crate::in_process::EmbeddedNetworkPolicy;
++use crate::model_catalog::ModelCatalog;
++use crate::outgoing_message::OutgoingMessageSender;
++use anyhow::Result;
++use codex_analytics::AnalyticsEventsClient;
++use codex_app_server_protocol::ConfigLayerSource;
++use codex_app_server_protocol::ConfigReadParams;
++use codex_arg0::Arg0DispatchPaths;
++use codex_config::CloudConfigBundleLoader;
++use codex_config::LoaderOverrides;
++use codex_config::SessionThreadConfig;
++use codex_config::ThreadConfigContext;
++use codex_config::ThreadConfigLoader;
++use codex_config::ThreadConfigLoaderFuture;
++use codex_config::ThreadConfigSource;
++use codex_config::test_support::CloudConfigBundleFixture;
++use codex_core::config::set_project_trust_level;
++use codex_exec_server::EnvironmentManager;
++use codex_http_client::NetworkPolicyDenied;
++use codex_login::CodexAuth;
++use codex_protocol::config_types::TrustLevel;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::path::Path;
++use std::sync::Arc;
++use std::sync::Mutex;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use std::time::Duration;
++use tokio::sync::Semaphore;
++use tokio::time::timeout;
++
++#[derive(Default)]
++struct CountedThreadConfig {
++    calls: AtomicUsize,
++    contexts: Mutex<Vec<ThreadConfigContext>>,
++    first_load_gate: Option<(Arc<Semaphore>, Arc<Semaphore>)>,
++}
++
++impl ThreadConfigLoader for CountedThreadConfig {
++    fn load(
++        &self,
++        context: ThreadConfigContext,
++    ) -> ThreadConfigLoaderFuture<'_, Vec<ThreadConfigSource>> {
++        let call = self.calls.fetch_add(1, Ordering::SeqCst);
++        self.contexts.lock().unwrap().push(context);
++        Box::pin(async move {
++            if call == 0
++                && let Some((entered, release)) = &self.first_load_gate
++            {
++                entered.add_permits(1);
++                release.acquire().await.unwrap().forget();
++            }
++            // A second load would combine layers from one snapshot with features from another.
++            Ok(vec![ThreadConfigSource::Session(SessionThreadConfig {
++                features: [("memories".to_string(), call % 2 == 0)].into(),
++                ..Default::default()
++            })])
++        })
++    }
++}
++
++fn counted_manager(
++    home: &Path,
++    loader: Arc<CountedThreadConfig>,
++    overrides: LoaderOverrides,
++    cloud: CloudConfigBundleLoader,
++) -> ConfigManager {
++    ConfigManager::new(
++        home.to_path_buf(),
++        vec![(
++            "model".to_string(),
++            toml::Value::String("cli-model".to_string()),
++        )],
++        overrides,
++        /*strict_config*/ false,
++        cloud,
++        Arg0DispatchPaths::default(),
++        loader,
++    )
++}
++
++async fn processor(manager: ConfigManager) -> Result<ConfigRequestProcessor> {
++    // Infrastructure uses its own loader; only the actual read touches the counted loader.
++    let initial = Arc::new(
++        ConfigManager::without_managed_config_for_tests(manager.codex_home().to_path_buf())
++            .load_non_project_config()
++            .await?,
++    );
++    let threads = Arc::new(
++        codex_core::test_support::thread_manager_with_models_provider_and_home(
++            CodexAuth::from_api_key("dummy"),
++            initial.model_provider.clone(),
++            initial.codex_home.to_path_buf(),
++            Arc::new(EnvironmentManager::default_for_tests()),
++        ),
++    );
++    let (sender, _receiver) = tokio::sync::mpsc::channel(16);
++    let analytics = AnalyticsEventsClient::disabled();
++    let outgoing = Arc::new(OutgoingMessageSender::new(sender, analytics.clone()));
++    let models = Arc::new(ModelCatalog::new(
++        manager.clone(),
++        None,
++        initial,
++        threads.get_models_manager(),
++        threads.auth_manager(),
++    ));
++    Ok(ConfigRequestProcessor::new(
++        outgoing, manager, threads, models, analytics,
++    ))
++}
++
++#[tokio::test]
++async fn config_read_loads_one_consistent_snapshot() -> Result<()> {
++    for include_layers in [false, true] {
++        let home = tempfile::tempdir()?;
++        std::fs::write(home.path().join("config.toml"), "model = 'user-model'\n")?;
++        let loader = Arc::new(CountedThreadConfig::default());
++        let manager = counted_manager(
++            home.path(),
++            Arc::clone(&loader),
++            LoaderOverrides::without_managed_config_for_tests(),
++            CloudConfigBundleFixture::loader_with_enterprise_requirement(
++                "allow_login_shell = false\n[feedback]\nenabled = false\n",
++            ),
++        );
++        manager
++            .extend_runtime_feature_enablement([("api_key_model_discovery".to_string(), true)])
++            .unwrap();
++        let handler = processor(manager).await?;
++        let response = handler
++            .read(ConfigReadParams {
++                include_layers,
++                cwd: None,
++            })
++            .await
++            .expect("config read");
++
++        assert_eq!(
++            loader.calls.load(Ordering::SeqCst),
++            1,
++            "one load per config/read"
++        );
++        assert_eq!(response.config.model.as_deref(), Some("cli-model"));
++        assert_eq!(
++            response.config.additional["features"]["memories"],
++            json!(true)
++        );
++        assert_eq!(
++            response.config.additional["features"]["api_key_model_discovery"],
++            json!(true)
++        );
++        assert_eq!(
++            response.config.additional["allow_login_shell"],
++            json!(false)
++        );
++        assert_eq!(
++            response.config.additional["feedback"],
++            json!({ "enabled": false })
++        );
++        assert_eq!(
++            response.origins["model"].name,
++            ConfigLayerSource::SessionFlags
++        );
++        assert_eq!(
++            response.origins["features.memories"].name,
++            ConfigLayerSource::SessionFlags
++        );
++        for exact in ["allow_login_shell", "feedback.enabled"] {
++            assert!(
++                !response.origins.contains_key(exact),
++                "managed exact origin: {exact}"
++            );
++        }
++        assert!(
++            !response
++                .origins
++                .contains_key("features.api_key_model_discovery")
++        );
++        assert_eq!(response.layers.is_some(), include_layers);
++        if let Some(layers) = response.layers {
++            assert!(
++                !layers
++                    .iter()
++                    .any(|layer| matches!(layer.name, ConfigLayerSource::PackagedDefaults { .. }))
++            );
++            assert!(layers.iter().any(|layer| {
++                layer.name == ConfigLayerSource::SessionFlags
++                    && layer.config["features"]["memories"] == json!(true)
++            }));
++            assert!(
++                layers
++                    .iter()
++                    .any(|layer| matches!(layer.name, ConfigLayerSource::User { .. }))
++            );
++        }
++        assert_eq!(loader.contexts.lock().unwrap()[0].cwd, None);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn config_read_preserves_project_context_and_normalizes_relative_cwd() -> Result<()> {
++    let project = tempfile::tempdir()?;
++    let home = project.path().join("home");
++    std::fs::create_dir_all(&home)?;
++    std::fs::create_dir_all(project.path().join(".git"))?;
++    let dot_codex = project.path().join(".codex");
++    std::fs::create_dir_all(&dot_codex)?;
++    std::fs::write(
++        dot_codex.join("config.toml"),
++        "model_reasoning_effort = 'high'\n",
++    )?;
++    set_project_trust_level(&home, project.path(), TrustLevel::Trusted)?;
++    let loader = Arc::new(CountedThreadConfig::default());
++    let handler = processor(counted_manager(
++        &home,
++        Arc::clone(&loader),
++        LoaderOverrides::without_managed_config_for_tests(),
++        CloudConfigBundleLoader::default(),
++    ))
++    .await?;
++
++    let no_project = handler
++        .read(ConfigReadParams {
++            include_layers: true,
++            cwd: None,
++        })
++        .await
++        .expect("config read");
++    assert_eq!(no_project.config.model_reasoning_effort, None);
++    assert!(!no_project.origins.contains_key("model_reasoning_effort"));
++    assert!(
++        !no_project
++            .layers
++            .unwrap()
++            .iter()
++            .any(|layer| matches!(layer.name, ConfigLayerSource::Project { .. }))
++    );
++    assert_eq!(loader.contexts.lock().unwrap()[0].cwd, None);
++
++    let absolute = AbsolutePathBuf::try_from(project.path().to_path_buf())?;
++    let with_project = handler
++        .read(ConfigReadParams {
++            include_layers: true,
++            cwd: Some(absolute.to_string_lossy().into_owned()),
++        })
++        .await
++        .expect("project config read");
++    assert_eq!(
++        with_project.config.model_reasoning_effort,
++        Some(codex_protocol::openai_models::ReasoningEffort::High)
++    );
++    assert_eq!(
++        with_project.origins["model_reasoning_effort"].name,
++        ConfigLayerSource::Project {
++            dot_codex_folder: AbsolutePathBuf::try_from(dot_codex)?,
++        }
++    );
++    assert_eq!(loader.contexts.lock().unwrap()[1].cwd, Some(absolute));
++
++    // Both original acquisitions normalized relative cwd against the process cwd.
++    let relative = handler
++        .read(ConfigReadParams {
++            include_layers: false,
++            cwd: Some("relative-project".to_string()),
++        })
++        .await
++        .expect("relative cwd remains compatible with the original handler");
++    assert_eq!(relative.config.model.as_deref(), Some("cli-model"));
++    assert_eq!(
++        loader.contexts.lock().unwrap()[2].cwd,
++        Some(AbsolutePathBuf::try_from(
++            std::env::current_dir()?.join("relative-project")
++        )?)
++    );
++    assert_eq!(
++        loader.calls.load(Ordering::SeqCst),
++        3,
++        "each cwd form must acquire exactly one snapshot"
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn config_read_rejects_superseded_policy_and_account_snapshots() -> Result<()> {
++    for account_changed in [true, false] {
++        let home = tempfile::tempdir()?;
++        let entered = Arc::new(Semaphore::new(0));
++        let release = Arc::new(Semaphore::new(0));
++        let loader = Arc::new(CountedThreadConfig {
++            first_load_gate: Some((Arc::clone(&entered), Arc::clone(&release))),
++            ..Default::default()
++        });
++        let policy = EmbeddedNetworkPolicy::default();
++        let manager = counted_manager(
++            home.path(),
++            Arc::clone(&loader),
++            LoaderOverrides::without_managed_config_for_tests(),
++            CloudConfigBundleFixture::loader_with_enterprise_config("model_context_window = 32768"),
++        )
++        .with_embedded_network_policy(policy.clone());
++        let handler = processor(manager.clone()).await?;
++        let pending = tokio::spawn(async move {
++            handler
++                .read(ConfigReadParams {
++                    include_layers: true,
++                    cwd: None,
++                })
++                .await
++        });
++        timeout(Duration::from_secs(5), entered.acquire())
++            .await??
++            .forget();
++        if account_changed {
++            // This is the same read-side revision/account invalidation used at account changes.
++            policy.effective.policy().invalidate();
++        } else {
++            // Same network rules, different cloud snapshot: revision alone is insufficient.
++            manager.clear_cloud_config_bundle_loader();
++            manager.refresh_application_network_policy().await?;
++        }
++        release.add_permits(1);
++        let error = timeout(Duration::from_secs(5), pending)
++            .await??
++            .unwrap_err();
++        assert_eq!(error.code, INTERNAL_ERROR_CODE);
++        assert!(
++            error
++                .message
++                .contains(&NetworkPolicyDenied::Revoked.to_string()),
++            "revocation cause missing from RPC error: {error:?}"
++        );
++        assert_eq!(loader.calls.load(Ordering::SeqCst), 1);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn config_read_reloads_local_requirements_and_rejects_invalid_materialization() -> Result<()>
++{
++    let home = tempfile::tempdir()?;
++    let requirements = home.path().join("requirements.toml");
++    std::fs::write(&requirements, "allow_login_shell = true\n")?;
++    let loader = Arc::new(CountedThreadConfig::default());
++    let manager = counted_manager(
++        home.path(),
++        loader,
++        LoaderOverrides {
++            system_requirements_path: Some(requirements.clone()),
++            ..LoaderOverrides::without_managed_config_for_tests()
++        },
++        CloudConfigBundleLoader::default(),
++    );
++    let handler = processor(manager.clone()).await?;
++    let params = || ConfigReadParams {
++        include_layers: false,
++        cwd: None,
++    };
++    assert_eq!(
++        handler
++            .read(params())
++            .await
++            .expect("config read")
++            .config
++            .additional["allow_login_shell"],
++        json!(true)
++    );
++    std::fs::write(&requirements, "allow_login_shell = false\n")?;
++    let revoked = handler.read(params()).await.expect("config read");
++    assert_eq!(revoked.config.additional["allow_login_shell"], json!(false));
++    assert!(!revoked.origins.contains_key("allow_login_shell"));
++
++    std::fs::write(&requirements, "[invalid requirements")?;
++    let error = handler.read(params()).await.unwrap_err();
++    assert_eq!(error.code, INTERNAL_ERROR_CODE);
++    std::fs::write(&requirements, "")?;
++    std::fs::write(home.path().join("config.toml"), "approval_policy = false\n")?;
++    // The original handler's first read converted the real raw layer stack
++    // directly. Preserve that exact typed error detail, not just a phase prefix.
++    let original_typed_error = manager
++        .load_config_layers(None)
++        .await?
++        .effective_config()
++        .try_into::<codex_config::config_toml::ConfigToml>()
++        .unwrap_err()
++        .to_string();
++    assert!(
++        original_typed_error.contains("approval_policy"),
++        "original raw typed error lost its key path: {original_typed_error}"
++    );
++    let error = handler.read(params()).await.unwrap_err();
++    assert_eq!(error.code, INTERNAL_ERROR_CODE);
++    assert!(
++        error.message.contains(&original_typed_error),
++        "original detail: {original_typed_error}\nactual RPC error: {error:?}"
++    );
++
++    std::fs::write(
++        home.path().join("config.toml"),
++        "model_catalog_json = 'missing-models.json'\n",
++    )?;
++    let error = handler.read(params()).await.unwrap_err();
++    assert_eq!(error.code, INTERNAL_ERROR_CODE);
++    std::fs::write(home.path().join("config.toml"), "")?;
++    #[cfg(windows)]
++    {
++        // Opening this fixture-owned directory as a requirements file returns
++        // Windows access denied. Do not modify ACLs or touch another profile.
++        std::fs::remove_file(&requirements)?;
++        std::fs::create_dir(&requirements)?;
++        let original_io_error = manager.load_config_layers(None).await.unwrap_err();
++        assert_eq!(
++            original_io_error.kind(),
++            std::io::ErrorKind::PermissionDenied,
++            "unexpected original requirements error: {original_io_error:?}"
++        );
++        let error = handler.read(params()).await.unwrap_err();
++        assert_eq!(error.code, INTERNAL_ERROR_CODE);
++        assert!(
++            error.message.contains(&original_io_error.to_string()),
++            "original I/O cause: {original_io_error}\nactual RPC error: {error:?}"
++        );
++        std::fs::remove_dir(&requirements)?;
++        std::fs::write(&requirements, "")?;
++    }
++    assert!(
++        handler.read(params()).await.is_ok(),
++        "a failed read must not poison subsequent loads"
++    );
++    Ok(())
++}
+diff --git a/codex-rs/app-server/src/request_processors/mcp_processor.rs b/codex-rs/app-server/src/request_processors/mcp_processor.rs
+index 79f5bf0ce..cd903be48 100644
+--- a/codex-rs/app-server/src/request_processors/mcp_processor.rs
++++ b/codex-rs/app-server/src/request_processors/mcp_processor.rs
+@@ -10,6 +10,7 @@ use codex_mcp::resolve_oauth_callback;
+ use codex_otel::auth_storage::AuthStorageOriginator;
+ use codex_rmcp_client::EnterpriseOAuthLoginRequest;
+ use std::future::Future;
++use tokio_util::sync::CancellationToken;
+ 
+ use crate::thread_state::ThreadStateManager;
+ 
+@@ -70,18 +71,32 @@ impl McpRequestProcessor {
+         &self,
+         request_id: &ConnectionRequestId,
+         params: ListMcpServerStatusParams,
++        cancellation: CancellationToken,
+     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+-        self.list_mcp_server_status(request_id, params)
+-            .await
+-            .map(|()| None)
++        let thread = match params.thread_id.as_deref() {
++            Some(thread_id) => Some(self.load_thread(thread_id).await?.1),
++            None => None,
++        };
++        let processor = self.clone();
++        let request = request_id.clone();
++        // Preserve the original registry gate release point. The child retains
++        // cancellation ownership and sends the original terminal only after cleanup.
++        tokio::spawn(AuthStorageOriginator::current().scope(async move {
++            let result = processor
++                .list_mcp_server_status_response(params, thread, cancellation)
++                .await;
++            processor.outgoing.send_result(request, result).await;
++        }));
++        Ok(None)
+     }
+ 
+     pub(crate) async fn mcp_resource_read(
+         &self,
+         request_id: &ConnectionRequestId,
+         params: McpResourceReadParams,
++        cancellation: CancellationToken,
+     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+-        self.read_mcp_resource(request_id, params)
++        self.read_mcp_resource(request_id, params, cancellation)
+             .await
+             .map(|()| None)
+     }
+@@ -366,34 +381,15 @@ impl McpRequestProcessor {
+         })
+     }
+ 
+-    async fn list_mcp_server_status(
+-        &self,
+-        request_id: &ConnectionRequestId,
+-        params: ListMcpServerStatusParams,
+-    ) -> Result<(), JSONRPCErrorError> {
+-        let request = request_id.clone();
+-
+-        let outgoing = Arc::clone(&self.outgoing);
+-        let thread = match params.thread_id.as_deref() {
+-            Some(thread_id) => Some(self.load_thread(thread_id).await?.1),
+-            None => None,
+-        };
+-        let processor = self.clone();
+-        let task = async move {
+-            let result = processor
+-                .list_mcp_server_status_response(params, thread)
+-                .await;
+-            outgoing.send_result(request, result).await;
+-        };
+-        tokio::spawn(AuthStorageOriginator::current().scope(task));
+-        Ok(())
+-    }
+-
+     async fn list_mcp_server_status_response(
+         &self,
+         params: ListMcpServerStatusParams,
+         thread: Option<Arc<codex_core::CodexThread>>,
++        cancellation: CancellationToken,
+     ) -> Result<ListMcpServerStatusResponse, JSONRPCErrorError> {
++        if cancellation.is_cancelled() {
++            return Err(crate::mcp_read_lifetime::cancelled_error());
++        }
+         let detail = match params.detail.unwrap_or(McpServerStatusDetail::Full) {
+             McpServerStatusDetail::Full => McpSnapshotDetail::Full,
+             McpServerStatusDetail::ToolsAndAuthOnly => McpSnapshotDetail::ToolsAndAuthOnly,
+@@ -402,6 +398,8 @@ impl McpRequestProcessor {
+         let (mcp_config, snapshot) = if let (Some(thread), Some(server)) =
+             (thread.as_ref(), params.server_name.as_deref())
+         {
++            // This thread's connection is shared. Keep awaiting its real result;
++            // dropping the local waiter cannot prove remote work has stopped.
+             thread
+                 .mcp_server_status_snapshot(server, detail, /*expected_registration*/ None)
+                 .await
+@@ -420,7 +418,10 @@ impl McpRequestProcessor {
+                         .await
+                         .map_err(|err| internal_error(format!("failed to reload config: {err}")))?
+                 }
+-                None => self.load_global_config().await?,
++                None => {
++                    crate::mcp_read_lifetime::run(cancellation.clone(), self.load_global_config())
++                        .await?
++                }
+             };
+             let mcp_manager = self.thread_manager.mcp_manager();
+             let auth = self.auth_manager.auth().await;
+@@ -443,8 +444,10 @@ impl McpRequestProcessor {
+                 mcp_manager.tool_catalog_cache(),
+                 detail,
+                 params.server_name.as_deref(),
++                cancellation.clone(),
+             )
+-            .await;
++            .await
++            .ok_or_else(crate::mcp_read_lifetime::cancelled_error)?;
+             if mcp_config.xaa_enabled
+                 && let Some(thread) = thread.as_ref()
+             {
+@@ -602,6 +605,7 @@ impl McpRequestProcessor {
+         &self,
+         request_id: &ConnectionRequestId,
+         params: McpResourceReadParams,
++        cancellation: CancellationToken,
+     ) -> Result<(), JSONRPCErrorError> {
+         let outgoing = Arc::clone(&self.outgoing);
+         let McpResourceReadParams {
+@@ -672,7 +676,8 @@ impl McpRequestProcessor {
+             return Err(invalid_request("originCallId requires threadId"));
+         }
+ 
+-        let config = self.load_global_config().await?;
++        let config =
++            crate::mcp_read_lifetime::run(cancellation.clone(), self.load_global_config()).await?;
+         let mcp_manager = self.thread_manager.mcp_manager();
+         let mcp_config = mcp_manager.runtime_config(&config).await;
+         let codex_apps_tools_cache = mcp_manager.codex_apps_tools_cache();
+@@ -695,13 +700,17 @@ impl McpRequestProcessor {
+                 tool_catalog_cache,
+                 &server,
+                 resource_params,
++                cancellation.clone(),
+             )
+             .await
+             .and_then(|result| serde_json::to_value(result).map_err(anyhow::Error::from));
+-            Self::send_mcp_resource_read_response(
+-                outgoing, request_id, result, /*origin_call_id*/ None,
+-            )
+-            .await;
++            if cancellation.is_cancelled() {
++                outgoing
++                    .send_error(request_id, crate::mcp_read_lifetime::cancelled_error())
++                    .await;
++            } else {
++                Self::send_mcp_resource_read_response(outgoing, request_id, result, None).await;
++            }
+         };
+         tokio::spawn(AuthStorageOriginator::current().scope(task));
+         Ok(())
+diff --git a/codex-rs/codex-mcp/src/connection_manager.rs b/codex-rs/codex-mcp/src/connection_manager.rs
+index 3115ea947..c28af5c38 100644
+--- a/codex-rs/codex-mcp/src/connection_manager.rs
++++ b/codex-rs/codex-mcp/src/connection_manager.rs
+@@ -1104,9 +1104,8 @@ impl McpConnectionSet {
+             .collect::<Vec<_>>();
+         // Keep cleanup alive if an interrupt cancels the refresh that requested it.
+         let shutdown_task = tokio::spawn(async move {
+-            for connection in connections {
+-                connection.shutdown().await;
+-            }
++            futures::future::join_all(connections.iter().map(|connection| connection.shutdown()))
++                .await;
+         });
+         if let Err(error) = shutdown_task.await {
+             warn!("MCP client shutdown task failed: {error}");
+diff --git a/codex-rs/codex-mcp/src/mcp/mod.rs b/codex-rs/codex-mcp/src/mcp/mod.rs
+index d73825b6f..4969e54b0 100644
+--- a/codex-rs/codex-mcp/src/mcp/mod.rs
++++ b/codex-rs/codex-mcp/src/mcp/mod.rs
+@@ -459,10 +459,16 @@ pub async fn read_mcp_resource(
+     tool_catalog_cache: crate::McpToolCatalogCache,
+     server: &str,
+     params: ReadResourceRequestParams,
++    cancellation: CancellationToken,
+ ) -> anyhow::Result<ReadResourceResult> {
++    if cancellation.is_cancelled() {
++        anyhow::bail!("MCP read cancelled");
++    }
+     let mut mcp_servers = effective_mcp_servers(config, auth);
+     mcp_servers.retain(|name, _| name == server);
+-    let cancel_token = CancellationToken::new();
++    let cancel_token = cancellation.child_token();
++    // Cancel per-request startup even when the owning read future is dropped.
++    let _cancel_on_drop = cancel_token.clone().drop_guard();
+     let runtime_config = config.for_threadless_operations(&mcp_servers);
+     let manager = McpConnectionSet::new(
+         /*ema_auth*/ None,
+@@ -478,7 +484,7 @@ pub async fn read_mcp_resource(
+             submit_id: String::new(),
+             tx_event: None,
+             startup_cancellation_token: cancel_token.clone(),
+-            runtime_context,
++            runtime_context: runtime_context.with_required_owned_local_job(),
+             codex_apps_tools_cache,
+             tool_catalog_cache,
+             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
+@@ -492,8 +498,15 @@ pub async fn read_mcp_resource(
+     )
+     .await;
+ 
+-    let result = manager.read_resource(server, params).await;
++    let result = tokio::select! {
++        biased;
++        () = cancellation.cancelled() => Err(anyhow::anyhow!("MCP read cancelled")),
++        result = manager.read_resource(server, params) => result,
++    };
+     cancel_token.cancel();
++    // Await termination of this request's private transports/processes. Dropping
++    // the read future alone would return a slot before asynchronous teardown.
++    manager.shutdown().await;
+     result
+ }
+ 
+@@ -520,11 +533,15 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
+     tool_catalog_cache: crate::McpToolCatalogCache,
+     detail: McpSnapshotDetail,
+     server_name: Option<&str>,
+-) -> McpServerStatusSnapshot {
++    cancellation: CancellationToken,
++) -> Option<McpServerStatusSnapshot> {
++    if cancellation.is_cancelled() {
++        return None;
++    }
+     let mut mcp_servers = effective_mcp_servers(config, auth);
+     mcp_servers.retain(|name, _| server_name.is_none_or(|selected| name == selected));
+     if mcp_servers.is_empty() {
+-        return McpServerStatusSnapshot {
++        return Some(McpServerStatusSnapshot {
+             server_infos: HashMap::new(),
+             server_capabilities: HashMap::new(),
+             tool_list_meta: HashMap::new(),
+@@ -534,10 +551,13 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
+             resource_templates: HashMap::new(),
+             auth_statuses: HashMap::new(),
+             server_names: Vec::new(),
+-        };
++        });
+     }
+ 
+-    let auth_status_entries = compute_auth_statuses(
++    let auth_status_entries = tokio::select! {
++      biased;
++      () = cancellation.cancelled() => return None,
++      result = compute_auth_statuses(
+         mcp_servers.iter(),
+         config.mcp_oauth_credentials_store_mode,
+         config.auth_keyring_backend_kind,
+@@ -545,12 +565,13 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
+         auth_manager,
+         &config.ema_state,
+         &runtime_context,
+-    )
+-    .await;
++      ) => result,
++    };
+ 
+     let server_names = mcp_servers.keys().cloned().collect();
+ 
+-    let cancel_token = CancellationToken::new();
++    let cancel_token = cancellation.child_token();
++    let _cancel_on_drop = cancel_token.clone().drop_guard();
+     let runtime_config = config.for_threadless_operations(&mcp_servers);
+     let mcp_connection_manager = McpConnectionSet::new(
+         /*ema_auth*/ None,
+@@ -566,7 +587,7 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
+             submit_id: String::new(),
+             tx_event: None,
+             startup_cancellation_token: cancel_token.clone(),
+-            runtime_context,
++            runtime_context: runtime_context.with_required_owned_local_job(),
+             codex_apps_tools_cache,
+             tool_catalog_cache,
+             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
+@@ -580,15 +601,19 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
+     )
+     .await;
+ 
+-    let snapshot = collect_mcp_server_status_snapshot_from_manager(
++    let snapshot = tokio::select! {
++      biased;
++      () = cancellation.cancelled() => None,
++      result = collect_mcp_server_status_snapshot_from_manager(
+         &mcp_connection_manager,
+         auth_status_entries,
+         server_names,
+         detail,
+-    )
+-    .await;
++      ) => Some(result),
++    };
+ 
+     cancel_token.cancel();
++    mcp_connection_manager.shutdown().await;
+ 
+     snapshot
+ }
+diff --git a/codex-rs/codex-mcp/src/rmcp_client.rs b/codex-rs/codex-mcp/src/rmcp_client.rs
+index b60e35438..f07a0db50 100644
+--- a/codex-rs/codex-mcp/src/rmcp_client.rs
++++ b/codex-rs/codex-mcp/src/rmcp_client.rs
+@@ -361,6 +361,11 @@ impl ManagedClientStartup {
+             .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
+         let cancel_token_for_fut = cancel_token;
+         let startup = async move {
++            // Keep creation owned across timeout/cancel. Stdio creation may be
++            // running in spawn_blocking and cannot safely be detached on drop.
++            let mut creation: Option<
++                Shared<BoxFuture<'static, Result<Arc<RmcpClient>, StartupOutcomeError>>>,
++            > = None;
+             let tool_catalog_fetch_ticket = tool_catalog_cache_context
+                 .as_ref()
+                 .map(McpToolCatalogCacheContext::begin_fetch);
+@@ -370,26 +375,58 @@ impl ManagedClientStartup {
+                     return Err(error.into());
+                 }
+ 
+-                let client = match tokio::time::timeout(
+-                    startup_timeout,
+-                    make_rmcp_client(
+-                        ema_auth,
+-                        &server_name,
+-                        server.clone(),
+-                        store_mode,
+-                        keyring_backend_kind,
+-                        oauth_refresh_mode,
+-                        runtime_context,
+-                        resolved_environment,
+-                        runtime_auth_provider,
+-                        protocol_mode,
+-                    ),
+-                )
+-                .await
+-                {
+-                    Ok(result) => Arc::new(
+-                        result?.with_read_only_tools(server.requires_read_only_mcp_tools()),
+-                    ),
++                let creating_name = server_name.clone();
++                let creating_server = server.clone();
++                let owns_creation = cfg!(windows)
++                    && matches!(
++                        server.config().transport,
++                        McpServerTransportConfig::Stdio { .. }
++                    );
++                let create =
++                    AuthStorageOriginator::current().scope(async move {
++                        make_rmcp_client(
++                            ema_auth,
++                            &creating_name,
++                            creating_server.clone(),
++                            store_mode,
++                            keyring_backend_kind,
++                            oauth_refresh_mode,
++                            runtime_context,
++                            resolved_environment,
++                            runtime_auth_provider,
++                            protocol_mode,
++                        )
++                        .await
++                        .map(|client| {
++                            Arc::new(client.with_read_only_tools(
++                                creating_server.requires_read_only_mcp_tools(),
++                            ))
++                        })
++                    });
++                let created = if owns_creation {
++                    let task = tokio::spawn(create);
++                    async move {
++                        task.await
++                            .map_err(|error| {
++                                StartupOutcomeError::from(anyhow!(
++                                    "MCP creation task failed: {error}"
++                                ))
++                            })?
++                            .map_err(StartupOutcomeError::from)
++                    }
++                    .boxed()
++                    .shared()
++                } else {
++                    create
++                        .map(|result| result.map_err(StartupOutcomeError::from))
++                        .boxed()
++                        .shared()
++                };
++                if owns_creation {
++                    creation = Some(created.clone());
++                }
++                let client = match tokio::time::timeout(startup_timeout, created).await {
++                    Ok(result) => result?,
+                     Err(_) => {
+                         return Err(StartupOutcomeError::from(anyhow!(
+                             "MCP client startup timed out after {startup_timeout:?}"
+@@ -422,6 +459,16 @@ impl ManagedClientStartup {
+                 Ok(result) => result,
+                 Err(CancelErr::Cancelled) => Err(StartupOutcomeError::Cancelled),
+             };
++            if outcome.is_err()
++                && let Some(created) = creation
++            {
++                // Includes cancelled initialization/tool discovery and a creation
++                // that completed after its deadline. Shutdown is awaited before
++                // publishing the startup outcome to manager.shutdown callers.
++                if let Ok(client) = created.await {
++                    client.shutdown().await;
++                }
++            }
+             // Log once per startup attempt, including discovery without startup notifications.
+             if let Err(StartupOutcomeError::Failed { error, .. }) = &outcome {
+                 warn!(server_name, %error, "MCP server startup failed");
+@@ -1342,9 +1389,10 @@ pub(crate) async fn make_rmcp_client(
+                 // TODO(starr): Unify local stdio MCP launch with
+                 // `ExecutorStdioServerLauncher` once the executor-backed path
+                 // preserves `LocalStdioServerLauncher` semantics.
+-                Arc::new(LocalStdioServerLauncher::new(
+-                    runtime_context.local_process_cwd(),
+-                )) as Arc<dyn StdioServerLauncher>
++                Arc::new(
++                    LocalStdioServerLauncher::new(runtime_context.local_process_cwd())
++                        .with_required_job_containment(runtime_context.requires_owned_local_job()),
++                ) as Arc<dyn StdioServerLauncher>
+             } else {
+                 let Some(environment) = resolved_environment.as_ref() else {
+                     unreachable!(
+diff --git a/codex-rs/codex-mcp/src/runtime.rs b/codex-rs/codex-mcp/src/runtime.rs
+index 4d46c6769..f170241d6 100644
+--- a/codex-rs/codex-mcp/src/runtime.rs
++++ b/codex-rs/codex-mcp/src/runtime.rs
+@@ -902,6 +902,7 @@ pub struct McpRuntimeContext {
+     ready_environments: HashMap<String, Arc<Environment>>,
+     local_process_cwd: PathBuf,
+     local_http_client: Arc<dyn HttpClient>,
++    require_owned_local_job: bool,
+ }
+ 
+ /// Applies the local HTTP headers helper configured for an MCP server.
+@@ -947,6 +948,7 @@ impl McpRuntimeContext {
+             ready_environments: HashMap::new(),
+             local_process_cwd,
+             local_http_client,
++            require_owned_local_job: false,
+         }
+     }
+ 
+@@ -961,6 +963,15 @@ impl McpRuntimeContext {
+         self
+     }
+ 
++    pub(crate) fn with_required_owned_local_job(mut self) -> Self {
++        self.require_owned_local_job = cfg!(windows);
++        self
++    }
++
++    pub(crate) fn requires_owned_local_job(&self) -> bool {
++        self.require_owned_local_job
++    }
++
+     pub(crate) fn local_process_cwd(&self) -> PathBuf {
+         self.local_process_cwd.clone()
+     }
+diff --git a/codex-rs/rmcp-client/Cargo.toml b/codex-rs/rmcp-client/Cargo.toml
+index 4702b0f53..300125b8c 100644
+--- a/codex-rs/rmcp-client/Cargo.toml
++++ b/codex-rs/rmcp-client/Cargo.toml
+@@ -55,6 +55,7 @@ tiny_http = { workspace = true }
+ tokio = { workspace = true, features = [
+     "io-util",
+     "macros",
++    "net",
+     "process",
+     "signal",
+     "rt-multi-thread",
+@@ -90,7 +91,7 @@ keyring = { workspace = true, features = ["apple-native"] }
+ 
+ [target.'cfg(target_os = "windows")'.dependencies]
+ keyring = { workspace = true, features = ["windows-native"] }
+-windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
++windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_System_JobObjects"] }
+ 
+ [target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+ keyring = { workspace = true, features = ["sync-secret-service"] }
+diff --git a/codex-rs/rmcp-client/src/bounded_stdio_transport.rs b/codex-rs/rmcp-client/src/bounded_stdio_transport.rs
+index fdde9f698..53a45640f 100644
+--- a/codex-rs/rmcp-client/src/bounded_stdio_transport.rs
++++ b/codex-rs/rmcp-client/src/bounded_stdio_transport.rs
+@@ -13,23 +13,24 @@ use tokio::io::AsyncBufReadExt;
+ use tokio::io::AsyncWriteExt;
+ use tokio::io::BufReader;
+ use tokio::process::ChildStdin;
+-use tokio::process::ChildStdout;
+ use tokio::sync::Mutex;
+ use tracing::debug;
+ use tracing::warn;
+ 
++use crate::local_stdio_transport::LocalStdioStdout;
++
+ /// Match the existing executor stdio transport and the production MCP limit.
+ pub(crate) const MAX_MCP_STDIO_LINE_BYTES: usize = 8 * 1024 * 1024;
+ 
+ pub(super) struct BoundedStdioTransport {
+     stdin: Arc<Mutex<Option<ChildStdin>>>,
+-    stdout: BufReader<ChildStdout>,
++    stdout: BufReader<LocalStdioStdout>,
+     pending_line: Vec<u8>,
+     program_name: String,
+ }
+ 
+ impl BoundedStdioTransport {
+-    pub(super) fn new(stdin: ChildStdin, stdout: ChildStdout, program_name: String) -> Self {
++    pub(super) fn new(stdin: ChildStdin, stdout: LocalStdioStdout, program_name: String) -> Self {
+         Self {
+             stdin: Arc::new(Mutex::new(Some(stdin))),
+             stdout: BufReader::new(stdout),
+diff --git a/codex-rs/rmcp-client/src/lib.rs b/codex-rs/rmcp-client/src/lib.rs
+index e555b61c8..c1230f38e 100644
+--- a/codex-rs/rmcp-client/src/lib.rs
++++ b/codex-rs/rmcp-client/src/lib.rs
+@@ -35,6 +35,8 @@ mod tool_list_changes;
+ mod trace_context;
+ mod user_verification;
+ mod utils;
++#[cfg(windows)]
++mod windows_stdio;
+ mod www_authenticate;
+ 
+ pub use auth_status::McpAuthState;
+diff --git a/codex-rs/rmcp-client/src/local_stdio_transport.rs b/codex-rs/rmcp-client/src/local_stdio_transport.rs
+index 381aad1a9..fa925df15 100644
+--- a/codex-rs/rmcp-client/src/local_stdio_transport.rs
++++ b/codex-rs/rmcp-client/src/local_stdio_transport.rs
+@@ -13,14 +13,25 @@ use rmcp::service::RxJsonRpcMessage;
+ use rmcp::service::TxJsonRpcMessage;
+ use rmcp::transport::Transport;
+ use rmcp::transport::async_rw::AsyncRwTransport;
++#[cfg(not(windows))]
+ use tokio::process::ChildStderr;
+ use tokio::process::ChildStdin;
++#[cfg(not(windows))]
+ use tokio::process::ChildStdout;
+ 
+ use crate::bounded_stdio_transport::BoundedStdioTransport;
+ use crate::protocol_mode::McpProtocolMode;
+ use codex_utils_pty::Child;
+ 
++#[cfg(windows)]
++pub(super) type LocalStdioStdout = tokio::net::windows::named_pipe::NamedPipeServer;
++#[cfg(windows)]
++pub(super) type LocalStdioStderr = tokio::net::windows::named_pipe::NamedPipeServer;
++#[cfg(not(windows))]
++pub(super) type LocalStdioStdout = ChildStdout;
++#[cfg(not(windows))]
++pub(super) type LocalStdioStderr = ChildStderr;
++
+ pub(super) struct LocalStdioTransport {
+     child: Box<Child>,
+     transport: StdioTransport,
+@@ -28,26 +39,35 @@ pub(super) struct LocalStdioTransport {
+ 
+ enum StdioTransport {
+     /// Preserve rmcp's existing framing for servers using the initialize handshake.
+-    Legacy(AsyncRwTransport<RoleClient, ChildStdout, ChildStdin>),
++    Legacy(AsyncRwTransport<RoleClient, LocalStdioStdout, ChildStdin>),
+     /// Bound frames and skip messages unknown to the client during 2026-07-28 discovery.
+     V20260728(BoundedStdioTransport),
+ }
+ 
+ impl LocalStdioTransport {
+     pub(super) fn spawn(
+-        command: Command,
++        mut command: Command,
+         program_name: String,
+         protocol_mode: McpProtocolMode,
+-    ) -> io::Result<(Self, Option<ChildStderr>)> {
++    ) -> io::Result<(Self, Option<LocalStdioStderr>)> {
++        #[cfg(windows)]
++        let (stdout, stderr) = {
++            let (stdout, child_stdout) = crate::windows_stdio::output_pipe()?;
++            let (stderr, child_stderr) = crate::windows_stdio::output_pipe()?;
++            command.stdout_file(child_stdout).stderr_file(child_stderr);
++            (stdout, Some(stderr))
++        };
+         let mut child = command.spawn()?;
+         let stdin = child
+             .stdin
+             .take()
+             .ok_or_else(|| io::Error::other("MCP server stdin was not piped"))?;
++        #[cfg(not(windows))]
+         let stdout = child
+             .stdout
+             .take()
+             .ok_or_else(|| io::Error::other("MCP server stdout was not piped"))?;
++        #[cfg(not(windows))]
+         let stderr = child.stderr.take();
+         let transport = match protocol_mode {
+             McpProtocolMode::Legacy => StdioTransport::Legacy(AsyncRwTransport::new(stdout, stdin)),
+@@ -67,6 +87,26 @@ impl LocalStdioTransport {
+     pub(super) fn id(&self) -> Option<u32> {
+         self.child.id()
+     }
++
++    #[cfg(windows)]
++    pub(super) async fn terminate_failed_launch(&mut self) {
++        // Retain Tokio's exact child handle across a post-spawn launcher error.
++        // Dropping a suspended child only requests an asynchronous kill.
++        loop {
++            match self.child.kill().await {
++                Ok(()) => return,
++                Err(error) => {
++                    tracing::warn!("Failed MCP launch cleanup remains unconfirmed: {error}")
++                }
++            }
++            if let Ok(Ok(_)) =
++                tokio::time::timeout(Duration::from_millis(50), self.child.wait()).await
++            {
++                return;
++            }
++            tokio::time::sleep(Duration::from_secs(1)).await;
++        }
++    }
+ }
+ 
+ impl Transport<RoleClient> for LocalStdioTransport {
+diff --git a/codex-rs/rmcp-client/src/stdio_server_launcher.rs b/codex-rs/rmcp-client/src/stdio_server_launcher.rs
+index 92ccfa210..967847b9d 100644
+--- a/codex-rs/rmcp-client/src/stdio_server_launcher.rs
++++ b/codex-rs/rmcp-client/src/stdio_server_launcher.rs
+@@ -21,6 +21,8 @@ use std::os::windows::io::OwnedHandle;
+ use std::path::Path;
+ use std::path::PathBuf;
+ use std::sync::Arc;
++#[cfg(windows)]
++use std::sync::Mutex as StdMutex;
+ use std::sync::atomic::AtomicBool;
+ use std::sync::atomic::Ordering;
+ #[cfg(unix)]
+@@ -49,6 +51,8 @@ use codex_utils_pty::process_group::kill_process_group;
+ use codex_utils_pty::process_group::terminate_process_group;
+ use futures::FutureExt;
+ use futures::future::BoxFuture;
++#[cfg(windows)]
++use futures::future::Shared;
+ use rmcp::service::RoleClient;
+ use rmcp::service::RxJsonRpcMessage;
+ use rmcp::service::TxJsonRpcMessage;
+@@ -61,6 +65,7 @@ use tracing::info;
+ use tracing::warn;
+ 
+ use crate::executor_process_transport::ExecutorProcessTransport;
++use crate::local_stdio_transport::LocalStdioStderr;
+ use crate::local_stdio_transport::LocalStdioTransport;
+ use crate::program_resolver;
+ use crate::protocol_mode::McpProtocolMode;
+@@ -183,6 +188,7 @@ impl StdioServerCommand {
+ #[derive(Clone)]
+ pub struct LocalStdioServerLauncher {
+     fallback_cwd: PathBuf,
++    require_job_containment: bool,
+ }
+ 
+ impl LocalStdioServerLauncher {
+@@ -191,7 +197,18 @@ impl LocalStdioServerLauncher {
+     /// `fallback_cwd` is used when the MCP server config omits `cwd`, so
+     /// relative commands resolve from the caller's runtime working directory.
+     pub fn new(fallback_cwd: PathBuf) -> Self {
+-        Self { fallback_cwd }
++        Self {
++            fallback_cwd,
++            require_job_containment: false,
++        }
++    }
++}
++
++impl LocalStdioServerLauncher {
++    /// Private request work requires a fence covering the entire local process tree.
++    pub fn with_required_job_containment(mut self, required: bool) -> Self {
++        self.require_job_containment = required;
++        self
+     }
+ }
+ 
+@@ -201,12 +218,15 @@ impl StdioServerLauncher for LocalStdioServerLauncher {
+         command: StdioServerCommand,
+     ) -> BoxFuture<'static, io::Result<StdioServerTransport>> {
+         let fallback_cwd = self.fallback_cwd.clone();
++        let require_job_containment = self.require_job_containment;
+         async move {
+             // Keep synchronous program resolution and process creation from blocking the
+             // caller's startup deadline.
+-            tokio::task::spawn_blocking(move || Self::launch_server(command, fallback_cwd))
+-                .await
+-                .map_err(io::Error::other)?
++            tokio::task::spawn_blocking(move || {
++                Self::launch_server(command, fallback_cwd, require_job_containment)
++            })
++            .await
++            .map_err(io::Error::other)?
+         }
+         .boxed()
+     }
+@@ -221,6 +241,32 @@ const PROCESS_GROUP_TERM_GRACE_PERIOD: Duration = Duration::from_secs(2);
+ // escaped descendant prevents the pipe from reaching EOF.
+ const STDERR_READER_DRAIN_GRACE_PERIOD: Duration = Duration::from_millis(250);
+ 
++#[cfg(windows)]
++async fn confirm_local_termination(probe: impl Fn() -> io::Result<bool>, request: impl Fn()) {
++    loop {
++        match probe() {
++            Ok(true) => return,
++            Ok(false) => request(),
++            Err(error) => {
++                warn!("MCP process termination remains unconfirmed: {error}");
++                request();
++                tokio::time::sleep(Duration::from_secs(1)).await;
++                continue;
++            }
++        }
++        tokio::time::sleep(Duration::from_millis(50)).await;
++    }
++}
++
++#[cfg(windows)]
++async fn retry_after_failed_launch<T>(
++    cleanup: impl Future<Output = ()>,
++    retry: impl FnOnce() -> io::Result<T>,
++) -> io::Result<T> {
++    cleanup.await;
++    retry()
++}
++
+ #[cfg(unix)]
+ struct LocalProcessTerminator {
+     process_group_id: u32,
+@@ -244,6 +290,8 @@ struct StdioServerProcessHandleInner {
+     program_name: String,
+     kind: StdioServerProcessKind,
+     terminated: AtomicBool,
++    #[cfg(windows)]
++    local_cleanup: StdMutex<Option<Shared<BoxFuture<'static, ()>>>>,
+     // An escaped descendant can keep stderr open after the MCP server exits.
+     stderr_reader: Option<watch::Sender<()>>,
+ }
+@@ -263,7 +311,31 @@ impl LocalStdioServerLauncher {
+     fn launch_server(
+         command: StdioServerCommand,
+         fallback_cwd: PathBuf,
++        require_job_containment: bool,
+     ) -> io::Result<StdioServerTransport> {
++        #[cfg(windows)]
++        {
++            Self::launch_server_with_job(
++                command,
++                fallback_cwd,
++                require_job_containment,
++                codex_utils_pty::JobObject::create_without_breakaway(),
++            )
++        }
++        #[cfg(not(windows))]
++        {
++            Self::launch_server_with_job(command, fallback_cwd, require_job_containment)
++        }
++    }
++
++    fn launch_server_with_job(
++        command: StdioServerCommand,
++        fallback_cwd: PathBuf,
++        _require_job_containment: bool,
++        #[cfg(windows)] job_result: io::Result<codex_utils_pty::JobObject>,
++    ) -> io::Result<StdioServerTransport> {
++        #[cfg(windows)]
++        let require_job_containment = _require_job_containment;
+         let StdioServerCommand {
+             program,
+             args,
+@@ -295,11 +367,12 @@ impl LocalStdioServerLauncher {
+         #[cfg(not(windows))]
+         let command = build_command();
+         #[cfg(windows)]
+-        let job = match codex_utils_pty::JobObject::create_without_breakaway() {
++        let job = match job_result {
+             Ok(job) => {
+                 command.prepare_suspended_spawn(&job);
+                 Some(job)
+             }
++            Err(error) if require_job_containment => return Err(error),
+             Err(error) => {
+                 warn!("Windows MCP process job containment unavailable: {error}");
+                 None
+@@ -308,7 +381,7 @@ impl LocalStdioServerLauncher {
+ 
+         let spawn_transport = |command: Command| -> io::Result<(
+             StdioServerTransportInner,
+-            Option<tokio::process::ChildStderr>,
++            Option<LocalStdioStderr>,
+             Option<u32>,
+         )> {
+             let (transport, stderr) =
+@@ -325,18 +398,44 @@ impl LocalStdioServerLauncher {
+         let (transport, stderr, process_id, job) = match job {
+             Some(job) => match process_id
+                 .ok_or_else(|| io::Error::other("missing suspended MCP server process id"))
+-                .and_then(|process_id| job.assign_and_resume_process(process_id))
+-            {
++                .and_then(|process_id| {
++                    if require_job_containment {
++                        job.assign_and_resume_process_strict(process_id)
++                            .map(|()| true)
++                    } else {
++                        job.assign_and_resume_process(process_id)
++                    }
++                }) {
+                 Ok(true) => (transport, stderr, process_id, Some(job)),
+                 Ok(false) => (transport, stderr, process_id, None),
+                 Err(error) => {
+                     warn!(
+-                        "Windows MCP process job containment failed; retrying without it: {error}"
++                        required = require_job_containment,
++                        "Windows MCP process job containment failed: {error}"
+                     );
+-                    drop(stderr);
+-                    drop(transport);
+-                    drop(job);
+-                    let (transport, stderr, process_id) = spawn_transport(build_command())?;
++                    let cleanup = async {
++                        job.terminate().ok();
++                        if let StdioServerTransportInner::Local(mut transport) = transport {
++                            transport.terminate_failed_launch().await;
++                        }
++                        confirm_local_termination(
++                            || job.is_empty(),
++                            || {
++                                job.terminate().ok();
++                            },
++                        )
++                        .await;
++                        drop(stderr);
++                    };
++                    if require_job_containment {
++                        // A failed assignment never resumes private work or retries uncontained.
++                        tokio::runtime::Handle::current().block_on(cleanup);
++                        return Err(error);
++                    }
++                    let (transport, stderr, process_id) = tokio::runtime::Handle::current()
++                        .block_on(retry_after_failed_launch(cleanup, || {
++                            spawn_transport(build_command())
++                        }))?;
+                     (transport, stderr, process_id, None)
+                 }
+             },
+@@ -404,6 +503,15 @@ impl LocalStdioServerLauncher {
+ }
+ 
+ impl LocalProcessTerminator {
++    #[cfg(windows)]
++    fn is_terminated(&self) -> io::Result<bool> {
++        match self {
++            Self::Job(job) => job.is_empty(),
++            Self::Process(handle) => {
++                codex_utils_pty::JobObject::process_handle_is_terminated(handle)
++            }
++        }
++    }
+     #[cfg(not(windows))]
+     fn new(process_group_id: u32) -> Self {
+         #[cfg(unix)]
+@@ -465,6 +573,8 @@ impl StdioServerProcessHandle {
+                 program_name,
+                 kind: StdioServerProcessKind::Local(terminator),
+                 terminated: AtomicBool::new(false),
++                #[cfg(windows)]
++                local_cleanup: StdMutex::new(None),
+                 stderr_reader,
+             }),
+         }
+@@ -476,12 +586,54 @@ impl StdioServerProcessHandle {
+                 program_name,
+                 kind: StdioServerProcessKind::Executor(process),
+                 terminated: AtomicBool::new(false),
++                #[cfg(windows)]
++                local_cleanup: StdMutex::new(None),
+                 stderr_reader: None,
+             }),
+         }
+     }
+ 
+     pub(crate) async fn terminate(&self) -> io::Result<()> {
++        #[cfg(windows)]
++        if matches!(self.inner.kind, StdioServerProcessKind::Local(_)) {
++            let cleanup = {
++                let mut cleanup = self
++                    .inner
++                    .local_cleanup
++                    .lock()
++                    .unwrap_or_else(std::sync::PoisonError::into_inner);
++                cleanup.get_or_insert_with(|| {
++                    let inner = Arc::clone(&self.inner);
++                    // A caller may disappear while waiting. The owned task and
++                    // captured handles survive and all callers await one fence.
++                    let task = tokio::spawn(async move {
++                            match &inner.kind {
++                                StdioServerProcessKind::Local(Some(terminator)) => {
++                                    confirm_local_termination(|| terminator.is_terminated(), || terminator.terminate()).await;
++                                    inner.terminated.store(true, Ordering::Release);
++                                }
++                                _ => {
++                                    // Missing ownership evidence cannot become a
++                                    // successful terminal response and new slot.
++                                    warn!("MCP process handle unavailable; retaining unconfirmed lifetime");
++                                    std::future::pending::<()>().await;
++                                }
++                            }
++                    });
++                    async move {
++                        if let Err(error) = task.await {
++                            warn!("MCP cleanup task failed; retaining unconfirmed lifetime: {error}");
++                            std::future::pending::<()>().await;
++                        }
++                    }.boxed().shared()
++                }).clone()
++            };
++            cleanup.await;
++            if let Some(stderr_reader) = &self.inner.stderr_reader {
++                stderr_reader.send_replace(());
++            }
++            return Ok(());
++        }
+         if self.inner.terminated.swap(true, Ordering::AcqRel) {
+             return Ok(());
+         }
+@@ -719,6 +871,185 @@ impl ExecutorStdioServerLauncher {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++
++    #[cfg(windows)]
++    #[tokio::test]
++    async fn mcp_read_lifetime_required_job_never_runs_an_uncontained_command() -> anyhow::Result<()>
++    {
++        use std::os::windows::io::AsRawHandle;
++        use windows_sys::Win32::System::JobObjects::{
++            JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
++            SetInformationJobObject,
++        };
++        const TEST: &str = "stdio_server_launcher::tests::mcp_read_lifetime_required_job_never_runs_an_uncontained_command";
++        const PHASE: &str = "CODEX_TEST_REQUIRED_MCP_JOB_PHASE";
++        match std::env::var(PHASE).as_deref() {
++            Ok("hold") => {
++                std::thread::sleep(Duration::from_secs(30));
++                return Ok(());
++            }
++            Ok("probe") => {
++                std::fs::write(
++                    std::env::var_os("CODEX_TEST_REQUIRED_MCP_MARKER").expect("marker"),
++                    b"ran",
++                )?;
++                return Ok(());
++            }
++            _ => {}
++        }
++        let temp = tempfile::tempdir()?;
++        let marker = temp.path().join("uncontained-command-ran");
++        let executable = std::env::current_exe()?;
++        let make_command = || {
++            StdioServerCommand::new(
++                executable.clone().into_os_string(),
++                vec!["--exact".into(), TEST.into(), "--nocapture".into()],
++                Some(HashMap::from([
++                    (PHASE.into(), "probe".into()),
++                    (
++                        "CODEX_TEST_REQUIRED_MCP_MARKER".into(),
++                        marker.clone().into_os_string(),
++                    ),
++                ])),
++                Vec::new(),
++                None,
++                McpProtocolMode::Legacy,
++            )
++        };
++        let result = LocalStdioServerLauncher::launch_server_with_job(
++            make_command(),
++            temp.path().to_path_buf(),
++            true,
++            Err(io::Error::other("forced job creation failure")),
++        );
++        assert!(
++            result.is_err(),
++            "required creation failure must fail before spawn"
++        );
++        assert!(!marker.exists());
++
++        let full_job = codex_utils_pty::JobObject::create_without_breakaway()?;
++        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
++        limits.BasicLimitInformation.LimitFlags =
++            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
++        limits.BasicLimitInformation.ActiveProcessLimit = 1;
++        anyhow::ensure!(
++            unsafe {
++                SetInformationJobObject(
++                    full_job.as_raw_handle().cast(),
++                    JobObjectExtendedLimitInformation,
++                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
++                    std::mem::size_of_val(&limits) as u32,
++                )
++            } != 0,
++            "{}",
++            io::Error::last_os_error()
++        );
++        let mut holder_command = tokio::process::Command::new(&executable);
++        holder_command.args(["--exact", TEST]).env(PHASE, "hold");
++        let mut holder = full_job.spawn_contained(&mut holder_command)?;
++        let command = make_command();
++        let cwd = temp.path().to_path_buf();
++        let result = tokio::task::spawn_blocking(move || {
++            LocalStdioServerLauncher::launch_server_with_job(command, cwd, true, Ok(full_job))
++        });
++        // The launcher retains the suspended child through confirmed failure cleanup.
++        let result = tokio::time::timeout(Duration::from_secs(10), result).await??;
++        assert!(
++            result.is_err(),
++            "assignment failure cannot retry without containment"
++        );
++        holder.wait().await?;
++        assert!(
++            !marker.exists(),
++            "failed assignment resumed an uncontained command"
++        );
++        Ok(())
++    }
++
++    #[cfg(windows)]
++    #[tokio::test]
++    async fn mcp_read_lifetime_failed_launch_waits_before_successful_or_failed_retry() {
++        use std::sync::atomic::AtomicUsize;
++        for succeeds in [false, true] {
++            let (release, wait) = tokio::sync::oneshot::channel::<()>();
++            let retried = Arc::new(AtomicUsize::new(0));
++            let observed = Arc::clone(&retried);
++            let task = tokio::spawn(retry_after_failed_launch(
++                async move {
++                    wait.await.expect("cleanup release");
++                },
++                move || {
++                    observed.fetch_add(1, Ordering::SeqCst);
++                    if succeeds {
++                        Ok(7)
++                    } else {
++                        Err(io::Error::other("fallback spawn failed"))
++                    }
++                },
++            ));
++            tokio::task::yield_now().await;
++            assert!(
++                !task.is_finished(),
++                "unconfirmed first attempt cannot publish a startup outcome"
++            );
++            assert_eq!(retried.load(Ordering::SeqCst), 0);
++            release.send(()).expect("release confirmation");
++            assert_eq!(task.await.expect("retry task").is_ok(), succeeds);
++            assert_eq!(retried.load(Ordering::SeqCst), 1);
++        }
++    }
++
++    #[cfg(windows)]
++    #[tokio::test]
++    async fn mcp_read_lifetime_cleanup_waits_for_confirmation_and_survives_caller_drop() {
++        use std::sync::atomic::AtomicUsize;
++        let confirmed = Arc::new(AtomicBool::new(false));
++        let requests = Arc::new(AtomicUsize::new(0));
++        let terminal = Arc::new(AtomicBool::new(false));
++        let observed = Arc::clone(&confirmed);
++        let attempts = Arc::clone(&requests);
++        let completed = Arc::clone(&terminal);
++        let task = tokio::spawn(async move {
++            confirm_local_termination(
++                || Ok(observed.load(Ordering::Acquire)),
++                || {
++                    // The first request fails to stop the process. Even subsequent
++                    // accepted requests do not signal completion until the probe does.
++                    attempts.fetch_add(1, Ordering::AcqRel);
++                },
++            )
++            .await;
++            completed.store(true, Ordering::Release);
++        });
++        let cleanup = async move {
++            task.await.expect("cleanup task");
++        }
++        .boxed()
++        .shared();
++        let caller_a = tokio::spawn(cleanup.clone());
++        let caller_b = tokio::spawn(cleanup);
++        tokio::time::timeout(Duration::from_secs(5), async {
++            while requests.load(Ordering::Acquire) < 2 {
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++        })
++        .await
++        .expect("failed request retried");
++        assert!(
++            !terminal.load(Ordering::Acquire),
++            "unconfirmed termination cannot publish a terminal result"
++        );
++        assert!(!caller_b.is_finished());
++        caller_a.abort();
++        confirmed.store(true, Ordering::Release);
++        tokio::time::timeout(Duration::from_secs(5), caller_b)
++            .await
++            .expect("confirmed cleanup finishes")
++            .expect("remaining caller");
++        assert!(terminal.load(Ordering::Acquire));
++    }
+     use codex_protocol::config_types::EnvironmentVariablePattern;
+     use codex_protocol::config_types::ShellEnvironmentPolicy;
+     use codex_protocol::shell_environment;
+diff --git a/codex-rs/rmcp-client/src/windows_stdio.rs b/codex-rs/rmcp-client/src/windows_stdio.rs
+new file mode 100644
+index 000000000..73b4a1ded
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/windows_stdio.rs
+@@ -0,0 +1,45 @@
++//! IOCP-backed MCP output pipes. Quiet servers must not occupy Tokio's filesystem pool.
++
++use std::fs::File;
++use std::fs::OpenOptions;
++use std::io;
++
++use futures::FutureExt;
++use tokio::net::windows::named_pipe::NamedPipeServer;
++use tokio::net::windows::named_pipe::ServerOptions;
++
++pub(super) fn output_pipe() -> io::Result<(NamedPipeServer, File)> {
++    // Reserve a private unpredictable name before creating the single-instance pipe.
++    // Only the parent's read end is overlapped; ordinary child stdio stays synchronous.
++    let unique = tempfile::Builder::new()
++        .prefix("codex-mcp-stdio-")
++        .rand_bytes(24)
++        .tempdir()?;
++    let name = format!(
++        r"\\.\pipe\{}",
++        unique
++            .path()
++            .file_name()
++            .ok_or_else(|| io::Error::other("missing pipe name"))?
++            .to_string_lossy()
++    );
++    let reader = ServerOptions::new()
++        .access_inbound(true)
++        .access_outbound(false)
++        .first_pipe_instance(true)
++        .max_instances(1)
++        .reject_remote_clients(true)
++        .create(&name)?;
++    // Connect our exact child endpoint before publishing the server or spawning a child.
++    // A collision/competing connection fails closed rather than accepting another client.
++    let writer = OpenOptions::new().write(true).open(&name)?;
++    reader
++        .connect()
++        .now_or_never()
++        .ok_or_else(|| io::Error::other("MCP output pipe was not connected synchronously"))??;
++    Ok((reader, writer))
++}
++
++#[cfg(test)]
++#[path = "windows_stdio_tests.rs"]
++mod tests;
+diff --git a/codex-rs/rmcp-client/src/windows_stdio_tests.rs b/codex-rs/rmcp-client/src/windows_stdio_tests.rs
+new file mode 100644
+index 000000000..4dd174eb7
+--- /dev/null
++++ b/codex-rs/rmcp-client/src/windows_stdio_tests.rs
+@@ -0,0 +1,72 @@
++use super::output_pipe;
++use std::io::Write;
++use std::time::Duration;
++use tokio::io::AsyncReadExt;
++
++#[tokio::test]
++async fn output_pipe_preserves_bytes_and_closes_with_its_writer() -> anyhow::Result<()> {
++    let (mut reader, mut writer) = output_pipe()?;
++    writer.write_all(b"MCP\r\n\0bytes")?;
++    drop(writer);
++    let mut bytes = [0; 11];
++    tokio::time::timeout(Duration::from_secs(2), reader.read_exact(&mut bytes)).await??;
++    assert_eq!(&bytes, b"MCP\r\n\0bytes");
++    let end = tokio::time::timeout(Duration::from_secs(2), reader.read_u8()).await?;
++    assert!(
++        matches!(end, Err(ref error) if matches!(error.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::BrokenPipe))
++    );
++    Ok(())
++}
++
++#[test]
++fn quiet_output_pipe_does_not_reserve_a_filesystem_worker() -> anyhow::Result<()> {
++    let fixture = tempfile::NamedTempFile::new()?;
++    std::fs::write(fixture.path(), b"fresh-config")?;
++    let runtime = tokio::runtime::Builder::new_multi_thread()
++        .worker_threads(2)
++        .max_blocking_threads(1)
++        .enable_all()
++        .build()?;
++    runtime.block_on(async {
++        let (mut reader, writer) = output_pipe()?;
++        let pending = tokio::spawn(async move { reader.read_u8().await });
++        tokio::task::yield_now().await;
++        let data =
++            tokio::time::timeout(Duration::from_secs(2), tokio::fs::read(fixture.path())).await??;
++        assert_eq!(data, b"fresh-config");
++        // Dropping the peer, not an unrelated process, completes the outstanding read.
++        drop(writer);
++        assert!(
++            tokio::time::timeout(Duration::from_secs(2), pending)
++                .await??
++                .is_err()
++        );
++        Ok::<_, anyhow::Error>(())
++    })
++}
++
++#[tokio::test]
++async fn canceling_an_output_read_does_not_pin_a_background_reader() -> anyhow::Result<()> {
++    let (mut reader, mut writer) = output_pipe()?;
++    assert!(
++        tokio::time::timeout(Duration::from_millis(20), reader.read_u8())
++            .await
++            .is_err()
++    );
++    writer.write_all(b"x")?;
++    assert_eq!(
++        tokio::time::timeout(Duration::from_secs(2), reader.read_u8()).await??,
++        b'x'
++    );
++    drop(reader);
++    // Mio requests CancelIoEx on drop. Its IOCP completion releases the last
++    // handle reference asynchronously, so the first small write may still work.
++    // Keep total writes below the pipe buffer, and bound the time to peer close.
++    for _ in 0..100 {
++        if writer.write_all(b"x").is_err() {
++            return Ok(());
++        }
++        tokio::time::sleep(Duration::from_millis(10)).await;
++    }
++    anyhow::bail!("dropped output reader did not release its peer within one second")
++}
+diff --git a/codex-rs/utils/pty/src/child_command.rs b/codex-rs/utils/pty/src/child_command.rs
+index 452e3ecdd..7edfb4104 100644
+--- a/codex-rs/utils/pty/src/child_command.rs
++++ b/codex-rs/utils/pty/src/child_command.rs
+@@ -186,6 +186,20 @@ impl Command {
+         self
+     }
+ 
++    /// Supply an already connected output pipe instead of a blocking anonymous pipe.
++    #[cfg(windows)]
++    pub fn stdout_file(&mut self, file: std::fs::File) -> &mut Self {
++        self.inner.stdout(TokioStdio::from(file));
++        self
++    }
++
++    /// Supply an already connected diagnostic pipe without changing child ownership.
++    #[cfg(windows)]
++    pub fn stderr_file(&mut self, file: std::fs::File) -> &mut Self {
++        self.inner.stderr(TokioStdio::from(file));
++        self
++    }
++
+     pub fn descriptor_policy(&mut self, policy: DescriptorPolicy) -> &mut Self {
+         self.descriptor_policy = policy;
+         self
+diff --git a/codex-rs/utils/pty/src/win/job.rs b/codex-rs/utils/pty/src/win/job.rs
+index f963c6f55..6ca7b2aa7 100644
+--- a/codex-rs/utils/pty/src/win/job.rs
++++ b/codex-rs/utils/pty/src/win/job.rs
+@@ -8,22 +8,30 @@ use tokio::process::Child;
+ use tokio::process::Command;
+ use winapi::shared::ntdef::NT_SUCCESS;
+ use winapi::shared::ntdef::NTSTATUS;
++use winapi::shared::winerror::WAIT_TIMEOUT;
+ use winapi::um::jobapi2::AssignProcessToJobObject;
+ use winapi::um::jobapi2::CreateJobObjectW;
++use winapi::um::jobapi2::QueryInformationJobObject;
+ use winapi::um::jobapi2::SetInformationJobObject;
+ use winapi::um::jobapi2::TerminateJobObject;
+ use winapi::um::processthreadsapi::OpenProcess;
+ use winapi::um::processthreadsapi::TerminateProcess;
++use winapi::um::synchapi::WaitForSingleObject;
+ use winapi::um::winbase::CREATE_NO_WINDOW;
+ use winapi::um::winbase::CREATE_SUSPENDED;
++use winapi::um::winbase::WAIT_FAILED;
++use winapi::um::winbase::WAIT_OBJECT_0;
+ use winapi::um::winnt::HANDLE;
+ use winapi::um::winnt::JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+ use winapi::um::winnt::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
++use winapi::um::winnt::JOBOBJECT_BASIC_ACCOUNTING_INFORMATION;
+ use winapi::um::winnt::JOBOBJECT_EXTENDED_LIMIT_INFORMATION;
++use winapi::um::winnt::JobObjectBasicAccountingInformation;
+ use winapi::um::winnt::JobObjectExtendedLimitInformation;
+ use winapi::um::winnt::PROCESS_SET_QUOTA;
+ use winapi::um::winnt::PROCESS_SUSPEND_RESUME;
+ use winapi::um::winnt::PROCESS_TERMINATE;
++use winapi::um::winnt::SYNCHRONIZE;
+ 
+ #[link(name = "ntdll")]
+ unsafe extern "system" {
+@@ -69,7 +77,11 @@ impl JobObject {
+     /// Captures an owned process handle before its numeric identifier can be reused.
+     pub fn open_process_handle(process_id: u32) -> io::Result<std::os::windows::io::OwnedHandle> {
+         let handle = unsafe {
+-            OpenProcess(PROCESS_TERMINATE, /*bInheritHandle*/ 0, process_id)
++            OpenProcess(
++                PROCESS_TERMINATE | SYNCHRONIZE,
++                /*bInheritHandle*/ 0,
++                process_id,
++            )
+         };
+         if handle.is_null() {
+             return Err(io::Error::last_os_error());
+@@ -90,6 +102,39 @@ impl JobObject {
+         }
+     }
+ 
++    /// Observes the exact captured process; a termination request alone is not completion.
++    pub fn process_handle_is_terminated(
++        handle: &std::os::windows::io::OwnedHandle,
++    ) -> io::Result<bool> {
++        match unsafe { WaitForSingleObject(handle.as_raw_handle().cast(), 0) } {
++            WAIT_OBJECT_0 => Ok(true),
++            WAIT_TIMEOUT => Ok(false),
++            WAIT_FAILED => Err(io::Error::last_os_error()),
++            value => Err(io::Error::other(format!(
++                "unexpected process wait result: {value}"
++            ))),
++        }
++    }
++
++    /// Confirms all members of this owned job have exited, including descendants.
++    pub fn is_empty(&self) -> io::Result<bool> {
++        let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
++        let queried = unsafe {
++            QueryInformationJobObject(
++                self.handle.as_raw_handle().cast(),
++                JobObjectBasicAccountingInformation,
++                std::ptr::addr_of_mut!(accounting).cast(),
++                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
++                std::ptr::null_mut(),
++            )
++        };
++        if queried == 0 {
++            Err(io::Error::last_os_error())
++        } else {
++            Ok(accounting.ActiveProcesses == 0)
++        }
++    }
++
+     fn set_limit_flags(handle: &OwnedHandle, flags: u32) -> io::Result<()> {
+         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+         limits.BasicLimitInformation.LimitFlags = flags;
+@@ -137,6 +182,16 @@ impl JobObject {
+     /// Nested jobs can reject assignment. Such a child is resumed without
+     /// containment so callers can preserve their existing compatibility fallback.
+     pub fn assign_and_resume_process(&self, process_id: u32) -> io::Result<bool> {
++        self.assign_and_resume_process_impl(process_id, false)
++    }
++
++    /// Keeps an uncontained child suspended so its exact owner can kill and reap it.
++    pub fn assign_and_resume_process_strict(&self, process_id: u32) -> io::Result<()> {
++        self.assign_and_resume_process_impl(process_id, true)
++            .map(|_| ())
++    }
++
++    fn assign_and_resume_process_impl(&self, process_id: u32, required: bool) -> io::Result<bool> {
+         let process = unsafe {
+             OpenProcess(
+                 PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_SUSPEND_RESUME,
+@@ -149,6 +204,11 @@ impl JobObject {
+         }
+         let process = unsafe { OwnedHandle::from_raw_handle(process.cast()) };
+         let assignment = self.assign_process(process.as_raw_handle());
++        if required {
++            assignment
++                .as_ref()
++                .map_err(|error| io::Error::new(error.kind(), error.to_string()))?;
++        }
+ 
+         let status = unsafe { NtResumeProcess(process.as_raw_handle().cast()) };
+         if !NT_SUCCESS(status) {
+diff --git a/codex-rs/utils/pty/src/win/job_tests.rs b/codex-rs/utils/pty/src/win/job_tests.rs
+index 3d430d363..1bcc6363d 100644
+--- a/codex-rs/utils/pty/src/win/job_tests.rs
++++ b/codex-rs/utils/pty/src/win/job_tests.rs
+@@ -7,6 +7,81 @@ use std::process::Stdio;
+ use std::time::Duration;
+ use winapi::um::winnt::JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+ 
++#[tokio::test]
++async fn mcp_read_lifetime_owned_job_and_process_fences() -> anyhow::Result<()> {
++    use tokio::io::AsyncBufReadExt;
++    const TEST: &str = "win::job::tests::mcp_read_lifetime_owned_job_and_process_fences";
++    const PHASE: &str = "CODEX_TEST_OWNED_TERMINATION_PHASE";
++    let executable = std::env::current_exe()?;
++    match std::env::var(PHASE).as_deref() {
++        Ok("leaf") => {
++            std::thread::sleep(Duration::from_secs(30));
++            return Ok(());
++        }
++        Ok("root") => {
++            let _leaf = std::process::Command::new(&executable)
++                .args(["--exact", TEST])
++                .env(PHASE, "leaf")
++                .creation_flags(CREATE_NO_WINDOW)
++                .spawn()?;
++            println!("owned tree ready");
++            std::io::Write::flush(&mut std::io::stdout())?;
++            std::thread::sleep(Duration::from_secs(30));
++            return Ok(());
++        }
++        _ => {}
++    }
++    let job = JobObject::create_without_breakaway()?;
++    let mut command = Command::new(&executable);
++    command
++        .args(["--exact", TEST, "--nocapture"])
++        .env(PHASE, "root")
++        .stdin(Stdio::null())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::null());
++    let mut child = job.spawn_contained(&mut command)?;
++    let handle = JobObject::open_process_handle(
++        child
++            .id()
++            .ok_or_else(|| io::Error::other("child PID missing"))?,
++    )?;
++    let mut stdout = tokio::io::BufReader::new(
++        child
++            .stdout
++            .take()
++            .ok_or_else(|| io::Error::other("stdout missing"))?,
++    );
++    tokio::time::timeout(Duration::from_secs(10), async {
++        let mut line = String::new();
++        loop {
++            line.clear();
++            anyhow::ensure!(
++                stdout.read_line(&mut line).await? > 0,
++                "fixture exited before readiness"
++            );
++            if line.contains("owned tree ready") {
++                break;
++            }
++        }
++        Ok::<(), anyhow::Error>(())
++    })
++    .await??;
++    assert!(!job.is_empty()?);
++    assert!(!JobObject::process_handle_is_terminated(&handle)?);
++    job.terminate()?;
++    tokio::time::timeout(Duration::from_secs(10), async {
++        while !job.is_empty()? || !JobObject::process_handle_is_terminated(&handle)? {
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++        Ok::<(), io::Error>(())
++    })
++    .await??;
++    assert!(job.is_empty()?, "the owned grandchild also left the job");
++    assert!(JobObject::process_handle_is_terminated(&handle)?);
++    child.wait().await?;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn background_launches_keep_consoles_hidden_when_containment_fails() -> anyhow::Result<()> {
+     const TEST_NAME: &str =

@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "sourceCatalogSha256": "de0eaa60cb147ba0180e1cff3e03593af7bf23c8a744545dafc2592e3411e2a8",
+  "files": [
+    {
+      "path": "codex-rs/Cargo.lock",
+      "sha256": "a92103f927a2a9b4abde72d650a037ac0a69ba2b39f92901efef68ab53615103",
+      "bytes": 427505
+    },
+    {
+      "path": "codex-rs/app-server/src/config_manager_service.rs",
+      "sha256": "bec9cf627b6290d285f8801d9dcb1683cbf4c83e63f5ffc66449c1b88963b58c",
+      "bytes": 36101
+    },
+    {
+      "path": "codex-rs/app-server/src/lib.rs",
+      "sha256": "6888c057b2d136e0fed1a96ee8852d677ca857dbc733ae0e792fb69d6be41687",
+      "bytes": 69328
+    },
+    {
+      "path": "codex-rs/app-server/src/mcp_read_lifetime.rs",
+      "sha256": "8c842d83035b2f00f491af3cfa8681e4b6bee15f764fb62b36071f19d47b2bf3",
+      "bytes": 3718
+    },
+    {
+      "path": "codex-rs/app-server/src/message_processor.rs",
+      "sha256": "82236b0d88ec66aa4765f3e2bce9ca4a68a7fb7b8cd4173d498a06a10e564612",
+      "bytes": 87866
+    },
+    {
+      "path": "codex-rs/app-server/src/outgoing_message.rs",
+      "sha256": "70d44e44ab3d28586c873143de81922189b3ae8a57e64470b4423c6f1eea2d4b",
+      "bytes": 67562
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/config_processor.rs",
+      "sha256": "cbbe109ffb7339fe11df70ef5af1583f328b5b71b1a3b6eaf97c5d109241dcae",
+      "bytes": 55299
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/config_processor_tests.rs",
+      "sha256": "21022e9f9c40d78cfc12f3c6831b0cb0947b4f74b907cbf1eba4b3ee75e43c1d",
+      "bytes": 15942
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/mcp_processor.rs",
+      "sha256": "1281c5a0cb951b3032ba2bca63e3fcb9fefcdd16ae8f01edfe0f459e75f000b2",
+      "bytes": 33450
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/connection_manager.rs",
+      "sha256": "6015618d563e70fdd9ce2c0e0e5391bd13352ecbcca04ab06fd9e15ad58ab474",
+      "bytes": 55911
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/mcp/mod.rs",
+      "sha256": "cbaca63334d86bc56b4cfcbfeb02a9a6ba64f4bed47f8c7c75851fa0ecef06f5",
+      "bytes": 36770
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/rmcp_client.rs",
+      "sha256": "5ae71975e3bfad1cb8c5565c591c5abe0339aec5e13da15bba61119a2c66a3de",
+      "bytes": 65847
+    },
+    {
+      "path": "codex-rs/codex-mcp/src/runtime.rs",
+      "sha256": "a2213b79ac0a1636a2832563df66005e94da45cd13b40076f48b576b4f4f789e",
+      "bytes": 55958
+    },
+    {
+      "path": "codex-rs/rmcp-client/Cargo.toml",
+      "sha256": "54aabc837af6483f8c990d75920edc3d5639d40c1d85b8bd32bf32fbe8a1cf69",
+      "bytes": 3522
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/bounded_stdio_transport.rs",
+      "sha256": "33fa290ab653834c0576edac146b1d58512523f2e043947a2fd472cf613b8cf4",
+      "bytes": 4483
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/lib.rs",
+      "sha256": "ff061dfabd9e0eeb1783f8c5b014dcd78545f72cad58c7d5754cb82a4df521c8",
+      "bytes": 4635
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/local_stdio_transport.rs",
+      "sha256": "2782fff8295837b61aec9ff9ee2363691a294343c73ddda6c60a325034577375",
+      "bytes": 5084
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/stdio_server_launcher.rs",
+      "sha256": "db5fcca2269e097fa8574dbb01cee39b3b7027662a2b91b4ff7f6bc151c46df0",
+      "bytes": 45444
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/windows_stdio.rs",
+      "sha256": "14fe79a84ad7c213c14b427ecc1b41079ecbc4dc6e9b289de50f6267a2b32ec5",
+      "bytes": 1562
+    },
+    {
+      "path": "codex-rs/rmcp-client/src/windows_stdio_tests.rs",
+      "sha256": "c9a1d0aa4566c457a793e66efe0f8c79229edb50f8f583c883f42811b1d1e72d",
+      "bytes": 2700
+    },
+    {
+      "path": "codex-rs/utils/pty/src/child_command.rs",
+      "sha256": "5f6dd6f1c138c580baf5c4fc9cc6d00c0295d0c7fec1c37604dbaa12b431016b",
+      "bytes": 14021
+    },
+    {
+      "path": "codex-rs/utils/pty/src/win/job.rs",
+      "sha256": "269026d4cea3b9050c70b17542fc53e0ca6370bc0ecf19dcd37de3569e8cbcb6",
+      "bytes": 12572
+    },
+    {
+      "path": "codex-rs/utils/pty/src/win/job_tests.rs",
+      "sha256": "842c720246f77c3bad940c8b8e0c47f3b1eb940e74a5525dd25d3553b954c469",
+      "bytes": 6446
+    }
+  ]
+}
