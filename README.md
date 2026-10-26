@@ -9,7 +9,7 @@ The published r22 patches cover MCP request cancellation, server shutdown and wa
 ## What changes
 
 - Clean up work owned by a cancelled MCP read request, including its private connections and processes, before returning the cancellation response.
-- Continue cleanup until an MCP server's child processes have actually exited, and wait for the previous process to be cleaned up before retrying a launch.
+- Continue cleanup until directly owned MCP processes have actually exited, and wait for the previous process to be cleaned up before retrying a launch.
 - Avoid unnecessarily occupying filesystem I/O threads while waiting for a quiet MCP server.
 - Remove a redundant configuration load so the configuration response and feature settings use values from the same point in time.
 
