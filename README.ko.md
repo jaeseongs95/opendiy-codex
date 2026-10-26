@@ -2,23 +2,22 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-**수정은 소스로, 검증 범위는 분명하게.**
+Windows에서 Codex를 사용할 때 생기는 요청 정체와 하위 프로세스 정리 문제를 수정하는 Codex CLI·Rust App Server 포크입니다.
 
-Codex CLI와 Rust App Server의 Windows 안정성 패치를 소스로 공개합니다.
+현재 공개된 r22 패치는 MCP 요청 취소, 서버 종료와 대기, 설정 읽기 경로를 다룹니다.
 
-## 무엇이 좋은가
+## 바뀌는 점
 
-- **수정 코드를 직접 봅니다.** Windows 프로세스·Job·stdio·소켓 수명과 MCP 요청 취소를 다룬 패치를 공개합니다.
-- **무엇을 시험했는지 압니다.** r22 Windows 후보의 Cargo 표적 시험 18개 통과와 미검증 범위를 함께 설명합니다.
-- **원본과 변경을 대조합니다.** 전체 Rust workspace와 고정된 upstream 버전, 소스 해시를 제공합니다.
+- MCP 읽기 요청을 취소하면 그 요청이 직접 소유한 작업과 전용 연결·프로세스를 정리한 뒤 응답하도록 했습니다.
+- 직접 소유한 MCP 프로세스가 실제로 종료될 때까지 정리를 이어가고, 이전 프로세스 정리가 끝난 뒤 재시도하도록 했습니다.
+- 출력이 없는 MCP 서버를 기다릴 때 불필요하게 파일 I/O 스레드를 점유하지 않도록 했습니다.
+- 불필요한 설정 재조회를 없애고, 설정 응답과 기능 설정이 같은 시점의 값을 사용하도록 했습니다.
 
-## 살펴보기
+## 소스와 문서
 
-- [CLI 소스](codex-rs/cli) · [Rust App Server 소스](codex-rs/app-server)
-- [테스트 방법과 한계](docs/TESTING.md)
-- [원본 버전](SOURCE_BASELINE.json) · [수정 내용](MODIFICATIONS.md)
+- [CLI 소스](codex-rs/cli) · [App Server 소스](codex-rs/app-server) · [소스 구조와 빌드 안내](docs/source-import.md)
+- [수정 내역](MODIFICATIONS.md) · [테스트 방법과 한계](docs/TESTING.md)
 
-과거 r22 시험 결과가 새 공개 clone의 release build나 전체 desktop 검증 완료를 뜻하지는 않습니다.
+[OpenAI Codex](https://github.com/openai/codex)를 기반으로 한 비공식 독립 프로젝트입니다. [Apache-2.0](LICENSE)과 구성요소별 [제3자 고지](NOTICE)를 따릅니다.
 
-[OpenAI Codex](https://github.com/openai/codex)를 바탕으로 한 비공식 독립 프로젝트입니다. [Apache-2.0](LICENSE)과 해당 [제3자 고지](NOTICE)를 따릅니다.
-소스만 공개합니다. 설치 가능한 패치 바이너리는 제공하지 않으며, 비공개 desktop 자산은 재배포하지 않습니다.
+현재는 r22 소스만 제공하며, 설치 가능한 패치 바이너리와 비공개 데스크톱 UI 자산은 제공하지 않습니다. 데스크톱 앱 전체 검증과 메모리 누수·UI 지연의 완전한 해결은 확인하지 않았습니다.
