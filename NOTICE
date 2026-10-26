@@ -1,0 +1,23 @@
+OpenDIY Codex
+Copyright 2026 jaeseongs95
+
+OpenDIY Codex is an independent, unofficial project.
+It is not affiliated with, endorsed by, or maintained by OpenAI.
+
+Upstream software referenced by this project:
+  Codex CLI and Rust App Server
+  https://github.com/openai/codex
+  Copyright (c) OpenAI and respective contributors.
+  Upstream license: Apache License, Version 2.0.
+
+Source code incorporated from the Apache-2.0-licensed upstream project,
+if any, remains subject to the applicable upstream copyright, attribution,
+patent, trademark, and license notices. Modified upstream files should
+identify the modifications as required by Apache License 2.0.
+
+The Apache-2.0 license in this repository applies only to materials whose
+authors have the right to license them under those terms. It does not cover
+separately licensed or proprietary OpenAI desktop application source,
+bundles, assets, installers, or other third-party components.
+
+Names and trademarks are used for descriptive identification only.
