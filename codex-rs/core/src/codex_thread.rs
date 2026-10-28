@@ -1106,6 +1106,18 @@ impl CodexThread {
         .await
     }
 
+    /// Reloads this thread's user-file plugin, skill and hook state without interrupting a turn.
+    /// MCP reconnection is requested for the next capture; this does not await server readiness.
+    pub async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
+        anyhow::ensure!(self.is_running(), "thread runtime is shutting down");
+        let warnings = Box::pin(self.session.reload_plugins()).await?;
+        anyhow::ensure!(
+            self.is_running(),
+            "thread runtime shut down during plugin reload"
+        );
+        Ok(warnings)
+    }
+
     /// Revokes enterprise MCP authority from the current owner after a failed reload.
     pub async fn disable_mcp_enterprise_auth(&self) {
         self.session.disable_mcp_enterprise_auth().await;

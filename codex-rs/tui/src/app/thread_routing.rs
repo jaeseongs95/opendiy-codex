@@ -869,6 +869,33 @@ impl App {
                     .await?;
                 Ok(true)
             }
+            AppCommand::ReloadPlugins => {
+                match app_server.reload_plugins(thread_id).await {
+                    Ok(response)
+                        if response.thread_id == thread_id.to_string()
+                            && response.mcp_reconnect_requested =>
+                    {
+                        let message = format!(
+                            "Reloaded plugin configuration for {thread_id}. MCP reconnect requested for the next capture; server readiness is not yet confirmed."
+                        );
+                        if response.warnings.is_empty() {
+                            self.chat_widget.add_info_message(message, None);
+                        } else {
+                            self.chat_widget.add_error_message(format!(
+                                "{message} Partial refresh warnings:\n{}",
+                                response.warnings.join("\n")
+                            ));
+                        }
+                    }
+                    Ok(_) => self.chat_widget.add_error_message(format!(
+                        "Plugin reload returned an invalid acknowledgement for {thread_id}."
+                    )),
+                    Err(err) => self.chat_widget.add_error_message(format!(
+                        "Plugin reload failed for {thread_id}: {err:#}"
+                    )),
+                }
+                Ok(true)
+            }
             AppCommand::ReloadUserConfig => {
                 app_server.reload_user_config().await?;
                 Ok(true)

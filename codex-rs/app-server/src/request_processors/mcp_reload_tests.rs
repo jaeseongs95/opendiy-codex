@@ -339,3 +339,142 @@ async fn mcp_reload_handler_closed_submission_queue_has_no_ack() -> anyhow::Resu
     );
     Ok(())
 }
+
+fn plugin_target(id: ThreadId) -> codex_app_server_protocol::ThreadPluginReloadParams {
+    codex_app_server_protocol::ThreadPluginReloadParams {
+        thread_id: id.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn plugin_reload_changes_only_target_runtime_without_writing_config() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, thread) = fixture.thread().await?;
+    let (_, other) = fixture.thread().await?;
+    let before = thread.config().await;
+    let other_before = other.config().await;
+    let file = fixture.home.path().join(codex_config::CONFIG_TOML_FILE);
+    let contents = "[apps.calendar]\nenabled = false\n";
+    std::fs::write(&file, contents)?;
+    let response = fixture
+        .processor
+        .thread_plugin_reload_response(plugin_target(id))
+        .await
+        .expect("target plugin reload succeeds");
+    assert_eq!(response.thread_id, id.to_string());
+    assert!(response.mcp_reconnect_requested);
+    assert!(!Arc::ptr_eq(&before, &thread.config().await));
+    assert_eq!(
+        thread.config().await.config_layer_stack.effective_config()["apps"]["calendar"]["enabled"]
+            .as_bool(),
+        Some(false)
+    );
+    assert!(Arc::ptr_eq(&other_before, &other.config().await));
+    assert_eq!(std::fs::read_to_string(file)?, contents);
+    Ok(())
+}
+
+#[tokio::test]
+async fn plugin_reload_invalid_config_returns_error_and_keeps_runtime() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, thread) = fixture.thread().await?;
+    let before = thread.config().await;
+    fixture.invalid_config()?;
+    let error = fixture
+        .processor
+        .thread_plugin_reload_response(plugin_target(id))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("failed to parse user config"));
+    assert!(Arc::ptr_eq(&before, &thread.config().await));
+    Ok(())
+}
+
+#[tokio::test]
+async fn plugin_reload_unloaded_target_never_retargets_visible_thread() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, thread) = fixture.thread().await?;
+    let (_, other) = fixture.thread().await?;
+    let other_before = other.config().await;
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    *fixture.processor.before_plugin_reload.lock().unwrap() = Some(Arc::clone(&barrier));
+    let processor = fixture.processor.clone();
+    let reload = tokio::spawn(async move {
+        processor
+            .thread_plugin_reload_response(plugin_target(id))
+            .await
+    });
+    let timeout = std::time::Duration::from_secs(10);
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+    let removed = fixture.threads.remove_thread(&id).await.unwrap();
+    assert!(Arc::ptr_eq(&removed, &thread));
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+    let error = tokio::time::timeout(timeout, reload).await??.unwrap_err();
+    assert_eq!(error.message, format!("thread is no longer loaded: {id}"));
+    assert!(Arc::ptr_eq(&other_before, &other.config().await));
+    thread.shutdown_and_wait().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn plugin_reload_closed_runtime_has_no_success_ack() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, thread) = fixture.thread().await?;
+    thread.shutdown_and_wait().await?;
+    let error = fixture
+        .processor
+        .thread_plugin_reload_response(plugin_target(id))
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("shutting down"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn plugin_reload_does_not_retarget_replacement_with_same_id() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let original = fixture
+        .threads
+        .start_thread(codex_core::StartThreadOptions {
+            history_mode: Some(ThreadHistoryMode::Legacy),
+            ..codex_core::StartThreadOptions::new(fixture.config.as_ref().clone())
+        })
+        .await?;
+    let (id, old) = (original.thread_id, original.thread);
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    *fixture.processor.before_plugin_reload.lock().unwrap() = Some(Arc::clone(&barrier));
+    let processor = fixture.processor.clone();
+    let reload = tokio::spawn(async move {
+        processor
+            .thread_plugin_reload_response(plugin_target(id))
+            .await
+    });
+    let timeout = std::time::Duration::from_secs(10);
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+    fixture.threads.remove_thread(&id).await.unwrap();
+    old.ensure_rollout_materialized().await;
+    old.flush_rollout().await?;
+    let history = old.load_history(true).await?;
+    old.shutdown_and_wait().await?;
+    let replacement = fixture
+        .threads
+        .resume_thread_with_history(
+            old.config().await.as_ref().clone(),
+            InitialHistory::Resumed(ResumedHistory {
+                conversation_id: id,
+                history: Arc::new(history.items),
+                history_revision: history.revision,
+                rollout_path: old.rollout_path(),
+            }),
+            AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy")),
+            None,
+            Default::default(),
+        )
+        .await?;
+    assert_eq!(replacement.thread_id, id);
+    let before = replacement.thread.config().await;
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+    assert!(tokio::time::timeout(timeout, reload).await??.is_err());
+    assert!(Arc::ptr_eq(&before, &replacement.thread.config().await));
+    Ok(())
+}

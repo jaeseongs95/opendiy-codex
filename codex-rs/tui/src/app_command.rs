@@ -178,6 +178,7 @@ pub(crate) enum AppCommand {
         response: RequestPermissionsResponse,
     },
     ReloadUserConfig,
+    ReloadPlugins,
     ListSkills {
         cwds: Vec<PathBuf>,
         force_reload: bool,

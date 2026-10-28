@@ -616,6 +616,16 @@ impl ChatWidget {
             SlashCommand::Apps => {
                 self.add_connectors_output();
             }
+            SlashCommand::ReloadPlugin => {
+                if let Some(thread_id) = self.thread_id {
+                    self.app_event_tx.send(AppEvent::SubmitThreadOp {
+                        thread_id,
+                        op: AppCommand::ReloadPlugins,
+                    });
+                } else {
+                    self.add_error_message("Plugin reload requires a loaded conversation.".into());
+                }
+            }
             SlashCommand::Plugins => {
                 self.add_plugins_output();
             }
@@ -1317,6 +1327,7 @@ impl ChatWidget {
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
+            | SlashCommand::ReloadPlugin
             | SlashCommand::Rollout
             | SlashCommand::Copy
             | SlashCommand::Raw

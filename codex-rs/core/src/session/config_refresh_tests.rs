@@ -202,3 +202,143 @@ async fn hook_refresh_retries_current_plugin_policy_after_owner_replacement() ->
     assert!(session.hooks().preview_session_start(&request).is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn reload_plugins_preserves_busy_turn_and_captured_step() -> anyhow::Result<()> {
+    let (session, turn, _events) = make_session_and_context_with_rx().await;
+    session
+        .spawn_task(
+            Arc::clone(&turn),
+            Vec::new(),
+            NeverEndingTask {
+                kind: TaskKind::Regular,
+                listen_to_cancellation_token: true,
+            },
+        )
+        .await;
+    let old_step = session
+        .capture_step_context(Arc::clone(&turn), &CancellationToken::new())
+        .await?;
+    let old_turn_state = Arc::clone(
+        &session
+            .active_turn
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .turn_state,
+    );
+    let home = session.codex_home().await;
+    let file = home.join(CONFIG_TOML_FILE);
+    std::fs::create_dir_all(&home)?;
+    std::fs::write(
+        file,
+        "[mcp_servers.reloaded]\nurl = 'https://reloaded.example/mcp'\nenabled = false\n",
+    )?;
+    session.reload_plugins().await?;
+    assert!(Arc::ptr_eq(
+        &old_turn_state,
+        &session
+            .active_turn
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .turn_state
+    ));
+    let next_step = session
+        .capture_step_context(turn, &CancellationToken::new())
+        .await?;
+    assert!(!Arc::ptr_eq(&old_step.mcp, &next_step.mcp));
+    assert!(!codex_mcp::configured_mcp_servers(old_step.mcp.config()).contains_key("reloaded"));
+    assert!(codex_mcp::configured_mcp_servers(next_step.mcp.config()).contains_key("reloaded"));
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
+    Ok(())
+}
+
+#[test_case::test_case(false; "trust enforced")]
+#[test_case::test_case(true; "explicit test trust bypass")]
+#[tokio::test]
+async fn reload_plugins_rebuilds_hook_content_without_changing_trust(
+    bypass: bool,
+) -> anyhow::Result<()> {
+    let (session, _) = make_session_and_context().await;
+    let home = session.codex_home().await;
+    std::fs::create_dir_all(&home)?;
+    let source = tempfile::tempdir()?;
+    std::fs::create_dir_all(source.path().join(".codex-plugin"))?;
+    std::fs::write(
+        source.path().join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample"}"#,
+    )?;
+    let store = codex_core_plugins::store::PluginStore::new(home.to_path_buf());
+    let plugin_id = codex_plugin::PluginId::parse("sample@test")?;
+    store.install(
+        AbsolutePathBuf::try_from(source.path().to_path_buf())?,
+        plugin_id.clone(),
+    )?;
+    std::fs::write(
+        home.join(CONFIG_TOML_FILE),
+        "[features]\nplugins = true\nhooks = true\n[plugins.\"sample@test\"]\n",
+    )?;
+    let mut config = load_latest_config_for_session(&session).await;
+    config.bypass_hook_trust = bypass;
+    let config = Arc::new(config);
+    session
+        .state
+        .lock()
+        .await
+        .session_configuration
+        .original_config_do_not_use = Arc::clone(&config);
+    session.refresh_hooks(Arc::clone(&config)).await;
+    let old_hooks = session.hooks();
+    let request = codex_hooks::SessionStartRequest {
+        session_id: session.thread_id,
+        cwd: config.cwd.clone(),
+        transcript_path: None,
+        model: "test-model".into(),
+        permission_mode: "default".into(),
+        target: codex_hooks::StartHookTarget::SessionStart {
+            source: codex_hooks::SessionStartSource::Startup,
+        },
+    };
+    assert!(old_hooks.preview_session_start(&request).is_empty());
+    let installed = store.active_plugin_root(&plugin_id).unwrap();
+    std::fs::write(
+        installed.join(".codex-plugin/plugin.json"),
+        r#"{"name":"sample","hooks":{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo refreshed"}]}]}}}"#,
+    )?;
+    session.reload_plugins().await?;
+    assert_eq!(session.get_config().await.bypass_hook_trust, bypass);
+    assert_eq!(
+        session.hooks().preview_session_start(&request).len(),
+        usize::from(bypass)
+    );
+    assert!(old_hooks.preview_session_start(&request).is_empty());
+    // A partial plugin load is returned to the caller, rather than reported as ready.
+    std::fs::write(installed.join(".codex-plugin/plugin.json"), "{")?;
+    assert!(!session.reload_plugins().await?.is_empty());
+    assert_eq!(session.get_config().await.bypass_hook_trust, bypass);
+    Ok(())
+}
+
+#[tokio::test]
+async fn reload_plugins_invalid_policy_reports_failure_and_keeps_denials() -> anyhow::Result<()> {
+    let (session, _) = make_session_and_context().await;
+    let home = session.codex_home().await;
+    std::fs::create_dir_all(&home)?;
+    let file = home.join(CONFIG_TOML_FILE);
+    std::fs::write(&file, "[plugins._default]\nenabled = false\n")?;
+    session.reload_plugins().await?;
+    let before = session
+        .get_config()
+        .await
+        .config_layer_stack
+        .effective_user_config();
+    std::fs::write(&file, "[plugins._default]\nenabled = 'false'\n")?;
+    assert!(session.reload_plugins().await.is_err());
+    let config = session.get_config().await;
+    assert_eq!(config.config_layer_stack.effective_user_config(), before);
+    assert!(!config.plugins.allows_plugin("sample@test"));
+    Ok(())
+}

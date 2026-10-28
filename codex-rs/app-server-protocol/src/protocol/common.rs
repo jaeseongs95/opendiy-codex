@@ -880,6 +880,12 @@ client_request_definitions! {
         serialization: None,
         response: v2::ThreadLoadedListResponse,
     },
+    /// Reload plugin runtime configuration for one already-loaded thread.
+    ThreadPluginReload => "thread/plugin/reload" {
+        params: v2::ThreadPluginReloadParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadPluginReloadResponse,
+    },
     ThreadRead => "thread/read" {
         params: v2::ThreadReadParams,
         serialization: thread_id(params.thread_id),

@@ -31,6 +31,8 @@ pub(crate) struct McpRequestProcessor {
     pub(super) thread_state_manager: ThreadStateManager,
     #[cfg(test)]
     before_refresh_enqueue: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>>,
+    #[cfg(test)]
+    before_plugin_reload: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
 impl McpRequestProcessor {
@@ -51,6 +53,8 @@ impl McpRequestProcessor {
             thread_state_manager,
             #[cfg(test)]
             before_refresh_enqueue: Default::default(),
+            #[cfg(test)]
+            before_plugin_reload: Default::default(),
         }
     }
 
@@ -73,6 +77,52 @@ impl McpRequestProcessor {
             self.mcp_server_refresh_response(params)
                 .await
                 .map(|response| Some(response.into()))
+        })
+    }
+
+    pub(crate) fn thread_plugin_reload(
+        &self,
+        params: codex_app_server_protocol::ThreadPluginReloadParams,
+    ) -> impl Future<Output = Result<Option<ClientResponsePayload>, JSONRPCErrorError>> + Send + '_
+    {
+        Box::pin(async move {
+            self.thread_plugin_reload_response(params)
+                .await
+                .map(|response| Some(response.into()))
+        })
+    }
+
+    async fn thread_plugin_reload_response(
+        &self,
+        params: codex_app_server_protocol::ThreadPluginReloadParams,
+    ) -> Result<codex_app_server_protocol::ThreadPluginReloadResponse, JSONRPCErrorError> {
+        // Capture the loaded runtime once. Never resolve a replacement or perform a global reload.
+        let (thread_id, thread) = self.load_thread(&params.thread_id).await?;
+        #[cfg(test)]
+        {
+            let barrier = self.before_plugin_reload.lock().unwrap().take();
+            if let Some(barrier) = barrier {
+                barrier.wait().await;
+                barrier.wait().await;
+            }
+        }
+        let warnings = thread.reload_plugins().await.map_err(|err| {
+            internal_error(format!("failed to reload plugins for {thread_id}: {err}"))
+        })?;
+        let current = self
+            .thread_manager
+            .get_thread(thread_id)
+            .await
+            .map_err(|_| invalid_request(format!("thread is no longer loaded: {thread_id}")))?;
+        if !Arc::ptr_eq(&current, &thread) {
+            return Err(invalid_request(format!(
+                "thread runtime changed during plugin reload: {thread_id}"
+            )));
+        }
+        Ok(codex_app_server_protocol::ThreadPluginReloadResponse {
+            thread_id: thread_id.to_string(),
+            mcp_reconnect_requested: true,
+            warnings,
         })
     }
 

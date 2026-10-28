@@ -1822,6 +1822,24 @@ impl AppServerSession {
             .wrap_err("skills/list failed in TUI")
     }
 
+    pub(crate) async fn reload_plugins(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<codex_app_server_protocol::ThreadPluginReloadResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ThreadPluginReload {
+                request_id,
+                params: codex_app_server_protocol::ThreadPluginReloadParams {
+                    thread_id: thread_id.to_string(),
+                },
+            })
+            .await
+            .wrap_err(
+                "thread/plugin/reload failed; this backend must support targeted plugin reload",
+            )
+    }
+
     pub(crate) async fn reload_user_config(&mut self) -> Result<()> {
         let request_id = self.next_request_id();
         let _: ConfigWriteResponse = self

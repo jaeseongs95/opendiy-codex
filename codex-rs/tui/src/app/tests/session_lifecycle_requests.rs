@@ -378,6 +378,7 @@ pub(super) enum HistoryCapabilities {
     ThreadStartWhileShuttingDown,
     ThreadStartDuringLegacyShutdown,
     ConfigReadUnsupported(i64),
+    PluginReloadUnsupported,
     ConfigReadFails,
     SuperBindingsUnsupported,
     ConfigReadUnknownVoice,
@@ -645,6 +646,17 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                                 code,
                                 data: None,
                                 message: "unknown variant `config/read`".to_string(),
+                            },
+                        })
+                    } else if history_capabilities == HistoryCapabilities::PluginReloadUnsupported
+                        && request.method == "thread/plugin/reload"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32601,
+                                data: None,
+                                message: "method not found".into(),
                             },
                         })
                     } else if history_capabilities == HistoryCapabilities::ConfigReadFails

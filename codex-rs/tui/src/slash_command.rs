@@ -70,6 +70,8 @@ pub enum SlashCommand {
     Mcp,
     Apps,
     Plugins,
+    #[strum(to_string = "reload_plugin")]
+    ReloadPlugin,
     Logout,
     Quit,
     Exit,
@@ -160,6 +162,7 @@ impl SlashCommand {
             SlashCommand::Mcp => "list MCP tools; use /mcp verbose or /mcp login <name>",
             SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
+            SlashCommand::ReloadPlugin => "reload plugins for this conversation without restarting",
             SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
@@ -304,6 +307,7 @@ impl SlashCommand {
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
+            | SlashCommand::ReloadPlugin
             | SlashCommand::Title
             | SlashCommand::Statusline
             | SlashCommand::AutoReview
@@ -380,6 +384,29 @@ mod tests {
         assert_eq!(
             SlashCommand::from_str("approve"),
             Ok(SlashCommand::AutoReview)
+        );
+    }
+}
+
+#[cfg(test)]
+mod reload_plugin_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn reload_plugin_command_name_and_availability() {
+        assert_eq!(
+            SlashCommand::from_str("reload_plugin"),
+            Ok(SlashCommand::ReloadPlugin)
+        );
+        assert_eq!(SlashCommand::ReloadPlugin.command(), "reload_plugin");
+        assert!(SlashCommand::ReloadPlugin.available_during_task());
+        assert!(!SlashCommand::ReloadPlugin.supports_inline_args());
+        assert!(!SlashCommand::ReloadPlugin.available_when_thread_unavailable());
+        assert!(
+            built_in_slash_commands()
+                .iter()
+                .any(|(name, _)| *name == "reload_plugin")
         );
     }
 }

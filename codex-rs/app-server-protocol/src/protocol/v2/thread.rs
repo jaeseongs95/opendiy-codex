@@ -1736,6 +1736,25 @@ pub enum ThreadActiveFlag {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
+pub struct ThreadPluginReloadParams {
+    pub thread_id: String,
+}
+
+/// User-file configuration and hook refresh completed successfully. MCP readiness is asynchronous.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadPluginReloadResponse {
+    pub thread_id: String,
+    /// Reconnection is requested for the next MCP capture, not confirmed ready.
+    pub mcp_reconnect_requested: bool,
+    /// Plugin or hook load diagnostics. A nonempty list means a partial refresh.
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
 pub struct ThreadReadParams {
     pub thread_id: String,
     /// When true, include turns and their items from rollout history.

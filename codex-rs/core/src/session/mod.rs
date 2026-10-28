@@ -2372,7 +2372,34 @@ impl Session {
         }
     }
 
+    /// Target-only refresh. Existing step captures and in-flight hooks retain their bindings.
+    pub(crate) async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
+        self.try_reload_user_config_layer().await?;
+        self.services.mcp_runtime.reconnect_on_next_refresh();
+        self.request_mcp_runtime_refresh();
+        let mut warnings = self.hooks().startup_warnings().to_vec();
+        let config = self.get_config().await;
+        let plugins = self
+            .services
+            .plugins_manager
+            .plugins_for_config(&config.plugins_config_input())
+            .await;
+        warnings.extend(plugins.plugins().iter().filter_map(|plugin| {
+            plugin
+                .error
+                .as_ref()
+                .map(|error| format!("{}: {error}", plugin.config_name))
+        }));
+        Ok(warnings)
+    }
+
     pub(crate) async fn reload_user_config_layer(&self) {
+        if let Err(err) = self.try_reload_user_config_layer().await {
+            warn!(%err, "failed to reload user config layer");
+        }
+    }
+
+    pub(crate) async fn try_reload_user_config_layer(&self) -> anyhow::Result<()> {
         // Refresh layer-backed runtime state for an existing session, including enabled plugin,
         // skill, hook, and MCP feature state. Other feature gates and legacy notify settings
         // remain session-static.
@@ -2411,21 +2438,22 @@ impl Session {
                     Ok(contents) => match toml::from_str::<toml::Value>(&contents) {
                         Ok(config) => config,
                         Err(err) => {
-                            warn!("failed to parse user config while reloading layer: {err}");
-                            return;
+                            return Err(anyhow::anyhow!(
+                                "failed to parse user config while reloading layer: {err}"
+                            ));
                         }
                     },
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                         toml::Value::Table(Default::default())
                     }
                     Err(err) => {
-                        warn!("failed to read user config while reloading layer: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to read user config while reloading layer: {err}"
+                        ));
                     }
                 };
                 let Some(config_dir) = config_toml_path.parent() else {
-                    warn!("user config path has no parent directory");
-                    return;
+                    anyhow::bail!("user config path has no parent directory");
                 };
                 let user_config = match codex_config::loader::resolve_relative_paths_in_config_toml(
                     user_config,
@@ -2433,8 +2461,9 @@ impl Session {
                 ) {
                     Ok(config) => config,
                     Err(err) => {
-                        warn!("failed to resolve paths while reloading user config: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to resolve paths while reloading user config: {err}"
+                        ));
                     }
                 };
                 reloaded_user_configs.push((config_toml_path, user_config));
@@ -2448,8 +2477,9 @@ impl Session {
                 {
                     Ok(config_layer_stack) => config_layer_stack,
                     Err(err) => {
-                        warn!("failed to validate user config while reloading layer: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to validate user config while reloading layer: {err}"
+                        ));
                     }
                 };
                 next_config.config_layer_stack = config_layer_stack;
@@ -2463,8 +2493,11 @@ impl Session {
                 .await
             {
                 crate::ConfigRefreshOutcome::Stale => continue,
-                crate::ConfigRefreshOutcome::Published | crate::ConfigRefreshOutcome::Rejected => {
-                    return;
+                crate::ConfigRefreshOutcome::Published => return Ok(()),
+                crate::ConfigRefreshOutcome::Rejected => {
+                    anyhow::bail!(
+                        "user config refresh was rejected; safe MCP restrictions remain applied"
+                    );
                 }
             }
         }
