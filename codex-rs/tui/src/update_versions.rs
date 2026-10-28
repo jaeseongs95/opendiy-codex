@@ -45,7 +45,9 @@ pub(crate) fn server_version_notice_kind(
 
 #[cfg(any(not(debug_assertions), test))]
 fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
-    let mut iter = v.trim().split('.');
+    let v = v.trim();
+    let v = v.split_once('+').map_or(v, |(version, _)| version);
+    let mut iter = v.split('.');
     let maj = iter.next()?.parse::<u64>().ok()?;
     let min = iter.next()?.parse::<u64>().ok()?;
     let pat = iter.next()?.parse::<u64>().ok()?;
@@ -56,6 +58,21 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn build_metadata_preserves_stable_update_comparisons() {
+        assert_eq!(
+            is_newer("0.166.0", "0.165.0+native-r26.20261028"),
+            Some(true)
+        );
+        assert_eq!(
+            is_newer("0.165.0", "0.165.0+native-r26.20261028"),
+            Some(false)
+        );
+        assert_eq!(is_newer("0.166.0+build.1", "0.165.0"), Some(true));
+        assert_eq!(is_newer("0.166.0-alpha.1+build.1", "0.165.0"), None);
+        assert_eq!(is_newer("0.166.0", "0.165.0-alpha.1+build.1"), None);
+    }
 
     #[test]
     fn extracts_version_from_latest_tag() {

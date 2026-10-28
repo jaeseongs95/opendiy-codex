@@ -293,6 +293,9 @@ pub struct McpServerRefreshParams {
     pub thread_id: Option<String>,
 }
 
+/// Preserve nullable/omitted reload params while giving schema export a valid type name.
+pub type NullableMcpServerRefreshParams = Option<McpServerRefreshParams>;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]

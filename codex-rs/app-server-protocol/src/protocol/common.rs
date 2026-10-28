@@ -1269,7 +1269,7 @@ client_request_definitions! {
     },
 
     McpServerRefresh => "config/mcpServer/reload" {
-        params: #[ts(optional = nullable)] #[serde(skip_serializing_if = "Option::is_none")] Option<v2::McpServerRefreshParams>,
+        params: #[ts(optional = nullable, as = "Option<v2::McpServerRefreshParams>")] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableMcpServerRefreshParams,
         serialization: global("mcp-registry"),
         response: v2::McpServerRefreshResponse,
     },

@@ -16,8 +16,6 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io;
-#[cfg(windows)]
-use std::os::windows::io::OwnedHandle;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -275,7 +273,7 @@ struct LocalProcessTerminator {
 #[cfg(windows)]
 enum LocalProcessTerminator {
     Job(codex_utils_pty::JobObject),
-    Process(OwnedHandle),
+    Child(crate::local_stdio_transport::LocalChild),
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -395,7 +393,7 @@ impl LocalStdioServerLauncher {
         };
         let (transport, stderr, process_id) = spawn_transport(command)?;
         #[cfg(windows)]
-        let (transport, stderr, process_id, job) = match job {
+        let (transport, stderr, _process_id, job) = match job {
             Some(job) => match process_id
                 .ok_or_else(|| io::Error::other("missing suspended MCP server process id"))
                 .and_then(|process_id| {
@@ -444,15 +442,14 @@ impl LocalStdioServerLauncher {
         #[cfg(windows)]
         let terminator = match job {
             Some(job) => Some(LocalProcessTerminator::Job(job)),
-            None => process_id.and_then(|process_id| {
-                match codex_utils_pty::JobObject::open_process_handle(process_id) {
-                    Ok(handle) => Some(LocalProcessTerminator::Process(handle)),
-                    Err(error) => {
-                        warn!("Windows MCP process handle unavailable: {error}");
-                        None
-                    }
-                }
-            }),
+            None => match &transport {
+                // The transport already owns the exact Child, including after process exit.
+                // Reopening its PID can fail or race reuse; use its kill/wait evidence instead.
+                StdioServerTransportInner::Local(transport) => Some(LocalProcessTerminator::Child(
+                    transport.child_termination_handle(),
+                )),
+                StdioServerTransportInner::Executor(_) => None,
+            },
         };
         #[cfg(not(windows))]
         let terminator = process_id.map(LocalProcessTerminator::new);
@@ -507,9 +504,7 @@ impl LocalProcessTerminator {
     fn is_terminated(&self) -> io::Result<bool> {
         match self {
             Self::Job(job) => job.is_empty(),
-            Self::Process(handle) => {
-                codex_utils_pty::JobObject::process_handle_is_terminated(handle)
-            }
+            Self::Child(child) => Ok(child.try_lock().is_ok_and(|child| child.id().is_none())),
         }
     }
     #[cfg(not(windows))]
@@ -548,10 +543,17 @@ impl LocalProcessTerminator {
     #[cfg(windows)]
     fn terminate(&self) {
         let result = match self {
-            Self::Job(job) => job.terminate(),
-            Self::Process(process_handle) => {
-                codex_utils_pty::JobObject::terminate_process_handle(process_handle)
+            Self::Child(child) => {
+                // Drop cannot await. Retain the same Child until its existing cleanup completes.
+                let child = Arc::clone(child);
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    std::mem::drop(runtime.spawn(async move {
+                        crate::local_stdio_transport::terminate_local_child(&child).await;
+                    }));
+                }
+                return;
             }
+            Self::Job(job) => job.terminate(),
         };
         if let Err(error) = result {
             warn!("Failed to terminate Windows MCP process: {error}");
@@ -608,6 +610,10 @@ impl StdioServerProcessHandle {
                     // captured handles survive and all callers await one fence.
                     let task = tokio::spawn(async move {
                             match &inner.kind {
+                                StdioServerProcessKind::Local(Some(LocalProcessTerminator::Child(child))) => {
+                                    crate::local_stdio_transport::terminate_local_child(child).await;
+                                    inner.terminated.store(true, Ordering::Release);
+                                }
                                 StdioServerProcessKind::Local(Some(terminator)) => {
                                     confirm_local_termination(|| terminator.is_terminated(), || terminator.terminate()).await;
                                     inner.terminated.store(true, Ordering::Release);
@@ -871,6 +877,66 @@ impl ExecutorStdioServerLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mcp_read_lifetime_jobless_child_proves_exit_without_pid_reopen() -> anyhow::Result<()>
+    {
+        const TEST: &str = "stdio_server_launcher::tests::mcp_read_lifetime_jobless_child_proves_exit_without_pid_reopen";
+        const PHASE: &str = "CODEX_TEST_JOBLESS_MCP_CHILD";
+        match std::env::var(PHASE).as_deref() {
+            Ok("hold") => {
+                std::thread::sleep(Duration::from_secs(30));
+                return Ok(());
+            }
+            Ok("exit") => return Ok(()),
+            _ => {}
+        }
+        for phase in ["hold", "exit"] {
+            let cwd = tempfile::tempdir()?;
+            let command = StdioServerCommand::new(
+                std::env::current_exe()?.into_os_string(),
+                vec!["--exact".into(), TEST.into(), "--nocapture".into()],
+                Some(HashMap::from([(PHASE.into(), phase.into())])),
+                Vec::new(),
+                None,
+                McpProtocolMode::Legacy,
+            );
+            let cwd_path = cwd.path().to_path_buf();
+            let transport = tokio::task::spawn_blocking(move || {
+                LocalStdioServerLauncher::launch_server_with_job(
+                    command,
+                    cwd_path,
+                    false,
+                    Err(io::Error::other("injected optional job creation failure")),
+                )
+            })
+            .await??;
+            let process = transport.process_handle();
+            let StdioServerProcessKind::Local(Some(LocalProcessTerminator::Child(child))) =
+                &process.inner.kind
+            else {
+                panic!("jobless transport must retain its exact Child without reopening a PID");
+            };
+            let child = Arc::clone(child);
+            if phase == "exit" {
+                tokio::time::timeout(Duration::from_secs(10), child.lock().await.wait()).await??;
+                assert!(
+                    child.lock().await.id().is_none(),
+                    "waited Child must expose no live PID"
+                );
+            }
+            tokio::time::timeout(Duration::from_secs(5), process.terminate()).await??;
+            assert!(
+                child.lock().await.id().is_none(),
+                "terminal cleanup must reap the same Child"
+            );
+            // A second owner joins the completed cleanup; it cannot start another child.
+            tokio::time::timeout(Duration::from_secs(1), process.clone().terminate()).await??;
+            drop(transport);
+        }
+        Ok(())
+    }
 
     #[cfg(windows)]
     #[tokio::test]

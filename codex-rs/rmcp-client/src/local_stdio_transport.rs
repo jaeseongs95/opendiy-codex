@@ -32,8 +32,16 @@ pub(super) type LocalStdioStdout = ChildStdout;
 #[cfg(not(windows))]
 pub(super) type LocalStdioStderr = ChildStderr;
 
+#[cfg(windows)]
+pub(super) type LocalChild = std::sync::Arc<tokio::sync::Mutex<Box<Child>>>;
+
 pub(super) struct LocalStdioTransport {
+    #[cfg(windows)]
+    child: LocalChild,
+    #[cfg(not(windows))]
     child: Box<Child>,
+    // Spawn identity only; liveness is established by the exact Child's wait result.
+    process_id: Option<u32>,
     transport: StdioTransport,
 }
 
@@ -75,9 +83,15 @@ impl LocalStdioTransport {
                 StdioTransport::V20260728(BoundedStdioTransport::new(stdin, stdout, program_name))
             }
         };
+        let process_id = child.id();
+        #[cfg(windows)]
+        let child = std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(child)));
+        #[cfg(not(windows))]
+        let child = Box::new(child);
         Ok((
             Self {
-                child: Box::new(child),
+                child,
+                process_id,
                 transport,
             },
             stderr,
@@ -85,27 +99,36 @@ impl LocalStdioTransport {
     }
 
     pub(super) fn id(&self) -> Option<u32> {
-        self.child.id()
+        self.process_id
+    }
+
+    #[cfg(windows)]
+    pub(super) fn child_termination_handle(&self) -> LocalChild {
+        std::sync::Arc::clone(&self.child)
     }
 
     #[cfg(windows)]
     pub(super) async fn terminate_failed_launch(&mut self) {
-        // Retain Tokio's exact child handle across a post-spawn launcher error.
-        // Dropping a suspended child only requests an asynchronous kill.
-        loop {
-            match self.child.kill().await {
-                Ok(()) => return,
-                Err(error) => {
-                    tracing::warn!("Failed MCP launch cleanup remains unconfirmed: {error}")
-                }
+        terminate_local_child(&self.child).await;
+    }
+}
+
+#[cfg(windows)]
+pub(super) async fn terminate_local_child(child: &LocalChild) {
+    let mut child = child.lock().await;
+    // Retain Tokio's exact child handle across a post-spawn launcher error.
+    // Dropping a suspended child only requests an asynchronous kill.
+    loop {
+        match child.kill().await {
+            Ok(()) => return,
+            Err(error) => {
+                tracing::warn!("Failed MCP launch cleanup remains unconfirmed: {error}")
             }
-            if let Ok(Ok(_)) =
-                tokio::time::timeout(Duration::from_millis(50), self.child.wait()).await
-            {
-                return;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(50), child.wait()).await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -134,9 +157,13 @@ impl Transport<RoleClient> for LocalStdioTransport {
             StdioTransport::Legacy(transport) => transport.close().await?,
             StdioTransport::V20260728(transport) => transport.close().await?,
         }
-        match tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await {
+        #[cfg(windows)]
+        let mut child = self.child.lock().await;
+        #[cfg(not(windows))]
+        let child = &mut self.child;
+        match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
             Ok(status) => status.map(|_| ()),
-            Err(_) => self.child.kill().await,
+            Err(_) => child.kill().await,
         }
     }
 }

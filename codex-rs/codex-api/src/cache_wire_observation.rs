@@ -95,6 +95,15 @@ fn fingerprint(value: &(impl Serialize + ?Sized)) -> Fingerprint {
     }
 }
 
+// Layer filters compose with OR: feedback may enable this target independently.
+// Check the process opt-in before any serialization, hash work, or ordinal allocation.
+fn wire_diagnostics_opted_in() -> bool {
+    matches!(
+        std::env::var("APP_CACHE_WIRE_DIAGNOSTICS").as_deref(),
+        Ok("1")
+    )
+}
+
 pub(crate) struct WireObservation {
     ordinal: u64,
     terminal: bool,
@@ -103,6 +112,13 @@ pub(crate) struct WireObservation {
 
 impl WireObservation {
     pub(crate) fn http(request: &ResponsesApiRequest) -> Option<Self> {
+        if !wire_diagnostics_opted_in() {
+            return None;
+        }
+        Self::http_opted_in(request)
+    }
+
+    fn http_opted_in(request: &ResponsesApiRequest) -> Option<Self> {
         if !tracing::enabled!(target: "codex_api::prompt_cache_wire", tracing::Level::DEBUG) {
             return None;
         }
@@ -136,6 +152,16 @@ impl WireObservation {
     }
 
     pub(crate) fn websocket(
+        request: &ResponseCreateWsRequest<'_>,
+        connection_reused: bool,
+    ) -> Option<Self> {
+        if !wire_diagnostics_opted_in() {
+            return None;
+        }
+        Self::websocket_opted_in(request, connection_reused)
+    }
+
+    fn websocket_opted_in(
         request: &ResponseCreateWsRequest<'_>,
         connection_reused: bool,
     ) -> Option<Self> {
@@ -390,10 +416,60 @@ mod tests {
         let capture = Capture::default();
         let events = Arc::clone(&capture.0);
         tracing::subscriber::with_default(capture, || {
-            drop(WireObservation::http(request));
+            drop(WireObservation::http_opted_in(request));
         });
         let fields = events.lock().unwrap()[0].clone();
         fields
+    }
+
+    #[test]
+    fn wire_process_opt_in_controls_work_before_layer_filters() {
+        const CHILD: &str = "CODEX_WIRE_OPTIN_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let expected = std::env::var("APP_CACHE_WIRE_DIAGNOSTICS").as_deref() == Ok("1");
+            tracing::subscriber::with_default(Capture::default(), || {
+                // This always-enabled subscriber reproduces the feedback layer's target admission.
+                assert!(
+                    tracing::enabled!(target: "codex_api::prompt_cache_wire", tracing::Level::DEBUG)
+                );
+                let before = OBSERVATION_WORK.with(std::cell::Cell::get);
+                let request = fixture();
+                assert_eq!(WireObservation::http(&request).is_some(), expected);
+                assert_eq!(
+                    WireObservation::websocket(&ResponseCreateWsRequest::from(&request), false)
+                        .is_some(),
+                    expected
+                );
+                let after = OBSERVATION_WORK.with(std::cell::Cell::get);
+                if expected {
+                    assert!(after.0 > before.0 && after.1 > before.1);
+                } else {
+                    assert_eq!(
+                        after, before,
+                        "opt-out must perform no hash or ordinal work"
+                    );
+                }
+            });
+            return;
+        }
+        for value in [None, Some("0"), Some("true"), Some("1")] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "cache_wire_observation::tests::wire_process_opt_in_controls_work_before_layer_filters", "--nocapture"]);
+            command.env(CHILD, "1");
+            if let Some(value) = value {
+                command.env("APP_CACHE_WIRE_DIAGNOSTICS", value);
+            } else {
+                command.env_remove("APP_CACHE_WIRE_DIAGNOSTICS");
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "opt-in {value:?}: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        }
     }
 
     #[test]
@@ -472,14 +548,14 @@ mod tests {
         let capture = Capture::default();
         let events = Arc::clone(&capture.0);
         tracing::subscriber::with_default(capture, || {
-            drop(WireObservation::http(&request));
+            drop(WireObservation::http_opted_in(&request));
             let ws = ResponsesWsRequest::ResponseCreate(ResponseCreateWsRequest {
                 previous_response_id: Some("resp_previous".to_string()),
                 ..ResponseCreateWsRequest::from(&request)
             });
             let before = serde_json::to_string(&ws).unwrap();
             let ResponsesWsRequest::ResponseCreate(ws_request) = &ws;
-            drop(WireObservation::websocket(ws_request, true));
+            drop(WireObservation::websocket_opted_in(ws_request, true));
             let after = serde_json::to_string(&ws).unwrap();
             assert_eq!(before, after);
         });
@@ -500,10 +576,13 @@ mod tests {
         assert_eq!(http_before, EncodedJsonBody::encode(&request).unwrap());
         tracing::subscriber::with_default(tracing::subscriber::NoSubscriber::default(), || {
             let before = OBSERVATION_WORK.with(std::cell::Cell::get);
-            assert!(WireObservation::http(&request).is_none());
+            assert!(WireObservation::http_opted_in(&request).is_none());
             assert!(
-                WireObservation::websocket(&ResponseCreateWsRequest::from(&request), false)
-                    .is_none()
+                WireObservation::websocket_opted_in(
+                    &ResponseCreateWsRequest::from(&request),
+                    false
+                )
+                .is_none()
             );
             assert_eq!(OBSERVATION_WORK.with(std::cell::Cell::get), before);
         });
@@ -583,8 +662,9 @@ mod tests {
         let capture = Capture::default();
         let events = Arc::clone(&capture.0);
         let dispatch = tracing::Dispatch::new(capture);
-        let observation =
-            tracing::dispatcher::with_default(&dispatch, || WireObservation::http(&fixture()));
+        let observation = tracing::dispatcher::with_default(&dispatch, || {
+            WireObservation::http_opted_in(&fixture())
+        });
         let ordinal = observation.as_ref().unwrap().ordinal.to_string();
         let bytes = futures::stream::iter(vec![Ok(bytes::Bytes::from_static(
             b"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_task\",\"usage\":{\"input_tokens\":2048,\"output_tokens\":1,\"total_tokens\":2049}}}\n\n",
