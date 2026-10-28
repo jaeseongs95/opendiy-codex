@@ -14,7 +14,7 @@ The matching official helper resources were copied into a separate portable pack
 
 ## Actual executable checks
 
-These checks ran against the final executable using disposable homes, synthetic responses and loopback servers, without a real OpenAI account:
+These checks ran against the final executable using disposable homes and synthetic model responses, without a real OpenAI account. Model API requests used loopback servers. The initial runs also attempted unauthenticated featured-plugin requests and curated-plugin synchronization on external services; they were not completely offline application tests:
 
 | Boundary | Observed result |
 | --- | --- |
@@ -28,6 +28,8 @@ These checks ran against the final executable using disposable homes, synthetic 
 | Process-local scheduling | Original-conversation registration and repeated loopback execution; pause/list/remove; normal CLI exit |
 
 The TUI used the packaged launcher with read-only sandbox and approval set to never. Initial onboarding wrote its original screen-reader/model-notice preferences before the stable configuration comparison; this was not counted as a Fast-mode write. The reload smoke did not assert that real external MCP servers were ready.
+
+A later test invoked the actual new desktop CMD entry point with inherited Codex/OpenAI environment overrides removed from the child process. Plugins were disabled only in that disposable test configuration. All three capacity scenarios passed again with the same request counts and exit codes. Captured requests reported Originator `codex_exec` and User-Agent `codex_exec/0.165.0+native-r26.20261028`; the earlier runs inherited a Desktop originator override. The new launcher also returned the exact patched version. The existing desktop-app shortcut was preserved.
 
 Prior compiled Windows coverage ran 45 targeted groups with 353 overlapping test executions. That is not 353 unique tests or a full workspace run. Those tests cover additional cleanup, queue/cancel, background-process, keyboard and scheduler races; see [testing methods and exclusions](TESTING.md).
 
@@ -43,7 +45,7 @@ All four read/comparison tests passed; the existing write-fixtures test remained
 
 ## Limits and pending acceptance
 
-At this checkpoint, designated final artifact review and desktop entry-point installation were pending. Raw runtime/build receipts and operational logs remain private. No installable binary or proprietary desktop asset is included here.
+The designated external reviewer gave a scoped pass for artifact identity, package contents and the public schema correction, with no blocking findings in that scope. Desktop entry-point post-installation review was still pending at this documentation checkpoint. A three-second negative test assertion remains a non-blocking bounded observation, not a general timing guarantee. Raw runtime/build receipts and operational logs remain private. No installable binary or proprietary desktop asset is included here.
 
 The full public CLI release build, Linux checkout, real OpenAI service behavior and sustained user workloads have not been validated by these checks. A short synthetic test cannot establish complete resolution of CLOSE_WAIT growth, memory retention or desktop typing/navigation latency. No prompt-cache hit-rate improvement is claimed.
 
