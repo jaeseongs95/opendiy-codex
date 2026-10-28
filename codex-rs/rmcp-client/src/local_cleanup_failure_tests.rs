@@ -337,3 +337,55 @@ async fn concurrent_last_handles_start_one_retained_cleanup() {
     ensure_launch_not_fenced(key).await.unwrap();
     assert!(weak.upgrade().is_none());
 }
+
+#[tokio::test]
+async fn actual_launch_joins_pending_cleanup_before_admitting_next_generation() {
+    let cwd = std::env::current_dir().unwrap();
+    let program = std::env::current_exe().unwrap();
+    let args = vec!["--help".into()];
+    let fixture_env = Some(HashMap::from([(
+        "CODEX_TEST_PENDING_OWNER_PROBE".into(),
+        "unique-fixture".into(),
+    )]));
+    let env = create_env_for_mcp_server(fixture_env.clone(), &[]).unwrap();
+    let resolved = program_resolver::resolve(program.clone().into_os_string(), &env, &cwd).unwrap();
+    let key = local_launch_key(Path::new(&resolved), &args, &cwd, &env);
+    let fault = Arc::new(CleanupFault::default());
+    let owner = fault_owner(key, Arc::clone(&fault));
+    let StdioServerProcessKind::Local(Some(LocalProcessTerminator::Child(child))) =
+        &owner.inner.kind
+    else {
+        unreachable!();
+    };
+    let child_lock = child.lock().await;
+    // Hold the actual Child lock so cleanup is in progress, not yet Unconfirmed.
+    let cleanup = owner.start_local_cleanup();
+    let command = StdioServerCommand::new(
+        program.into_os_string(),
+        args,
+        fixture_env,
+        Vec::new(),
+        None,
+        McpProtocolMode::Legacy,
+    );
+    let launch = LocalStdioServerLauncher::new(cwd).launch(command);
+    tokio::pin!(launch);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut launch)
+            .await
+            .is_err(),
+        "reload must wait for pending cleanup instead of failing or spawning"
+    );
+    assert_eq!(spawn_counts().lock().unwrap().get(&key).copied(), None);
+    fault.confirmed.store(true, Ordering::SeqCst);
+    drop(child_lock);
+    let mut transport = tokio::time::timeout(Duration::from_secs(5), launch)
+        .await
+        .unwrap()
+        .expect("ordinary completed cleanup permits reload");
+    cleanup.await.unwrap();
+    assert!(owner.inner.terminated.load(Ordering::Acquire));
+    assert!(!retained_local_owners().lock().unwrap().contains_key(&key));
+    assert_eq!(spawn_counts().lock().unwrap().get(&key).copied(), Some(1));
+    transport.close().await.unwrap();
+}

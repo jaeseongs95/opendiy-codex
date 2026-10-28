@@ -364,8 +364,9 @@ impl ManagedClientStartup {
             .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         let cancel_token_for_fut = cancel_token;
         let startup = async move {
-            // Keep creation owned across timeout/cancel. Stdio creation may be
+            // Keep local Windows creation owned across timeout/cancel: it may be
             // running in spawn_blocking and cannot safely be detached on drop.
+            // Executor creation remains cancellable under its startup deadline.
             let mut creation: Option<
                 Shared<BoxFuture<'static, Result<Arc<RmcpClient>, StartupOutcomeError>>>,
             > = None;
@@ -381,6 +382,7 @@ impl ManagedClientStartup {
                 let creating_name = server_name.clone();
                 let creating_server = server.clone();
                 let owns_creation = cfg!(windows)
+                    && server.config().is_local_environment()
                     && matches!(
                         server.config().transport,
                         McpServerTransportConfig::Stdio { .. }
@@ -1531,6 +1533,75 @@ mod tests {
     use rmcp::model::JsonObject;
     use rmcp::model::MetaObject;
     use rmcp::transport::auth::AuthError;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn executor_stdio_creation_remains_bounded_by_timeout_and_cancellation()
+    -> anyhow::Result<()> {
+        // A local TCP peer deliberately never completes the executor handshake.
+        // This exercises the real remote ExecBackend::start without any external service.
+        for cancel in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let environment = Arc::new(Environment::create_for_tests(Some(format!(
+                "ws://{}",
+                listener.local_addr()?
+            )))?);
+            let mut config: McpServerConfig = serde_json::from_value(serde_json::json!({
+                "command": "never-started-fixture",
+                "environment_id": "executor-fixture"
+            }))?;
+            config.startup_timeout_sec = Some(Duration::from_millis(500));
+            let cancel_token = CancellationToken::new();
+            let startup_complete = Arc::new(AtomicBool::new(false));
+            let startup = ManagedClientStartup {
+                ema_auth: None,
+                originator: AuthStorageOriginator::current(),
+                server_name: "executor-fixture".into(),
+                server: EffectiveMcpServer::from_host_config(config),
+                store_mode: OAuthCredentialsStoreMode::File,
+                keyring_backend_kind: AuthKeyringBackendKind::default(),
+                oauth_refresh_mode: McpOAuthRefreshMode::default(),
+                tx_event: None,
+                elicitation_requests: ElicitationRequestManager::default(),
+                codex_apps_tools_cache_context: None,
+                tool_catalog_cache_context: None,
+                runtime_context: McpRuntimeContext::new(
+                    Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+                    std::env::current_dir()?,
+                ),
+                resolved_environment: Ok(Some(environment)),
+                runtime_auth_provider: None,
+                client_elicitation_capability: ElicitationCapability::default(),
+                client_mcp_extensions: ClientMcpExtensions::default(),
+                auth_changes: None,
+                protocol_mode: McpProtocolMode::Legacy,
+                catalog_item_limit: 100,
+                cancel_token: cancel_token.clone(),
+                startup_complete: Arc::clone(&startup_complete),
+                server_capabilities: Arc::default(),
+            };
+            let mut task = tokio::spawn(startup.start());
+            let (peer, _) =
+                tokio::time::timeout(Duration::from_secs(5), listener.accept()).await??;
+            if cancel {
+                cancel_token.cancel();
+            }
+            let result = tokio::time::timeout(Duration::from_secs(2), &mut task).await;
+            task.abort();
+            drop(peer);
+            let outcome = result.expect("remote creation must retain its startup deadline")?;
+            if cancel {
+                assert!(matches!(outcome, Err(StartupOutcomeError::Cancelled)));
+            } else {
+                assert!(
+                    matches!(outcome, Err(StartupOutcomeError::Failed { error, .. })
+                    if error.contains("MCP client startup timed out"))
+                );
+            }
+            assert!(startup_complete.load(Ordering::Acquire));
+        }
+        Ok(())
+    }
 
     #[test]
     fn startup_outcome_error_identifies_authentication_required() {

@@ -299,8 +299,9 @@ pub fn is_termination_unconfirmed(error: &anyhow::Error) -> bool {
 #[cfg(windows)]
 type LocalLaunchKey = [u8; 32];
 
-// Only failed cleanup generations are retained. The key is never logged, and
-// includes the effective command rather than the configurable server alias.
+// Cleanup generations are retained until exact exit confirmation. Admission joins
+// pending cleanup and rejects failed cleanup. The key is never logged and includes
+// the effective command rather than the configurable server alias.
 #[cfg(windows)]
 fn retained_local_owners()
 -> &'static StdMutex<HashMap<LocalLaunchKey, Vec<Arc<StdioServerProcessHandleInner>>>> {
@@ -353,20 +354,25 @@ async fn release_confirmed_owner(inner: &Arc<StdioServerProcessHandleInner>) -> 
         _ => false,
     };
     if confirmed {
-        inner.terminated.store(true, Ordering::Release);
-        if let Some(key) = inner.local_launch_key {
-            let mut owners = retained_local_owners()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(generations) = owners.get_mut(&key) {
-                generations.retain(|owner| !Arc::ptr_eq(owner, inner));
-                if generations.is_empty() {
-                    owners.remove(&key);
-                }
+        release_local_owner(inner);
+    }
+    confirmed
+}
+
+#[cfg(windows)]
+fn release_local_owner(inner: &Arc<StdioServerProcessHandleInner>) {
+    inner.terminated.store(true, Ordering::Release);
+    if let Some(key) = inner.local_launch_key {
+        let mut owners = retained_local_owners()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(generations) = owners.get_mut(&key) {
+            generations.retain(|owner| !Arc::ptr_eq(owner, inner));
+            if generations.is_empty() {
+                owners.remove(&key);
             }
         }
     }
-    confirmed
 }
 
 #[cfg(windows)]
@@ -378,8 +384,21 @@ async fn ensure_launch_not_fenced(key: LocalLaunchKey) -> io::Result<()> {
         .cloned()
         .unwrap_or_default();
     for owner in owners {
-        if !release_confirmed_owner(&owner).await {
-            return Err(unconfirmed_termination());
+        if owner.terminated.load(Ordering::Acquire) || release_confirmed_owner(&owner).await {
+            continue;
+        }
+        // A live cleanup is not a failed cleanup. Join the already bounded task;
+        // its retained owner survives cancellation of this admission waiter.
+        let cleanup = owner
+            .local_cleanup
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        match cleanup {
+            Some(cleanup) => cleanup
+                .await
+                .map_err(|error| unconfirmed_termination_with_detail(error.to_string()))?,
+            None => return Err(unconfirmed_termination()),
         }
     }
     Ok(())
@@ -802,7 +821,9 @@ impl StdioServerProcessHandle {
                 if let Some(stderr_reader) = &inner.stderr_reader { stderr_reader.send_replace(()); }
                 match result {
                     Ok(()) => {
-                        release_confirmed_owner(&inner).await;
+                        // terminate_confirmed already waited for this exact Child
+                        // (and an empty Job). Do not lose that evidence to a racing probe.
+                        release_local_owner(&inner);
                         Ok(())
                     }
                     Err(error) => {
@@ -1157,6 +1178,66 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
+    async fn jobless_close_and_drop_reap_child_that_ignores_stdin_eof() -> anyhow::Result<()> {
+        const TEST: &str = "stdio_server_launcher::tests::jobless_close_and_drop_reap_child_that_ignores_stdin_eof";
+        const PHASE: &str = "CODEX_TEST_JOBLESS_CLOSE_DROP";
+        if std::env::var_os(PHASE).is_some() {
+            std::thread::sleep(Duration::from_secs(30));
+            return Ok(());
+        }
+        for explicit_close in [false, true] {
+            let cwd = tempfile::tempdir()?;
+            let command = StdioServerCommand::new(
+                std::env::current_exe()?.into_os_string(),
+                vec!["--exact".into(), TEST.into(), "--nocapture".into()],
+                Some(HashMap::from([(PHASE.into(), "hold".into())])),
+                Vec::new(),
+                None,
+                McpProtocolMode::Legacy,
+            );
+            let cwd_path = cwd.path().to_path_buf();
+            let mut transport = tokio::task::spawn_blocking(move || {
+                LocalStdioServerLauncher::launch_server_with_job(
+                    command,
+                    cwd_path,
+                    false,
+                    Err(io::Error::other("injected optional job creation failure")),
+                )
+            })
+            .await??;
+            let process = transport.process_handle();
+            let StdioServerProcessKind::Local(Some(LocalProcessTerminator::Child(child))) =
+                &process.inner.kind
+            else {
+                panic!("jobless fixture requires its exact Child");
+            };
+            let child = Arc::clone(child);
+            let key = process.inner.local_launch_key.expect("local launch key");
+            if explicit_close {
+                tokio::time::timeout(Duration::from_secs(4), async {
+                    let (closed, terminated) = tokio::join!(transport.close(), process.terminate());
+                    closed?;
+                    terminated
+                })
+                .await??;
+                assert!(process.inner.terminated.load(Ordering::Acquire));
+            }
+            drop(transport);
+            drop(process);
+            tokio::time::timeout(Duration::from_secs(4), async {
+                while child.lock().await.id().is_some() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                ensure_launch_not_fenced(key).await
+            })
+            .await??;
+            assert!(!retained_local_owners().lock().unwrap().contains_key(&key));
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
     async fn mcp_read_lifetime_required_job_never_runs_an_uncontained_command() -> anyhow::Result<()>
     {
         use std::os::windows::io::AsRawHandle;
@@ -1200,12 +1281,17 @@ mod tests {
                 McpProtocolMode::Legacy,
             )
         };
-        let result = LocalStdioServerLauncher::launch_server_with_job(
-            make_command(),
-            temp.path().to_path_buf(),
-            true,
-            Err(io::Error::other("forced job creation failure")),
-        );
+        let command = make_command();
+        let cwd = temp.path().to_path_buf();
+        let result = tokio::task::spawn_blocking(move || {
+            LocalStdioServerLauncher::launch_server_with_job(
+                command,
+                cwd,
+                true,
+                Err(io::Error::other("forced job creation failure")),
+            )
+        })
+        .await?;
         assert!(
             result.is_err(),
             "required creation failure must fail before spawn"
