@@ -2,3 +2,6 @@ codex-rs/app-server-protocol/schema/** linguist-generated
 codex-rs/hooks/schema/generated/** linguist-generated
 third_party/voice/sources.json text eol=lf
 patches/v8_array_sort_elements_kind.patch text eol=lf
+codex-rs/tui/src/cron.rs text eol=lf
+codex-rs/tui/src/app/cron_jobs.rs text eol=lf
+codex-rs/tui/src/app/tests/plugin_reload_tests.rs text eol=lf
