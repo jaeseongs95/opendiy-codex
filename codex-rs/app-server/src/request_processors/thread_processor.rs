@@ -855,8 +855,7 @@ impl ThreadRequestProcessor {
     pub(crate) async fn thread_background_terminals_yield(
         &self,
         params: codex_app_server_protocol::ThreadBackgroundTerminalsYieldParams,
-    ) -> Result<codex_app_server_protocol::ThreadBackgroundTerminalsYieldResponse, JSONRPCErrorError>
-    {
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         let process_id = params
             .process_id
             .parse::<i32>()
@@ -866,7 +865,9 @@ impl ThreadRequestProcessor {
             .request_background_terminal_yield(&params.item_id, process_id)
             .await
             .map_err(invalid_request)?;
-        Ok(codex_app_server_protocol::ThreadBackgroundTerminalsYieldResponse {})
+        Ok(Some(
+            codex_app_server_protocol::ThreadBackgroundTerminalsYieldResponse {}.into(),
+        ))
     }
 
     pub(crate) async fn thread_background_terminals_terminate(
