@@ -1,4 +1,5 @@
 use crate::auth::SharedAuthProvider;
+use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseEvent;
 use crate::common::ResponseInterrupt;
 use crate::common::ResponseStream;
@@ -279,6 +280,7 @@ impl ResponsesWebsocketConnection {
             connection_reused,
         };
         let request_text = serialize_websocket_request(&request)?;
+        let observation = WireObservation::websocket(ws_request, connection_reused);
 
         let current_span = Span::current();
         tokio::spawn(
@@ -349,6 +351,7 @@ impl ResponsesWebsocketConnection {
                             &timing_log_context,
                             interrupt.clone(),
                             &mut completion,
+                            observation,
                         ) => result,
                         () = &mut interrupt_timeout => Err(ApiError::Stream(
                             "timed out draining interrupted response".into(),
@@ -716,6 +719,7 @@ async fn run_websocket_response_stream(
     timing_log_context: &ResponsesWebsocketTimingLogContext,
     interrupt: impl Future<Output = ResponseInterrupt> + Clone + Unpin,
     completion: &mut Option<ResponseEvent>,
+    mut observation: Option<WireObservation>,
 ) -> Result<(), ApiError> {
     let mut last_server_model: Option<String> = None;
     let mut safety_buffering_treatment = SafetyBufferingTreatment::default();
@@ -726,14 +730,22 @@ async fn run_websocket_response_stream(
         // No request reached the backend, so this socket is still reusable.
         return Ok(());
     }
-    send_websocket_request(
+    let send_result = send_websocket_request(
         ws_stream,
         request_text,
         idle_timeout,
         telemetry.as_ref(),
         timing_log_context.connection_reused,
     )
-    .await?;
+    .await;
+    if let Some(observation) = observation.as_mut() {
+        observation.stage(if send_result.is_ok() {
+            "sent"
+        } else {
+            "send_error"
+        });
+    }
+    send_result?;
 
     // A response owns its interrupt, and create must be sent before interrupt.
     let mut interrupt_request = interrupt.clone().fuse();
@@ -798,6 +810,9 @@ async fn run_websocket_response_stream(
                         continue;
                     }
                 };
+                if let Some(observation) = observation.as_mut() {
+                    observation.response(event.kind(), event.response());
+                }
                 if matches!(interruption, Some(ResponseInterrupt::Cancel { .. }))
                     && matches!(
                         event.kind(),

@@ -186,6 +186,20 @@ impl Command {
         self
     }
 
+    /// Supply an already connected output pipe instead of a blocking anonymous pipe.
+    #[cfg(windows)]
+    pub fn stdout_file(&mut self, file: std::fs::File) -> &mut Self {
+        self.inner.stdout(TokioStdio::from(file));
+        self
+    }
+
+    /// Supply an already connected diagnostic pipe without changing child ownership.
+    #[cfg(windows)]
+    pub fn stderr_file(&mut self, file: std::fs::File) -> &mut Self {
+        self.inner.stderr(TokioStdio::from(file));
+        self
+    }
+
     pub fn descriptor_policy(&mut self, policy: DescriptorPolicy) -> &mut Self {
         self.descriptor_policy = policy;
         self

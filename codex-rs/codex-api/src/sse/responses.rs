@@ -1,4 +1,5 @@
 use super::responses_error::parse_failed_response;
+use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseEvent;
 use crate::common::ResponseStream;
 use crate::common::SafetyBuffering;
@@ -29,6 +30,9 @@ use tokio::time::timeout;
 use tracing::debug;
 use tracing::trace;
 
+#[path = "cache_observation.rs"]
+mod cache_observation;
+
 const X_REASONING_INCLUDED_HEADER: &str = "x-reasoning-included";
 const X_CODEX_TURN_STATE_HEADER: &str = "x-codex-turn-state";
 const OPENAI_MODEL_HEADER: &str = "openai-model";
@@ -40,6 +44,16 @@ pub fn spawn_response_stream(
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
     turn_state: Option<Arc<OnceLock<String>>>,
+) -> ResponseStream {
+    spawn_response_stream_observed(stream_response, idle_timeout, telemetry, turn_state, None)
+}
+
+pub(crate) fn spawn_response_stream_observed(
+    stream_response: StreamResponse,
+    idle_timeout: Duration,
+    telemetry: Option<Arc<dyn SseTelemetry>>,
+    turn_state: Option<Arc<OnceLock<String>>>,
+    observation: Option<WireObservation>,
 ) -> ResponseStream {
     let rate_limit_snapshots = parse_all_rate_limits(&stream_response.headers);
     let models_etag = stream_response
@@ -93,6 +107,7 @@ pub fn spawn_response_stream(
             idle_timeout,
             telemetry,
             safety_buffering_treatment,
+            observation,
         )
         .await;
     });
@@ -183,6 +198,10 @@ where
 }
 
 impl ResponsesStreamEvent {
+    pub(crate) fn response(&self) -> Option<&Value> {
+        self.response.as_ref()
+    }
+
     pub fn kind(&self) -> &str {
         &self.kind
     }
@@ -453,6 +472,9 @@ pub fn process_responses_event(
                 }
             }
             if let Some(resp_val) = event.response {
+                if !interrupted {
+                    cache_observation::observe(&resp_val);
+                }
                 let metadata = resp_val
                     .get("usage")
                     .filter(|usage| !usage.is_null())
@@ -536,6 +558,7 @@ pub async fn process_sse(
         idle_timeout,
         telemetry,
         SafetyBufferingTreatment::default(),
+        None,
     )
     .await;
 }
@@ -546,6 +569,7 @@ async fn process_sse_with_treatment(
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
     safety_buffering_treatment: SafetyBufferingTreatment,
+    mut observation: Option<WireObservation>,
 ) {
     let mut stream = stream.eventsource();
     let mut response_error: Option<ApiError> = None;
@@ -604,6 +628,9 @@ async fn process_sse_with_treatment(
                 continue;
             }
         };
+        if let Some(observation) = observation.as_mut() {
+            observation.response(event.kind(), event.response.as_ref());
+        }
         let model_verifications = event.model_verifications();
         let turn_moderation_metadata = event.turn_moderation_metadata();
         let safety_buffering = event.safety_buffering(&safety_buffering_treatment);

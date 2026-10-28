@@ -904,6 +904,7 @@ pub struct McpRuntimeContext {
     ready_environments: HashMap<String, Arc<Environment>>,
     local_process_cwd: PathBuf,
     local_http_client: Arc<dyn HttpClient>,
+    require_owned_local_job: bool,
 }
 
 /// Applies the local HTTP headers helper configured for an MCP server.
@@ -952,6 +953,7 @@ impl McpRuntimeContext {
             ready_environments: HashMap::new(),
             local_process_cwd,
             local_http_client,
+            require_owned_local_job: false,
         }
     }
 
@@ -964,6 +966,15 @@ impl McpRuntimeContext {
         self.environment_selections = environment_selections;
         self.ready_environments = ready_environments;
         self
+    }
+
+    pub(crate) fn with_required_owned_local_job(mut self) -> Self {
+        self.require_owned_local_job = cfg!(windows);
+        self
+    }
+
+    pub(crate) fn requires_owned_local_job(&self) -> bool {
+        self.require_owned_local_job
     }
 
     pub(crate) fn local_process_cwd(&self) -> PathBuf {

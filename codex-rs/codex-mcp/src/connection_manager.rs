@@ -1117,9 +1117,8 @@ impl McpConnectionSet {
             .collect::<Vec<_>>();
         // Keep cleanup alive if an interrupt cancels the refresh that requested it.
         let shutdown_task = tokio::spawn(async move {
-            for connection in connections {
-                connection.shutdown().await;
-            }
+            futures::future::join_all(connections.iter().map(|connection| connection.shutdown()))
+                .await;
         });
         if let Err(error) = shutdown_task.await {
             warn!("MCP client shutdown task failed: {error}");

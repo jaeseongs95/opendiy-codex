@@ -22,6 +22,8 @@ use tracing::warn;
 
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+const MAX_CAPACITY_RETRIES: u64 = 5;
+const CAPACITY_RETRY_WINDOW: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ResponsesStreamRequest {
@@ -33,6 +35,9 @@ pub(crate) struct ResponsesStreamRetryState {
     retries: u64,
     connection_retries: u64,
     connection_retry_delay: Duration,
+    capacity_retries: u64,
+    capacity_started_at: Option<Instant>,
+    capacity_auth_owner: Option<u64>,
 }
 
 impl Default for ResponsesStreamRetryState {
@@ -41,6 +46,18 @@ impl Default for ResponsesStreamRetryState {
             retries: 0,
             connection_retries: 0,
             connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
+            capacity_retries: 0,
+            capacity_started_at: None,
+            capacity_auth_owner: None,
+        }
+    }
+}
+
+impl ResponsesStreamRetryState {
+    pub(crate) fn for_sampling(auth_owner: Option<u64>) -> Self {
+        Self {
+            capacity_auth_owner: auth_owner,
+            ..Self::default()
         }
     }
 }
@@ -50,6 +67,42 @@ impl Default for ResponsesStreamRetryState {
 pub(crate) struct ExhaustedResponseRetry {
     pub(crate) turn_id: String,
     pub(crate) retry_at: Option<tokio::time::Instant>,
+}
+
+pub(crate) fn exhausted_response_retry(
+    sess: &Session,
+    turn_context: &TurnContext,
+    err: CodexErr,
+) -> CodexErr {
+    sess.services
+        .thread_extension_data
+        .insert(ExhaustedResponseRetry {
+            turn_id: turn_context.sub_id.clone(),
+            retry_at: err.retry_after().map(RetryAfter::deadline),
+        });
+    err
+}
+
+/// A capacity retry belongs to the account that admitted the original request.
+/// `None` leaves ordinary sampling's existing ownership behavior unchanged.
+pub(crate) async fn capacity_auth_owner_changed(sess: &Session, owner: Option<Option<u64>>) {
+    let Some(owner) = owner else {
+        return std::future::pending().await;
+    };
+    let Some(manager) = sess.services.model_client.auth_manager() else {
+        return std::future::pending().await;
+    };
+    let mut changes = manager.auth_change_state_receiver();
+    loop {
+        if sess.services.model_client.auth_owner_generation() != owner {
+            return;
+        }
+        if changes.changed().await.is_err() {
+            return;
+        }
+        // Refresh notifications must yield so stop/new-input futures can still be polled.
+        tokio::task::yield_now().await;
+    }
 }
 
 /// Returns `Ok(())` when the caller should retry the request loop, or the original error when
@@ -64,6 +117,81 @@ pub(crate) async fn handle_response_stream_error(
     request: ResponsesStreamRequest,
 ) -> Result<(), CodexErr> {
     let turn_context = &step_context.turn;
+    // Capacity is an admission failure, not a broken transport. Keep it in the same
+    // sampling loop without resetting its budget by falling back to another transport.
+    if matches!(request, ResponsesStreamRequest::Sampling)
+        && matches!(err.details(), CodexErrorDetails::ServerOverloaded)
+    {
+        let now = Instant::now();
+        let started_at = *retry_state.capacity_started_at.get_or_insert(now);
+        let capacity_limit = max_retries.min(MAX_CAPACITY_RETRIES);
+        let retry_count = retry_state.capacity_retries.saturating_add(1);
+        if retry_state.capacity_retries >= capacity_limit || retry_state.retries >= max_retries {
+            return Err(exhausted_response_retry(sess, turn_context, err));
+        }
+        let local_delay = codex_client::backoff(INITIAL_CONNECTION_RETRY_DELAY, retry_count)
+            .min(MAX_CONNECTION_RETRY_DELAY);
+        let retry_at = err
+            .retry_after()
+            .map(RetryAfter::deadline)
+            .unwrap_or(now)
+            .max(now + local_delay);
+        if retry_at >= started_at + CAPACITY_RETRY_WINDOW {
+            return Err(exhausted_response_retry(sess, turn_context, err));
+        }
+        let mut auth_changes = sess
+            .services
+            .model_client
+            .auth_manager()
+            .map(|manager| manager.auth_change_state_receiver());
+        if sess.services.model_client.auth_owner_generation() != retry_state.capacity_auth_owner {
+            return Err(CodexErr::TurnAborted);
+        }
+        retry_state.capacity_retries = retry_count;
+        retry_state.retries = retry_state.retries.saturating_add(1);
+        sess.notify_stream_error(
+            turn_context,
+            format!("Model at capacity. Retrying... {retry_count}/{capacity_limit}"),
+            CodexErr::ServerOverloaded,
+        )
+        .await;
+        codex_client::record_retry!(
+            retry_count,
+            retry_at.saturating_duration_since(now),
+            RetryOperation::Sampling,
+        );
+        // The caller applies turn cancellation and new-input preemption to this future.
+        // Watch ownership, rather than token refresh, so an account switch cannot resume it.
+        loop {
+            if Instant::now() >= started_at + CAPACITY_RETRY_WINDOW {
+                return Err(exhausted_response_retry(sess, turn_context, err));
+            }
+            if sess.services.model_client.auth_owner_generation() != retry_state.capacity_auth_owner
+            {
+                return Err(CodexErr::TurnAborted);
+            }
+            tokio::select! {
+                biased;
+                changed = async {
+                    match auth_changes.as_mut() {
+                        Some(changes) => changes.changed().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if changed.is_err() {
+                        return Err(CodexErr::TurnAborted);
+                    }
+                }
+                _ = tokio::time::sleep_until(retry_at) => {
+                    return if Instant::now() < started_at + CAPACITY_RETRY_WINDOW {
+                        Ok(())
+                    } else {
+                        Err(exhausted_response_retry(sess, turn_context, err))
+                    };
+                }
+            }
+        }
+    }
     if matches!(request, ResponsesStreamRequest::Sampling)
         && matches!(err.details(), CodexErrorDetails::ContentFilter)
     {
@@ -166,13 +294,7 @@ pub(crate) async fn handle_response_stream_error(
         return Ok(());
     }
 
-    sess.services
-        .thread_extension_data
-        .insert(ExhaustedResponseRetry {
-            turn_id: turn_context.sub_id.clone(),
-            retry_at: retry_after.map(RetryAfter::deadline),
-        });
-    Err(err)
+    Err(exhausted_response_retry(sess, turn_context, err))
 }
 
 fn log_retry(

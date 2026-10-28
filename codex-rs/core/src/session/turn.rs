@@ -35,6 +35,8 @@ use crate::responses_metadata::CodexResponsesMetadata;
 use crate::responses_metadata::CodexResponsesRequestKind;
 use crate::responses_retry::ResponsesStreamRequest;
 use crate::responses_retry::ResponsesStreamRetryState;
+use crate::responses_retry::capacity_auth_owner_changed;
+use crate::responses_retry::exhausted_response_retry;
 use crate::responses_retry::handle_response_stream_error;
 use crate::session::PreviousTurnSettings;
 use crate::session::TurnInput;
@@ -1737,7 +1739,7 @@ async fn run_sampling_request(
 ) -> CodexResult<(SamplingRequestResult, Vec<ResponseItem>)> {
     let turn_context = Arc::clone(&step_context.turn);
     let preempt = step_context.preempt.clone().unwrap_or_default();
-    let _input_watch = if let Some(preempt) = &step_context.preempt {
+    let mut _input_watch = if let Some(preempt) = &step_context.preempt {
         sess.input_queue
             .watch_user_input(&sess.active_turn, &turn_context.sub_id, preempt.clone())
             .await
@@ -1765,11 +1767,17 @@ async fn run_sampling_request(
         &step_context.session_telemetry,
         incremental_tools,
     );
-    let mut retry_state = ResponsesStreamRetryState::default();
+    let auth_owner = sess.services.model_client.auth_owner_generation();
+    let mut retry_state = ResponsesStreamRetryState::for_sampling(auth_owner);
     let mut initial_input = Some(input);
     let mut original_input = None;
     let mut executed_tool_calls_by_output = HashMap::new();
+    let mut capacity_retry_active = false;
     loop {
+        if capacity_retry_active && sess.services.model_client.auth_owner_generation() != auth_owner
+        {
+            return Err(CodexErr::TurnAborted);
+        }
         // Running code-mode cells can request review while this response is in flight.
         // Keep the latest received ID until response.created replaces it.
         let prompt_input = if let Some(input) = initial_input.take() {
@@ -1802,6 +1810,7 @@ async fn run_sampling_request(
             .await?;
         }
         let mut draining_for_mailbox = false;
+        let mut capacity_retry_safe = true;
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
             Arc::clone(&sess),
@@ -1813,6 +1822,8 @@ async fn run_sampling_request(
             &prompt,
             cancellation_token.child_token(),
             &mut draining_for_mailbox,
+            preempt.clone(),
+            &mut capacity_retry_safe,
         )
         .await
         {
@@ -1834,6 +1845,21 @@ async fn run_sampling_request(
                 _ => err,
             },
         };
+
+        if matches!(err.details(), CodexErrorDetails::ServerOverloaded) {
+            // Never replay a failed response that may already have produced tool effects.
+            if !capacity_retry_safe {
+                return Err(exhausted_response_retry(&sess, &turn_context, err));
+            }
+            capacity_retry_active = true;
+            client_session.bind_capacity_retry_owner(auth_owner);
+            if _input_watch.is_none() {
+                _input_watch = sess
+                    .input_queue
+                    .watch_user_input(&sess.active_turn, &turn_context.sub_id, preempt.clone())
+                    .await;
+            }
+        }
 
         let original_input = original_input.get_or_insert(prompt.input);
 
@@ -2662,6 +2688,8 @@ async fn try_run_sampling_request(
     prompt: &Prompt,
     cancellation_token: CancellationToken,
     draining_for_mailbox: &mut bool,
+    mut preempt: CancellationToken,
+    capacity_retry_safe: &mut bool,
 ) -> CodexResult<SamplingRequestResult> {
     let turn_context = Arc::clone(&step_context.turn);
     feedback_tags!(
@@ -2697,7 +2725,9 @@ async fn try_run_sampling_request(
         .features
         .enabled(Feature::ConcurrentReasoningSummaries)
         && turn_context.provider.info().is_openai();
-    let mut preempt = step_context.preempt.clone().unwrap_or_default();
+    let capacity_owner = client_session.capacity_retry_owner();
+    let owner_changed = capacity_auth_owner_changed(&sess, capacity_owner);
+    tokio::pin!(owner_changed);
     let effort = sess
         .reasoning_effort_for_request(&step_context.settings, super::RequestEffortUsage::Sampling)
         .await;
@@ -2722,11 +2752,20 @@ async fn try_run_sampling_request(
             }
         });
         let cancellation_token = cancellation_token.clone();
+        let owner_session = Arc::clone(&sess);
         async move |event| {
             let _ = post_request.send(event);
             if defer_tool_dispatch {
-                // Interrupt the wait, not the session-owned hook or final token accounting.
-                let _ = wait_for_hook.or_cancel(&cancellation_token).await;
+                // Completion ends the stream, not ownership of its queued tool calls.
+                // Interrupt this wait, preserving the session-owned hook and usage event.
+                tokio::select! {
+                    biased;
+                    _ = cancellation_token.cancelled() => {}
+                    _ = capacity_auth_owner_changed(&owner_session, capacity_owner) => {
+                        cancellation_token.cancel();
+                    }
+                    _ = wait_for_hook => {}
+                }
             }
         }
     });
@@ -2734,34 +2773,70 @@ async fn try_run_sampling_request(
         .execution_mode_for_event(HookEventName::PreModelRequest)
         .is_some()
     {
-        run_model_request_hooks(&sess, &step_context, &hooks, PreModelRequest).await;
+        tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled(), if capacity_owner.is_some() => {
+                return Err(CodexErr::TurnAborted);
+            }
+            _ = &mut owner_changed => return Err(CodexErr::TurnAborted),
+            _ = preempt.cancelled(), if capacity_owner.is_some() => {
+                return Ok(SamplingRequestResult { needs_follow_up: true, last_agent_message: None });
+            }
+            _ = run_model_request_hooks(&sess, &step_context, &hooks, PreModelRequest) => {}
+        }
     }
     let sampling_timing_guard = turn_context.turn_timing_state.begin_sampling();
     let mut response_completed = false;
     let mut request_token_usage = None;
     sess.set_server_reasoning_included(step_context.settings.model_info.use_responses_lite)
         .await;
-    let mut stream = match client_session
-        .stream(
-            prompt,
-            &step_context.settings.model_info,
-            &step_context.session_telemetry,
-            effort,
-            step_context.settings.reasoning_summary,
-            step_context.settings.service_tier.clone(),
-            responses_metadata,
-            &inference_trace,
-        )
-        .instrument(trace_span!("stream_request"))
-        .or_cancel(&cancellation_token)
-        .await?
-    {
-        Ok(stream) => stream,
+    let stream_result = {
+        let request = client_session
+            .stream(
+                prompt,
+                &step_context.settings.model_info,
+                &step_context.session_telemetry,
+                effort,
+                step_context.settings.reasoning_summary,
+                step_context.settings.service_tier.clone(),
+                responses_metadata,
+                &inference_trace,
+            )
+            .instrument(trace_span!("stream_request"))
+            .or_cancel(&cancellation_token);
+        tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled(), if capacity_owner.is_some() => Err(CodexErr::TurnAborted),
+            _ = &mut owner_changed => Err(CodexErr::TurnAborted),
+            _ = preempt.cancelled(), if capacity_owner.is_some() => Ok(None),
+            result = request => result?.map(Some),
+        }
+    };
+    let mut stream = match stream_result {
+        Ok(Some(stream)) => stream,
+        Ok(None) => {
+            client_session.discard_interrupted_stream();
+            return Ok(SamplingRequestResult {
+                needs_follow_up: true,
+                last_agent_message: None,
+            });
+        }
         Err(error) => {
+            if capacity_owner.is_some() {
+                client_session.discard_interrupted_stream();
+            }
+            let cancelled = matches!(error.details(), CodexErrorDetails::TurnAborted);
+            if cancelled {
+                cancellation_token.cancel();
+            }
             if let Some(finish_post_request) = finish_post_request {
                 finish_post_request(PostModelRequest {
-                    status: ModelRequestStatus::Failed,
-                    error: Some(error.to_string()),
+                    status: if cancelled {
+                        ModelRequestStatus::Cancelled
+                    } else {
+                        ModelRequestStatus::Failed
+                    },
+                    error: (!cancelled).then(|| error.to_string()),
                     token_usage: None,
                 })
                 .await;
@@ -2817,12 +2892,21 @@ async fn try_run_sampling_request(
             codex.usage.total_tokens = field::Empty,
         );
 
-        let event = stream
-            .next()
-            .instrument(trace_span!(parent: &handle_responses, "receiving"))
-            .or_cancel(&preempt)
-            .or_cancel(&cancellation_token)
-            .await;
+        let event = tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled(), if capacity_owner.is_some() => break Err(CodexErr::TurnAborted),
+            _ = &mut owner_changed => {
+                // Deferred tool futures share this request token. Cancel before draining so
+                // an account change cannot admit a queued tool after the post-request hook.
+                cancellation_token.cancel();
+                break Err(CodexErr::TurnAborted);
+            },
+            _ = preempt.cancelled(), if capacity_owner.is_some() => Ok(Err(codex_async_utils::CancelErr::Cancelled)),
+            event = stream.next()
+                .instrument(trace_span!(parent: &handle_responses, "receiving"))
+                .or_cancel(&preempt)
+                .or_cancel(&cancellation_token) => event,
+        };
         // Account for an already-received terminal error even if cancellation raced it.
         // Cancellation still stops ordinary stream events before they can run tools.
         let event = match event {
@@ -2892,6 +2976,19 @@ async fn try_run_sampling_request(
             .record_responses(&handle_responses, &event);
         record_turn_ttft_metric(&turn_context, &event).await;
 
+        if matches!(
+            &event,
+            ResponseEvent::OutputItemAdded(_)
+                | ResponseEvent::OutputItemDone(_)
+                | ResponseEvent::OutputTextDelta(_)
+                | ResponseEvent::ToolCallInputDelta { .. }
+                | ResponseEvent::ReasoningSummaryDelta { .. }
+                | ResponseEvent::ReasoningSummaryPartAdded { .. }
+                | ResponseEvent::ReasoningSummaryDone { .. }
+                | ResponseEvent::ReasoningContentDelta { .. }
+        ) {
+            *capacity_retry_safe = false;
+        }
         match event {
             ResponseEvent::Created { response_id } => {
                 if let Some(response_id) = response_id {
@@ -3418,6 +3515,13 @@ async fn try_run_sampling_request(
     )
     .await;
 
+    // Flushing assistant items can await after the hook has finished. Fence admission
+    // again, and drain cancelled calls into history instead of dropping their outputs.
+    if capacity_owner
+        .is_some_and(|owner| owner != sess.services.model_client.auth_owner_generation())
+    {
+        cancellation_token.cancel();
+    }
     if !in_flight.is_empty() {
         let _tool_blocking_timing_guard = turn_context.turn_timing_state.begin_tool_blocking();
         let _tool_blocking_span = trace_span!(
@@ -3426,7 +3530,16 @@ async fn try_run_sampling_request(
             conversation.id = %sess.thread_id,
             turn.id = %turn_context.sub_id,
         );
-        drain_in_flight(&mut in_flight, sess.clone(), &step_context).await?;
+        let drain = drain_in_flight(&mut in_flight, sess.clone(), &step_context);
+        tokio::pin!(drain);
+        tokio::select! {
+            biased;
+            _ = capacity_auth_owner_changed(&sess, capacity_owner) => {
+                cancellation_token.cancel();
+                drain.await?;
+            }
+            result = &mut drain => result?,
+        }
     }
 
     if should_emit_token_count {

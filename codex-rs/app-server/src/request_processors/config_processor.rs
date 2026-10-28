@@ -110,9 +110,11 @@ impl ConfigRequestProcessor {
         &self,
         params: ConfigReadParams,
     ) -> Result<ConfigReadResponse, JSONRPCErrorError> {
-        let fallback_cwd = params.cwd.as_ref().map(PathBuf::from);
-        let mut response = self.config_manager.read(params).await.map_err(map_error)?;
-        let config = self.load_latest_config(fallback_cwd).await?;
+        let (mut response, config) = self
+            .config_manager
+            .read_with_config(params)
+            .await
+            .map_err(|err| internal_error(format!("{:#}", anyhow::Error::new(err))))?;
         for feature_key in SUPPORTED_EXPERIMENTAL_FEATURE_ENABLEMENT {
             let Some(feature) = feature_for_key(feature_key) else {
                 continue;
@@ -919,6 +921,10 @@ fn config_write_error(code: ConfigWriteErrorCode, message: impl Into<String>) ->
     }));
     error
 }
+
+#[cfg(test)]
+#[path = "config_processor_tests.rs"]
+mod read_tests;
 
 #[cfg(test)]
 mod tests {

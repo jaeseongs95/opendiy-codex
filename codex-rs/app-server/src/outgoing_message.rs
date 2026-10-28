@@ -75,6 +75,7 @@ pub(crate) struct RequestContext {
 enum RequestCancellationScope {
     Unavailable,
     UserVerification,
+    McpRead,
     ThreadSample,
 }
 
@@ -93,6 +94,9 @@ impl RequestContext {
                 | "userVerification/enroll"
                 | "userVerification/delete"
                 | "userVerification/verify" => RequestCancellationScope::UserVerification,
+                method if crate::mcp_read_lifetime::supports(method) => {
+                    RequestCancellationScope::McpRead
+                }
                 "thread/sample" => RequestCancellationScope::ThreadSample,
                 _ => RequestCancellationScope::Unavailable,
             },
@@ -104,6 +108,12 @@ impl RequestContext {
 
     pub(crate) fn request_trace(&self) -> Option<W3cTraceContext> {
         span_w3c_trace_context(&self.span).or_else(|| self.parent_trace.clone())
+    }
+
+    pub(crate) fn restrict_mcp_read_to_owned(&mut self, owned: bool) {
+        if !owned && self.cancellation_scope == RequestCancellationScope::McpRead {
+            self.cancellation_scope = RequestCancellationScope::Unavailable;
+        }
     }
 
     pub(crate) fn span(&self) -> Span {
@@ -280,6 +290,17 @@ impl OutgoingMessageSender {
         }
     }
 
+    pub(crate) async fn cancel_mcp_read(&self, request_id: &ConnectionRequestId) -> bool {
+        let contexts = self.request_contexts.lock().await;
+        if let Some(context) = contexts.get(request_id)
+            && context.cancellation_scope == RequestCancellationScope::McpRead
+        {
+            context.cancellation.cancel();
+            return true;
+        }
+        false
+    }
+
     pub(crate) async fn cancel_thread_sample_request(&self, request_id: &ConnectionRequestId) {
         let contexts = self.request_contexts.lock().await;
         if let Some(context) = contexts.get(request_id)
@@ -293,6 +314,13 @@ impl OutgoingMessageSender {
         self.disconnect_user_verification_connection(connection_id)
             .await;
         let mut request_contexts = self.request_contexts.lock().await;
+        for (request_id, context) in request_contexts.iter() {
+            if request_id.connection_id == connection_id
+                && context.cancellation_scope == RequestCancellationScope::McpRead
+            {
+                context.cancellation.cancel();
+            }
+        }
         request_contexts.retain(|request_id, _| request_id.connection_id != connection_id);
     }
 
@@ -1331,6 +1359,80 @@ mod tests {
             .await;
 
         assert_eq!(outgoing.request_context_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn mcp_read_lifetime_cancel_is_connection_and_ownership_scoped() {
+        let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(4);
+        let outgoing =
+            OutgoingMessageSender::new(tx, codex_analytics::AnalyticsEventsClient::disabled());
+        let id = ConnectionRequestId {
+            connection_id: ConnectionId(42),
+            request_id: RequestId::Integer(7),
+        };
+        for (method, owned, accepted) in [
+            ("mcpServer/resource/read", true, true),
+            ("mcpServerStatus/list", false, false),
+            ("turn/start", true, false),
+        ] {
+            let mut context =
+                RequestContext::new(id.clone(), method, tracing::info_span!("test"), None);
+            context.restrict_mcp_read_to_owned(owned);
+            let cancellation = context.cancellation.clone();
+            outgoing.register_request_context(context).await;
+            let other = ConnectionRequestId {
+                connection_id: ConnectionId(43),
+                request_id: id.request_id.clone(),
+            };
+            assert!(!outgoing.cancel_mcp_read(&other).await);
+            assert!(!cancellation.is_cancelled());
+            assert_eq!(outgoing.cancel_mcp_read(&id).await, accepted);
+            assert_eq!(cancellation.is_cancelled(), accepted);
+            assert_eq!(
+                outgoing.request_context_count().await,
+                1,
+                "cancel acceptance is not terminal"
+            );
+            outgoing
+                .send_error(id.clone(), crate::mcp_read_lifetime::cancelled_error())
+                .await;
+            assert_eq!(outgoing.request_context_count().await, 0);
+            assert!(
+                !outgoing.cancel_mcp_read(&id).await,
+                "completed original context cannot be cancelled again"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_read_lifetime_disconnect_cancels_only_owned_connection_work() {
+        let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(4);
+        let outgoing =
+            OutgoingMessageSender::new(tx, codex_analytics::AnalyticsEventsClient::disabled());
+        let mut tokens = Vec::new();
+        for (connection, owned) in [(42, true), (43, true), (42, false)] {
+            let id = ConnectionRequestId {
+                connection_id: ConnectionId(connection),
+                request_id: RequestId::Integer(tokens.len() as i64),
+            };
+            let mut context = RequestContext::new(
+                id,
+                "mcpServer/resource/read",
+                tracing::info_span!("test"),
+                None,
+            );
+            context.restrict_mcp_read_to_owned(owned);
+            tokens.push(context.cancellation.clone());
+            outgoing.register_request_context(context).await;
+        }
+        outgoing.connection_closed(ConnectionId(42)).await;
+        assert!(tokens[0].is_cancelled());
+        assert!(!tokens[1].is_cancelled());
+        assert!(
+            !tokens[2].is_cancelled(),
+            "shared transport work is not dropped by this extension"
+        );
+        assert_eq!(outgoing.request_context_count().await, 1);
     }
 
     #[tokio::test]

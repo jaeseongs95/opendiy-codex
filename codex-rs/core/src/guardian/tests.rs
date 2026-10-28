@@ -3197,7 +3197,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn guardian_review_retries_transient_session_failure_then_approves() -> anyhow::Result<()> {
+async fn guardian_review_capacity_recovers_in_same_session_then_approves() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -3242,12 +3242,127 @@ async fn guardian_review_retries_transient_session_failure_then_approves() -> an
     };
     assert_eq!(assessment.outcome, GuardianAssessmentOutcome::Allow);
     assert_eq!(assessment.rationale, "retry succeeded");
-    assert_eq!(metadata.attempt_count, 2);
+    assert_eq!(metadata.attempt_count, 1);
     assert!(matches!(
         metadata.guardian_session_kind,
-        Some(codex_analytics::GuardianReviewSessionKind::TrunkReused)
+        Some(codex_analytics::GuardianReviewSessionKind::TrunkNew)
     ));
     assert_eq!(request_log.requests().len(), 2);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn guardian_review_capacity_long_advice_prevents_outer_resubmission() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let request_log = mount_sse_sequence(
+        &server,
+        vec![sse(vec![
+            serde_json::json!({"type":"response.failed", "response":{"error":{
+                "code":"server_is_overloaded", "headers":{"Retry-After":"300"}
+            }}}),
+        ])],
+    )
+    .await;
+    let (session, turn) = guardian_test_session_and_turn(&server).await;
+    seed_guardian_parent_history(&session, &turn).await;
+    let (outcome, metadata) =
+        super::review::run_guardian_review_session_with_retry_before_deadline(
+            Arc::clone(&session),
+            Arc::clone(&turn),
+            guardian_exec_command_request("capacity-long-advice"),
+            ApprovalRequestReasons::default(),
+            None,
+            codex_guardian_reviewer::GuardianReviewSessionLimits {
+                max_attempts: 3,
+                deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+            },
+        )
+        .await;
+    assert!(
+        matches!(
+            outcome,
+            GuardianReviewOutcome::Error(codex_guardian_reviewer::GuardianReviewError::Timeout)
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(metadata.attempt_count, 1);
+    assert_eq!(
+        request_log.requests().len(),
+        1,
+        "server advice must reach the Guardian outer retry budget"
+    );
+    assert_eq!(
+        server
+            .received_requests()
+            .await
+            .expect("request log")
+            .iter()
+            .filter(|request| request.method == "POST" && request.url.path() == "/v1/responses")
+            .count(),
+        1,
+        "all response POSTs must be counted, including unmatched submissions"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn guardian_review_capacity_exhaustion_preserves_last_server_advice() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let request_log = mount_sse_sequence(
+        &server,
+        vec![
+            sse_failed(
+                "capacity-first",
+                "server_is_overloaded",
+                "temporary capacity",
+            ),
+            sse(vec![
+                serde_json::json!({"type":"response.failed", "response":{"error":{
+                    "code":"server_is_overloaded", "headers":{"Retry-After":"30"}
+                }}}),
+            ]),
+        ],
+    )
+    .await;
+    let (session, turn) = guardian_test_session_and_turn(&server).await;
+    seed_guardian_parent_history(&session, &turn).await;
+    let (outcome, metadata) =
+        super::review::run_guardian_review_session_with_retry_before_deadline(
+            Arc::clone(&session),
+            Arc::clone(&turn),
+            guardian_exec_command_request("capacity-exhausted-advice"),
+            ApprovalRequestReasons::default(),
+            None,
+            codex_guardian_reviewer::GuardianReviewSessionLimits {
+                max_attempts: 3,
+                deadline: tokio::time::Instant::now() + Duration::from_secs(10),
+            },
+        )
+        .await;
+    assert!(
+        matches!(
+            outcome,
+            GuardianReviewOutcome::Error(codex_guardian_reviewer::GuardianReviewError::Timeout)
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(metadata.attempt_count, 1);
+    assert_eq!(
+        request_log.requests().len(),
+        2,
+        "exhausted inner retry must not bypass its last server deadline"
+    );
+    assert_eq!(
+        server
+            .received_requests()
+            .await
+            .expect("request log")
+            .iter()
+            .filter(|request| request.method == "POST" && request.url.path() == "/v1/responses")
+            .count(),
+        2,
+        "all response POSTs must be counted, including unmatched submissions"
+    );
     Ok(())
 }
 

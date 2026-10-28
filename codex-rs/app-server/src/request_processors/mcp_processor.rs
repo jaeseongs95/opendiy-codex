@@ -2,6 +2,7 @@ use super::account_processor::EnterpriseLoginCompletion;
 use super::account_processor::EnterpriseLoginTarget;
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
+use codex_app_server_protocol::McpServerRefreshParams;
 use codex_config::types::McpServerAuth;
 use codex_mcp::McpServerSource;
 use codex_mcp::ReadResourceRequestParams;
@@ -10,10 +11,15 @@ use codex_mcp::resolve_oauth_callback;
 use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_rmcp_client::EnterpriseOAuthLoginRequest;
 use std::future::Future;
+use tokio_util::sync::CancellationToken;
 
 use crate::thread_state::ThreadStateManager;
 
 const MCP_TOOL_THREAD_ID_META_KEY: &str = "threadId";
+
+#[cfg(test)]
+#[path = "mcp_reload_tests.rs"]
+mod mcp_reload_tests;
 
 #[derive(Clone)]
 pub(crate) struct McpRequestProcessor {
@@ -23,6 +29,8 @@ pub(crate) struct McpRequestProcessor {
     config_manager: ConfigManager,
     account_processor: Arc<AccountRequestProcessor>,
     pub(super) thread_state_manager: ThreadStateManager,
+    #[cfg(test)]
+    before_refresh_enqueue: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
 impl McpRequestProcessor {
@@ -41,6 +49,8 @@ impl McpRequestProcessor {
             config_manager,
             account_processor,
             thread_state_manager,
+            #[cfg(test)]
+            before_refresh_enqueue: Default::default(),
         }
     }
 
@@ -55,7 +65,7 @@ impl McpRequestProcessor {
 
     pub(crate) fn mcp_server_refresh(
         &self,
-        params: Option<()>,
+        params: Option<McpServerRefreshParams>,
     ) -> impl Future<Output = Result<Option<ClientResponsePayload>, JSONRPCErrorError>> + Send + '_
     {
         // Keep refresh state behind a pointer before returning to the shared request handler.
@@ -70,18 +80,32 @@ impl McpRequestProcessor {
         &self,
         request_id: &ConnectionRequestId,
         params: ListMcpServerStatusParams,
+        cancellation: CancellationToken,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.list_mcp_server_status(request_id, params)
-            .await
-            .map(|()| None)
+        let thread = match params.thread_id.as_deref() {
+            Some(thread_id) => Some(self.load_thread(thread_id).await?.1),
+            None => None,
+        };
+        let processor = self.clone();
+        let request = request_id.clone();
+        // Preserve the original registry gate release point. The child retains
+        // cancellation ownership and sends the original terminal only after cleanup.
+        tokio::spawn(AuthStorageOriginator::current().scope(async move {
+            let result = processor
+                .list_mcp_server_status_response(params, thread, cancellation)
+                .await;
+            processor.outgoing.send_result(request, result).await;
+        }));
+        Ok(None)
     }
 
     pub(crate) async fn mcp_resource_read(
         &self,
         request_id: &ConnectionRequestId,
         params: McpResourceReadParams,
+        cancellation: CancellationToken,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.read_mcp_resource(request_id, params)
+        self.read_mcp_resource(request_id, params, cancellation)
             .await
             .map(|()| None)
     }
@@ -98,12 +122,47 @@ impl McpRequestProcessor {
 
     async fn mcp_server_refresh_response(
         &self,
-        _params: Option<()>,
+        params: Option<McpServerRefreshParams>,
     ) -> Result<McpServerRefreshResponse, JSONRPCErrorError> {
+        // Resolve only an already-loaded runtime before the policy reload mutates anything.
+        let target = match params.and_then(|params| params.thread_id) {
+            Some(thread_id) => Some(self.load_thread(&thread_id).await?),
+            None => None,
+        };
         crate::mcp_refresh::reload_mcp_config(&self.thread_manager, &self.config_manager)
             .await
             .map_err(|err| internal_error(format!("failed to refresh MCP servers: {err}")))?;
-        Ok(McpServerRefreshResponse {})
+        let reconnect_queued_for_thread_id = if let Some((thread_id, thread)) = target {
+            let current = self
+                .thread_manager
+                .get_thread(thread_id)
+                .await
+                .map_err(|_| invalid_request(format!("thread is no longer loaded: {thread_id}")))?;
+            if !Arc::ptr_eq(&current, &thread) {
+                return Err(invalid_request(format!(
+                    "thread runtime changed during MCP reload: {thread_id}"
+                )));
+            }
+            #[cfg(test)]
+            {
+                let barrier = self.before_refresh_enqueue.lock().unwrap().take();
+                if let Some(barrier) = barrier {
+                    barrier.wait().await;
+                    barrier.wait().await;
+                }
+            }
+            thread.submit(Op::RefreshMcpServers).await.map_err(|err| {
+                internal_error(format!(
+                    "failed to queue MCP reconnect for {thread_id}: {err}"
+                ))
+            })?;
+            Some(thread_id.to_string())
+        } else {
+            None
+        };
+        Ok(McpServerRefreshResponse {
+            reconnect_queued_for_thread_id,
+        })
     }
 
     async fn load_global_config(&self) -> Result<Config, JSONRPCErrorError> {
@@ -372,34 +431,15 @@ impl McpRequestProcessor {
         })
     }
 
-    async fn list_mcp_server_status(
-        &self,
-        request_id: &ConnectionRequestId,
-        params: ListMcpServerStatusParams,
-    ) -> Result<(), JSONRPCErrorError> {
-        let request = request_id.clone();
-
-        let outgoing = Arc::clone(&self.outgoing);
-        let thread = match params.thread_id.as_deref() {
-            Some(thread_id) => Some(self.load_thread(thread_id).await?.1),
-            None => None,
-        };
-        let processor = self.clone();
-        let task = async move {
-            let result = processor
-                .list_mcp_server_status_response(params, thread)
-                .await;
-            outgoing.send_result(request, result).await;
-        };
-        tokio::spawn(AuthStorageOriginator::current().scope(task));
-        Ok(())
-    }
-
     async fn list_mcp_server_status_response(
         &self,
         params: ListMcpServerStatusParams,
         thread: Option<Arc<codex_core::CodexThread>>,
+        cancellation: CancellationToken,
     ) -> Result<ListMcpServerStatusResponse, JSONRPCErrorError> {
+        if cancellation.is_cancelled() {
+            return Err(crate::mcp_read_lifetime::cancelled_error());
+        }
         let detail = match params.detail.unwrap_or(McpServerStatusDetail::Full) {
             McpServerStatusDetail::Full => McpSnapshotDetail::Full,
             McpServerStatusDetail::ToolsAndAuthOnly => McpSnapshotDetail::ToolsAndAuthOnly,
@@ -408,6 +448,8 @@ impl McpRequestProcessor {
         let (mcp_config, snapshot) = if let (Some(thread), Some(server)) =
             (thread.as_ref(), params.server_name.as_deref())
         {
+            // This thread's connection is shared. Keep awaiting its real result;
+            // dropping the local waiter cannot prove remote work has stopped.
             thread
                 .mcp_server_status_snapshot(server, detail, /*expected_registration*/ None)
                 .await
@@ -426,7 +468,10 @@ impl McpRequestProcessor {
                         .await
                         .map_err(|err| internal_error(format!("failed to reload config: {err}")))?
                 }
-                None => self.load_global_config().await?,
+                None => {
+                    crate::mcp_read_lifetime::run(cancellation.clone(), self.load_global_config())
+                        .await?
+                }
             };
             let mcp_manager = self.thread_manager.mcp_manager();
             let auth = self.auth_manager.auth().await;
@@ -449,8 +494,10 @@ impl McpRequestProcessor {
                 mcp_manager.tool_catalog_cache(),
                 detail,
                 params.server_name.as_deref(),
+                cancellation.clone(),
             )
-            .await;
+            .await
+            .ok_or_else(crate::mcp_read_lifetime::cancelled_error)?;
             if mcp_config.xaa_enabled
                 && let Some(thread) = thread.as_ref()
             {
@@ -608,6 +655,7 @@ impl McpRequestProcessor {
         &self,
         request_id: &ConnectionRequestId,
         params: McpResourceReadParams,
+        cancellation: CancellationToken,
     ) -> Result<(), JSONRPCErrorError> {
         let outgoing = Arc::clone(&self.outgoing);
         let McpResourceReadParams {
@@ -678,7 +726,8 @@ impl McpRequestProcessor {
             return Err(invalid_request("originCallId requires threadId"));
         }
 
-        let config = self.load_global_config().await?;
+        let config =
+            crate::mcp_read_lifetime::run(cancellation.clone(), self.load_global_config()).await?;
         let mcp_manager = self.thread_manager.mcp_manager();
         let mcp_config = mcp_manager.runtime_config(&config).await;
         let codex_apps_tools_cache = mcp_manager.codex_apps_tools_cache();
@@ -701,13 +750,17 @@ impl McpRequestProcessor {
                 tool_catalog_cache,
                 &server,
                 resource_params,
+                cancellation.clone(),
             )
             .await
             .and_then(|result| serde_json::to_value(result).map_err(anyhow::Error::from));
-            Self::send_mcp_resource_read_response(
-                outgoing, request_id, result, /*origin_call_id*/ None,
-            )
-            .await;
+            if cancellation.is_cancelled() {
+                outgoing
+                    .send_error(request_id, crate::mcp_read_lifetime::cancelled_error())
+                    .await;
+            } else {
+                Self::send_mcp_resource_read_response(outgoing, request_id, result, None).await;
+            }
         };
         tokio::spawn(AuthStorageOriginator::current().scope(task));
         Ok(())

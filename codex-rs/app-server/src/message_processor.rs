@@ -648,6 +648,46 @@ impl MessageProcessor {
         transport: &AppServerTransport,
         session: Arc<ConnectionSessionState>,
     ) {
+        // Local hotfix extension. Bypass the saturated work scheduler, but never
+        // initialization or the connection-scoped, read-only cancellation guard.
+        if request.method == "hotfix/mcpRead/cancel" {
+            let control_id = ConnectionRequestId {
+                connection_id,
+                request_id: request.id.clone(),
+            };
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct CancelRead {
+                request_id: codex_app_server_protocol::RequestId,
+            }
+            let target = request
+                .params
+                .and_then(|params| serde_json::from_value::<CancelRead>(params).ok());
+            if session.initialized()
+                && let Some(target) = target
+                && self
+                    .outgoing
+                    .cancel_mcp_read(&ConnectionRequestId {
+                        connection_id,
+                        request_id: target.request_id,
+                    })
+                    .await
+            {
+                // This existing empty payload is wire {}. It acknowledges only
+                // cancellation acceptance; the original ID settles after drop.
+                self.outgoing
+                    .send_response(control_id, UserVerificationCancelResponse {})
+                    .await;
+            } else {
+                self.outgoing
+                    .send_error(
+                        control_id,
+                        invalid_params("No cancellable MCP read on this connection"),
+                    )
+                    .await;
+            }
+            return;
+        }
         let request_method = request.method.as_str();
         tracing::trace!(
             ?connection_id,
@@ -664,12 +704,18 @@ impl MessageProcessor {
             traceparent: trace.traceparent.clone(),
             tracestate: trace.tracestate.clone(),
         });
-        let request_context = RequestContext::new(
+        let mut request_context = RequestContext::new(
             request_id.clone(),
             request_method,
             request_span,
             request_trace,
         );
+        request_context.restrict_mcp_read_to_owned(request.params.as_ref().is_some_and(|params| {
+            params.is_object()
+                && params
+                    .get("threadId")
+                    .is_none_or(serde_json::Value::is_null)
+        }));
         Self::run_request_with_context(
             Arc::clone(&self.outgoing),
             request_context.clone(),
@@ -725,6 +771,11 @@ impl MessageProcessor {
             /*parent_trace*/ None,
         );
         request_context.cancellation = cancellation;
+        request_context.restrict_mcp_read_to_owned(match &request {
+            ClientRequest::McpServerStatusList { params, .. } => params.thread_id.is_none(),
+            ClientRequest::McpResourceRead { params, .. } => params.thread_id.is_none(),
+            _ => false,
+        });
         tracing::trace!(
             ?connection_id,
             request_id = ?request_id.request_id,
@@ -1746,12 +1797,16 @@ impl MessageProcessor {
             }
             ClientRequest::McpServerStatusList { params, .. } => {
                 self.mcp_processor
-                    .mcp_server_status_list(&request_id, params)
+                    .mcp_server_status_list(
+                        &request_id,
+                        params,
+                        request_context.cancellation.clone(),
+                    )
                     .await
             }
             ClientRequest::McpResourceRead { params, .. } => {
                 self.mcp_processor
-                    .mcp_resource_read(&request_id, params)
+                    .mcp_resource_read(&request_id, params, request_context.cancellation.clone())
                     .await
             }
             ClientRequest::McpServerEventStreamStart { params, .. } => {

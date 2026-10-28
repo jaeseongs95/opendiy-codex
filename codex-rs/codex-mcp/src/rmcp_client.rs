@@ -364,6 +364,11 @@ impl ManagedClientStartup {
             .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         let cancel_token_for_fut = cancel_token;
         let startup = async move {
+            // Keep creation owned across timeout/cancel. Stdio creation may be
+            // running in spawn_blocking and cannot safely be detached on drop.
+            let mut creation: Option<
+                Shared<BoxFuture<'static, Result<Arc<RmcpClient>, StartupOutcomeError>>>,
+            > = None;
             let tool_catalog_fetch_ticket = tool_catalog_cache_context
                 .as_ref()
                 .map(McpToolCatalogCacheContext::begin_fetch);
@@ -373,26 +378,58 @@ impl ManagedClientStartup {
                     return Err(error.into());
                 }
 
-                let client = match tokio::time::timeout(
-                    startup_timeout,
-                    make_rmcp_client(
-                        ema_auth,
-                        &server_name,
-                        server.clone(),
-                        store_mode,
-                        keyring_backend_kind,
-                        oauth_refresh_mode,
-                        runtime_context,
-                        resolved_environment,
-                        runtime_auth_provider,
-                        protocol_mode,
-                    ),
-                )
-                .await
-                {
-                    Ok(result) => Arc::new(
-                        result?.with_read_only_tools(server.requires_read_only_mcp_tools()),
-                    ),
+                let creating_name = server_name.clone();
+                let creating_server = server.clone();
+                let owns_creation = cfg!(windows)
+                    && matches!(
+                        server.config().transport,
+                        McpServerTransportConfig::Stdio { .. }
+                    );
+                let create =
+                    AuthStorageOriginator::current().scope(async move {
+                        make_rmcp_client(
+                            ema_auth,
+                            &creating_name,
+                            creating_server.clone(),
+                            store_mode,
+                            keyring_backend_kind,
+                            oauth_refresh_mode,
+                            runtime_context,
+                            resolved_environment,
+                            runtime_auth_provider,
+                            protocol_mode,
+                        )
+                        .await
+                        .map(|client| {
+                            Arc::new(client.with_read_only_tools(
+                                creating_server.requires_read_only_mcp_tools(),
+                            ))
+                        })
+                    });
+                let created = if owns_creation {
+                    let task = tokio::spawn(create);
+                    async move {
+                        task.await
+                            .map_err(|error| {
+                                StartupOutcomeError::from(anyhow!(
+                                    "MCP creation task failed: {error}"
+                                ))
+                            })?
+                            .map_err(StartupOutcomeError::from)
+                    }
+                    .boxed()
+                    .shared()
+                } else {
+                    create
+                        .map(|result| result.map_err(StartupOutcomeError::from))
+                        .boxed()
+                        .shared()
+                };
+                if owns_creation {
+                    creation = Some(created.clone());
+                }
+                let client = match tokio::time::timeout(startup_timeout, created).await {
+                    Ok(result) => result?,
                     Err(_) => {
                         return Err(StartupOutcomeError::from(anyhow!(
                             "MCP client startup timed out after {startup_timeout:?}"
@@ -425,6 +462,16 @@ impl ManagedClientStartup {
                 Ok(result) => result,
                 Err(CancelErr::Cancelled) => Err(StartupOutcomeError::Cancelled),
             };
+            if outcome.is_err()
+                && let Some(created) = creation
+            {
+                // Includes cancelled initialization/tool discovery and a creation
+                // that completed after its deadline. Shutdown is awaited before
+                // publishing the startup outcome to manager.shutdown callers.
+                if let Ok(client) = created.await {
+                    client.shutdown().await;
+                }
+            }
             // Log once per startup attempt, including discovery without startup notifications.
             if let Err(StartupOutcomeError::Failed { error, .. }) = &outcome {
                 warn!(server_name, %error, "MCP server startup failed");
@@ -1355,9 +1402,10 @@ pub(crate) async fn make_rmcp_client(
                 // TODO(starr): Unify local stdio MCP launch with
                 // `ExecutorStdioServerLauncher` once the executor-backed path
                 // preserves `LocalStdioServerLauncher` semantics.
-                Arc::new(LocalStdioServerLauncher::new(
-                    runtime_context.local_process_cwd(),
-                )) as Arc<dyn StdioServerLauncher>
+                Arc::new(
+                    LocalStdioServerLauncher::new(runtime_context.local_process_cwd())
+                        .with_required_job_containment(runtime_context.requires_owned_local_job()),
+                ) as Arc<dyn StdioServerLauncher>
             } else {
                 let Some(environment) = resolved_environment.as_ref() else {
                     unreachable!(

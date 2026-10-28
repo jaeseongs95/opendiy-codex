@@ -13,23 +13,24 @@ use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::process::ChildStdin;
-use tokio::process::ChildStdout;
 use tokio::sync::Mutex;
 use tracing::debug;
 use tracing::warn;
+
+use crate::local_stdio_transport::LocalStdioStdout;
 
 /// Match the existing executor stdio transport and the production MCP limit.
 pub(crate) const MAX_MCP_STDIO_LINE_BYTES: usize = 8 * 1024 * 1024;
 
 pub(super) struct BoundedStdioTransport {
     stdin: Arc<Mutex<Option<ChildStdin>>>,
-    stdout: BufReader<ChildStdout>,
+    stdout: BufReader<LocalStdioStdout>,
     pending_line: Vec<u8>,
     program_name: String,
 }
 
 impl BoundedStdioTransport {
-    pub(super) fn new(stdin: ChildStdin, stdout: ChildStdout, program_name: String) -> Self {
+    pub(super) fn new(stdin: ChildStdin, stdout: LocalStdioStdout, program_name: String) -> Self {
         Self {
             stdin: Arc::new(Mutex::new(Some(stdin))),
             stdout: BufReader::new(stdout),

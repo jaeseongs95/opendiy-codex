@@ -8,22 +8,30 @@ use tokio::process::Child;
 use tokio::process::Command;
 use winapi::shared::ntdef::NT_SUCCESS;
 use winapi::shared::ntdef::NTSTATUS;
+use winapi::shared::winerror::WAIT_TIMEOUT;
 use winapi::um::jobapi2::AssignProcessToJobObject;
 use winapi::um::jobapi2::CreateJobObjectW;
+use winapi::um::jobapi2::QueryInformationJobObject;
 use winapi::um::jobapi2::SetInformationJobObject;
 use winapi::um::jobapi2::TerminateJobObject;
 use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::processthreadsapi::TerminateProcess;
+use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::CREATE_NO_WINDOW;
 use winapi::um::winbase::CREATE_SUSPENDED;
+use winapi::um::winbase::WAIT_FAILED;
+use winapi::um::winbase::WAIT_OBJECT_0;
 use winapi::um::winnt::HANDLE;
 use winapi::um::winnt::JOB_OBJECT_LIMIT_BREAKAWAY_OK;
 use winapi::um::winnt::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+use winapi::um::winnt::JOBOBJECT_BASIC_ACCOUNTING_INFORMATION;
 use winapi::um::winnt::JOBOBJECT_EXTENDED_LIMIT_INFORMATION;
+use winapi::um::winnt::JobObjectBasicAccountingInformation;
 use winapi::um::winnt::JobObjectExtendedLimitInformation;
 use winapi::um::winnt::PROCESS_SET_QUOTA;
 use winapi::um::winnt::PROCESS_SUSPEND_RESUME;
 use winapi::um::winnt::PROCESS_TERMINATE;
+use winapi::um::winnt::SYNCHRONIZE;
 
 #[link(name = "ntdll")]
 unsafe extern "system" {
@@ -69,7 +77,11 @@ impl JobObject {
     /// Captures an owned process handle before its numeric identifier can be reused.
     pub fn open_process_handle(process_id: u32) -> io::Result<std::os::windows::io::OwnedHandle> {
         let handle = unsafe {
-            OpenProcess(PROCESS_TERMINATE, /*bInheritHandle*/ 0, process_id)
+            OpenProcess(
+                PROCESS_TERMINATE | SYNCHRONIZE,
+                /*bInheritHandle*/ 0,
+                process_id,
+            )
         };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
@@ -87,6 +99,39 @@ impl JobObject {
             Err(io::Error::last_os_error())
         } else {
             Ok(())
+        }
+    }
+
+    /// Observes the exact captured process; a termination request alone is not completion.
+    pub fn process_handle_is_terminated(
+        handle: &std::os::windows::io::OwnedHandle,
+    ) -> io::Result<bool> {
+        match unsafe { WaitForSingleObject(handle.as_raw_handle().cast(), 0) } {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            WAIT_FAILED => Err(io::Error::last_os_error()),
+            value => Err(io::Error::other(format!(
+                "unexpected process wait result: {value}"
+            ))),
+        }
+    }
+
+    /// Confirms all members of this owned job have exited, including descendants.
+    pub fn is_empty(&self) -> io::Result<bool> {
+        let mut accounting: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = unsafe { std::mem::zeroed() };
+        let queried = unsafe {
+            QueryInformationJobObject(
+                self.handle.as_raw_handle().cast(),
+                JobObjectBasicAccountingInformation,
+                std::ptr::addr_of_mut!(accounting).cast(),
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        if queried == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(accounting.ActiveProcesses == 0)
         }
     }
 
@@ -137,6 +182,16 @@ impl JobObject {
     /// Nested jobs can reject assignment. Such a child is resumed without
     /// containment so callers can preserve their existing compatibility fallback.
     pub fn assign_and_resume_process(&self, process_id: u32) -> io::Result<bool> {
+        self.assign_and_resume_process_impl(process_id, false)
+    }
+
+    /// Keeps an uncontained child suspended so its exact owner can kill and reap it.
+    pub fn assign_and_resume_process_strict(&self, process_id: u32) -> io::Result<()> {
+        self.assign_and_resume_process_impl(process_id, true)
+            .map(|_| ())
+    }
+
+    fn assign_and_resume_process_impl(&self, process_id: u32, required: bool) -> io::Result<bool> {
         let process = unsafe {
             OpenProcess(
                 PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_SUSPEND_RESUME,
@@ -149,6 +204,11 @@ impl JobObject {
         }
         let process = unsafe { OwnedHandle::from_raw_handle(process.cast()) };
         let assignment = self.assign_process(process.as_raw_handle());
+        if required {
+            assignment
+                .as_ref()
+                .map_err(|error| io::Error::new(error.kind(), error.to_string()))?;
+        }
 
         let status = unsafe { NtResumeProcess(process.as_raw_handle().cast()) };
         if !NT_SUCCESS(status) {

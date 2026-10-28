@@ -8,6 +8,81 @@ use std::time::Duration;
 use winapi::um::winnt::JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
 
 #[tokio::test]
+async fn mcp_read_lifetime_owned_job_and_process_fences() -> anyhow::Result<()> {
+    use tokio::io::AsyncBufReadExt;
+    const TEST: &str = "win::job::tests::mcp_read_lifetime_owned_job_and_process_fences";
+    const PHASE: &str = "CODEX_TEST_OWNED_TERMINATION_PHASE";
+    let executable = std::env::current_exe()?;
+    match std::env::var(PHASE).as_deref() {
+        Ok("leaf") => {
+            std::thread::sleep(Duration::from_secs(30));
+            return Ok(());
+        }
+        Ok("root") => {
+            let _leaf = std::process::Command::new(&executable)
+                .args(["--exact", TEST])
+                .env(PHASE, "leaf")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()?;
+            println!("owned tree ready");
+            std::io::Write::flush(&mut std::io::stdout())?;
+            std::thread::sleep(Duration::from_secs(30));
+            return Ok(());
+        }
+        _ => {}
+    }
+    let job = JobObject::create_without_breakaway()?;
+    let mut command = Command::new(&executable);
+    command
+        .args(["--exact", TEST, "--nocapture"])
+        .env(PHASE, "root")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = job.spawn_contained(&mut command)?;
+    let handle = JobObject::open_process_handle(
+        child
+            .id()
+            .ok_or_else(|| io::Error::other("child PID missing"))?,
+    )?;
+    let mut stdout = tokio::io::BufReader::new(
+        child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("stdout missing"))?,
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            anyhow::ensure!(
+                stdout.read_line(&mut line).await? > 0,
+                "fixture exited before readiness"
+            );
+            if line.contains("owned tree ready") {
+                break;
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await??;
+    assert!(!job.is_empty()?);
+    assert!(!JobObject::process_handle_is_terminated(&handle)?);
+    job.terminate()?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !job.is_empty()? || !JobObject::process_handle_is_terminated(&handle)? {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<(), io::Error>(())
+    })
+    .await??;
+    assert!(job.is_empty()?, "the owned grandchild also left the job");
+    assert!(JobObject::process_handle_is_terminated(&handle)?);
+    child.wait().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn background_launches_keep_consoles_hidden_when_containment_fails() -> anyhow::Result<()> {
     const TEST_NAME: &str =
         "win::job::tests::background_launches_keep_consoles_hidden_when_containment_fails";

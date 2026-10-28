@@ -280,15 +280,30 @@ impl From<CoreMcpToolCallError> for McpToolCallError {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+/// Reloads MCP configuration without restarting the app.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct McpServerRefreshParams {}
+pub struct McpServerRefreshParams {
+    /// Also queue an MCP reconnect on the runtime captured for this loaded thread.
+    /// The registry is rechecked after reload, but may change before enqueue.
+    /// Existing calls retain their bound clients; reconnect completion is asynchronous.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub thread_id: Option<String>,
+}
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct McpServerRefreshResponse {}
+pub struct McpServerRefreshResponse {
+    /// The reconnect operation was accepted by the captured runtime's queue.
+    /// This does not acknowledge current registry membership, runtime readiness,
+    /// or cleanup of previous clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub reconnect_queued_for_thread_id: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

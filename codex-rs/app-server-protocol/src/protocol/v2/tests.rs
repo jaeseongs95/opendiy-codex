@@ -3897,6 +3897,67 @@ fn hook_handler_metadata_only_exposes_async_for_commands() {
 }
 
 #[test]
+fn mcp_server_reload_preserves_legacy_and_targeted_wire_formats() {
+    for params in [None, Some(json!(null))] {
+        let mut value = json!({"method": "config/mcpServer/reload", "id": 1});
+        if let Some(params) = params {
+            value["params"] = params;
+        }
+        let request: crate::ClientRequest = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            request,
+            crate::ClientRequest::McpServerRefresh { params: None, .. }
+        ));
+    }
+    for params in [json!({}), json!({"threadId": null})] {
+        let request: crate::ClientRequest = serde_json::from_value(json!({
+            "method": "config/mcpServer/reload",
+            "id": 1,
+            "params": params,
+        }))
+        .unwrap();
+        assert!(matches!(
+            request,
+            crate::ClientRequest::McpServerRefresh {
+                params: Some(McpServerRefreshParams { thread_id: None }),
+                ..
+            }
+        ));
+    }
+    let request = crate::ClientRequest::McpServerRefresh {
+        request_id: crate::RequestId::Integer(1),
+        params: Some(McpServerRefreshParams {
+            thread_id: Some("thread-1".to_string()),
+        }),
+    };
+    let value = json!({
+        "method": "config/mcpServer/reload",
+        "id": 1,
+        "params": {"threadId": "thread-1"},
+    });
+    assert_eq!(serde_json::to_value(&request).unwrap(), value);
+    assert_eq!(
+        serde_json::from_value::<crate::ClientRequest>(value).unwrap(),
+        request
+    );
+    assert_eq!(
+        serde_json::from_value::<McpServerRefreshParams>(json!({})).unwrap(),
+        McpServerRefreshParams::default()
+    );
+    assert_eq!(
+        serde_json::to_value(McpServerRefreshResponse::default()).unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        serde_json::to_value(McpServerRefreshResponse {
+            reconnect_queued_for_thread_id: Some("thread-1".to_string()),
+        })
+        .unwrap(),
+        json!({"reconnectQueuedForThreadId": "thread-1"})
+    );
+}
+
+#[test]
 fn skills_list_params_serialization_uses_force_reload() {
     assert_eq!(
         serde_json::to_value(SkillsListParams {

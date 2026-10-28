@@ -459,10 +459,16 @@ pub async fn read_mcp_resource(
     tool_catalog_cache: crate::McpToolCatalogCache,
     server: &str,
     params: ReadResourceRequestParams,
+    cancellation: CancellationToken,
 ) -> anyhow::Result<ReadResourceResult> {
+    if cancellation.is_cancelled() {
+        anyhow::bail!("MCP read cancelled");
+    }
     let mut mcp_servers = effective_mcp_servers(config, auth);
     mcp_servers.retain(|name, _| name == server);
-    let cancel_token = CancellationToken::new();
+    let cancel_token = cancellation.child_token();
+    // Cancel per-request startup even when the owning read future is dropped.
+    let _cancel_on_drop = cancel_token.clone().drop_guard();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
     let manager = McpConnectionSet::new(
         /*ema_auth*/ None,
@@ -479,7 +485,7 @@ pub async fn read_mcp_resource(
             submit_id: String::new(),
             tx_event: None,
             startup_cancellation_token: cancel_token.clone(),
-            runtime_context,
+            runtime_context: runtime_context.with_required_owned_local_job(),
             codex_apps_tools_cache,
             tool_catalog_cache,
             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
@@ -493,8 +499,15 @@ pub async fn read_mcp_resource(
     )
     .await;
 
-    let result = manager.read_resource(server, params).await;
+    let result = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => Err(anyhow::anyhow!("MCP read cancelled")),
+        result = manager.read_resource(server, params) => result,
+    };
     cancel_token.cancel();
+    // Await termination of this request's private transports/processes. Dropping
+    // the read future alone would return a slot before asynchronous teardown.
+    manager.shutdown().await;
     result
 }
 
@@ -521,11 +534,15 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     tool_catalog_cache: crate::McpToolCatalogCache,
     detail: McpSnapshotDetail,
     server_name: Option<&str>,
-) -> McpServerStatusSnapshot {
+    cancellation: CancellationToken,
+) -> Option<McpServerStatusSnapshot> {
+    if cancellation.is_cancelled() {
+        return None;
+    }
     let mut mcp_servers = effective_mcp_servers(config, auth);
     mcp_servers.retain(|name, _| server_name.is_none_or(|selected| name == selected));
     if mcp_servers.is_empty() {
-        return McpServerStatusSnapshot {
+        return Some(McpServerStatusSnapshot {
             server_infos: HashMap::new(),
             server_capabilities: HashMap::new(),
             tool_list_meta: HashMap::new(),
@@ -535,10 +552,13 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
             resource_templates: HashMap::new(),
             auth_statuses: HashMap::new(),
             server_names: Vec::new(),
-        };
+        });
     }
 
-    let auth_status_entries = compute_auth_statuses(
+    let auth_status_entries = tokio::select! {
+      biased;
+      () = cancellation.cancelled() => return None,
+      result = compute_auth_statuses(
         mcp_servers.iter(),
         config.mcp_oauth_credentials_store_mode,
         config.auth_keyring_backend_kind,
@@ -546,12 +566,13 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
         auth_manager,
         &config.ema_state,
         &runtime_context,
-    )
-    .await;
+      ) => result,
+    };
 
     let server_names = mcp_servers.keys().cloned().collect();
 
-    let cancel_token = CancellationToken::new();
+    let cancel_token = cancellation.child_token();
+    let _cancel_on_drop = cancel_token.clone().drop_guard();
     let runtime_config = config.for_threadless_operations(&mcp_servers);
     let mcp_connection_manager = McpConnectionSet::new(
         /*ema_auth*/ None,
@@ -568,7 +589,7 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
             submit_id: String::new(),
             tx_event: None,
             startup_cancellation_token: cancel_token.clone(),
-            runtime_context,
+            runtime_context: runtime_context.with_required_owned_local_job(),
             codex_apps_tools_cache,
             tool_catalog_cache,
             codex_apps_tools_cache_key: connector_runtime_context_key(auth),
@@ -582,15 +603,19 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     )
     .await;
 
-    let snapshot = collect_mcp_server_status_snapshot_from_manager(
+    let snapshot = tokio::select! {
+      biased;
+      () = cancellation.cancelled() => None,
+      result = collect_mcp_server_status_snapshot_from_manager(
         &mcp_connection_manager,
         auth_status_entries,
         server_names,
         detail,
-    )
-    .await;
+      ) => Some(result),
+    };
 
     cancel_token.cancel();
+    mcp_connection_manager.shutdown().await;
 
     snapshot
 }

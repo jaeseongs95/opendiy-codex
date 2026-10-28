@@ -1,5 +1,6 @@
 pub(crate) mod api_bridge;
 pub(crate) mod auth;
+mod cache_wire_observation;
 pub(crate) mod common;
 pub(crate) mod endpoint;
 pub(crate) mod error;

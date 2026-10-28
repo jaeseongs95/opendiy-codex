@@ -13,13 +13,24 @@ use rmcp::service::RxJsonRpcMessage;
 use rmcp::service::TxJsonRpcMessage;
 use rmcp::transport::Transport;
 use rmcp::transport::async_rw::AsyncRwTransport;
+#[cfg(not(windows))]
 use tokio::process::ChildStderr;
 use tokio::process::ChildStdin;
+#[cfg(not(windows))]
 use tokio::process::ChildStdout;
 
 use crate::bounded_stdio_transport::BoundedStdioTransport;
 use crate::protocol_mode::McpProtocolMode;
 use codex_utils_pty::Child;
+
+#[cfg(windows)]
+pub(super) type LocalStdioStdout = tokio::net::windows::named_pipe::NamedPipeServer;
+#[cfg(windows)]
+pub(super) type LocalStdioStderr = tokio::net::windows::named_pipe::NamedPipeServer;
+#[cfg(not(windows))]
+pub(super) type LocalStdioStdout = ChildStdout;
+#[cfg(not(windows))]
+pub(super) type LocalStdioStderr = ChildStderr;
 
 pub(super) struct LocalStdioTransport {
     child: Box<Child>,
@@ -28,26 +39,35 @@ pub(super) struct LocalStdioTransport {
 
 enum StdioTransport {
     /// Preserve rmcp's existing framing for servers using the initialize handshake.
-    Legacy(AsyncRwTransport<RoleClient, ChildStdout, ChildStdin>),
+    Legacy(AsyncRwTransport<RoleClient, LocalStdioStdout, ChildStdin>),
     /// Bound frames and skip messages unknown to the client during 2026-07-28 discovery.
     V20260728(BoundedStdioTransport),
 }
 
 impl LocalStdioTransport {
     pub(super) fn spawn(
-        command: Command,
+        mut command: Command,
         program_name: String,
         protocol_mode: McpProtocolMode,
-    ) -> io::Result<(Self, Option<ChildStderr>)> {
+    ) -> io::Result<(Self, Option<LocalStdioStderr>)> {
+        #[cfg(windows)]
+        let (stdout, stderr) = {
+            let (stdout, child_stdout) = crate::windows_stdio::output_pipe()?;
+            let (stderr, child_stderr) = crate::windows_stdio::output_pipe()?;
+            command.stdout_file(child_stdout).stderr_file(child_stderr);
+            (stdout, Some(stderr))
+        };
         let mut child = command.spawn()?;
         let stdin = child
             .stdin
             .take()
             .ok_or_else(|| io::Error::other("MCP server stdin was not piped"))?;
+        #[cfg(not(windows))]
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| io::Error::other("MCP server stdout was not piped"))?;
+        #[cfg(not(windows))]
         let stderr = child.stderr.take();
         let transport = match protocol_mode {
             McpProtocolMode::Legacy => StdioTransport::Legacy(AsyncRwTransport::new(stdout, stdin)),
@@ -66,6 +86,26 @@ impl LocalStdioTransport {
 
     pub(super) fn id(&self) -> Option<u32> {
         self.child.id()
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn terminate_failed_launch(&mut self) {
+        // Retain Tokio's exact child handle across a post-spawn launcher error.
+        // Dropping a suspended child only requests an asynchronous kill.
+        loop {
+            match self.child.kill().await {
+                Ok(()) => return,
+                Err(error) => {
+                    tracing::warn!("Failed MCP launch cleanup remains unconfirmed: {error}")
+                }
+            }
+            if let Ok(Ok(_)) =
+                tokio::time::timeout(Duration::from_millis(50), self.child.wait()).await
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }
 

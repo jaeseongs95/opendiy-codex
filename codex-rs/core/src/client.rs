@@ -297,6 +297,7 @@ pub struct ModelClient {
 pub struct ModelClientSession {
     client: ModelClient,
     websocket_session: WebsocketSession,
+    capacity_retry_owner: Option<Option<u64>>,
     /// Turn state for sticky routing.
     ///
     /// This is an `OnceLock` that stores the turn state value received from the server
@@ -702,6 +703,7 @@ impl ModelClient {
         ModelClientSession {
             client: self.clone(),
             websocket_session,
+            capacity_retry_owner: None,
             turn_state: Arc::new(OnceLock::new()),
         }
     }
@@ -1464,6 +1466,20 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn bind_capacity_retry_owner(&mut self, owner: Option<u64>) {
+        self.capacity_retry_owner = Some(owner);
+    }
+
+    pub(crate) fn capacity_retry_owner(&self) -> Option<Option<u64>> {
+        self.capacity_retry_owner
+    }
+
+    /// A dropped request setup has no response to drain. Discard its socket and
+    /// continuation before yielding to new input, without changing transport policy.
+    pub(crate) fn discard_interrupted_stream(&mut self) {
+        self.websocket_session.reset(Some("other"));
+    }
+
     pub(crate) fn inference_tools_changed(&self, tools: &Arc<[ToolSpec]>) -> bool {
         let previous = self
             .client
@@ -1917,6 +1933,12 @@ impl ResponsesHttpExecutor<'_> {
                 request.input = input;
             }
             inference_trace_attempt.record_started(&request);
+            if expected_auth_owner.is_some_and(|owner| {
+                Some(owner) != client_setup.auth_owner_generation
+                    || Some(owner) != self.client.auth_owner_generation()
+            }) {
+                return Err(CodexErr::TurnAborted);
+            }
             let client = ApiResponsesClient::new(
                 transport,
                 client_setup.api_provider,
@@ -2023,6 +2045,12 @@ impl ModelClientSession {
                 .client
                 .current_client_setup(ClientRouting::Workspace)
                 .await?;
+            if self.capacity_retry_owner.is_some_and(|owner| {
+                owner != client_setup.auth_owner_generation
+                    || owner != self.client.auth_owner_generation()
+            }) {
+                return Err(CodexErr::TurnAborted);
+            }
             let include_internal = self
                 .client
                 .state
@@ -2244,6 +2272,12 @@ impl ModelClientSession {
                     ),
                 ],
             );
+            if self
+                .capacity_retry_owner
+                .is_some_and(|owner| owner != self.client.auth_owner_generation())
+            {
+                return Err(CodexErr::TurnAborted);
+            }
             let stream_result = websocket_connection
                 .stream_request(
                     ws_request,
@@ -2430,7 +2464,7 @@ impl ModelClientSession {
                 ResponsesHttpExecutor::new(&self.client)
                     .stream_responses_http(
                         &self.turn_state,
-                        /*expected_auth_owner*/ None,
+                        self.capacity_retry_owner.flatten(),
                         self.client.event_sender.as_ref(),
                         prompt,
                         model_info,

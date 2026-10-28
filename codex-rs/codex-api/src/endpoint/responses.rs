@@ -1,4 +1,5 @@
 use crate::auth::SharedAuthProvider;
+use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseStream;
 use crate::common::ResponsesApiRequest;
 use crate::endpoint::session::EndpointSession;
@@ -8,7 +9,7 @@ use crate::requests::Compression;
 use crate::requests::headers::build_session_headers;
 use crate::requests::headers::insert_header;
 use crate::requests::headers::subagent_header;
-use crate::sse::spawn_response_stream;
+use crate::sse::responses::spawn_response_stream_observed;
 use crate::telemetry::SseTelemetry;
 use codex_client::EncodedJsonBody;
 use codex_client::HttpTransport;
@@ -82,6 +83,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
         } = options;
         let body = EncodedJsonBody::encode(&request)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
+        let observation = WireObservation::http(&request);
 
         let mut headers = extra_headers;
         if let Some(ref thread_id) = thread_id {
@@ -92,7 +94,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
             insert_header(&mut headers, "x-openai-subagent", &subagent);
         }
 
-        self.stream_encoded(body, headers, compression, turn_state)
+        self.stream_encoded(body, headers, compression, turn_state, observation)
             .await
     }
 
@@ -116,7 +118,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
     ) -> Result<ResponseStream, ApiError> {
         let body = EncodedJsonBody::encode(&body)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
-        self.stream_encoded(body, extra_headers, compression, turn_state)
+        self.stream_encoded(body, extra_headers, compression, turn_state, None)
             .await
     }
 
@@ -126,13 +128,14 @@ impl<T: HttpTransport> ResponsesClient<T> {
         extra_headers: HeaderMap,
         compression: Compression,
         turn_state: Option<Arc<OnceLock<String>>>,
+        mut observation: Option<WireObservation>,
     ) -> Result<ResponseStream, ApiError> {
         let request_compression = match compression {
             Compression::None => RequestCompression::None,
             Compression::Zstd => RequestCompression::Zstd,
         };
 
-        let stream_response = self
+        let result = self
             .session
             .stream_encoded_json_with(
                 Method::POST,
@@ -147,13 +150,31 @@ impl<T: HttpTransport> ResponsesClient<T> {
                     req.compression = request_compression;
                 },
             )
-            .await?;
+            .await;
+        let stream_response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(observation) = observation.as_mut() {
+                    observation.stage("transport_error");
+                }
+                return Err(error);
+            }
+        };
+        if let Some(observation) = observation.as_mut() {
+            observation.upstream(
+                stream_response
+                    .headers
+                    .get("x-request-id")
+                    .and_then(|id| id.to_str().ok()),
+            );
+        }
 
-        Ok(spawn_response_stream(
+        Ok(spawn_response_stream_observed(
             stream_response,
             self.session.provider().stream_idle_timeout,
             self.sse_telemetry.clone(),
             turn_state,
+            observation,
         ))
     }
 }

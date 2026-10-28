@@ -1,0 +1,341 @@
+use super::*;
+use codex_config::ThreadConfigContext;
+use codex_config::ThreadConfigLoadError;
+use codex_config::ThreadConfigLoader;
+use codex_config::ThreadConfigSource;
+use codex_exec_server::EnvironmentManager;
+use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::InternalSessionSource;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::ThreadHistoryMode;
+use pretty_assertions::assert_eq;
+
+#[derive(Default)]
+struct ReloadLoader {
+    unload: std::sync::Mutex<Option<(Arc<ThreadManager>, ThreadId, bool)>>,
+}
+
+impl ThreadConfigLoader for ReloadLoader {
+    fn load(
+        &self,
+        context: ThreadConfigContext,
+    ) -> codex_config::ThreadConfigLoaderFuture<'_, Vec<ThreadConfigSource>> {
+        Box::pin(async move {
+            let unload = if context.cwd.is_some() {
+                self.unload.lock().unwrap().take()
+            } else {
+                None
+            };
+            if let Some((threads, id, replace)) = unload {
+                let old = threads.remove_thread(&id).await.unwrap();
+                if replace {
+                    old.ensure_rollout_materialized().await;
+                    old.flush_rollout().await.unwrap();
+                    let history = old.load_history(true).await.unwrap();
+                    old.shutdown_and_wait().await.unwrap();
+                    let replacement = threads
+                        .resume_thread_with_history(
+                            old.config().await.as_ref().clone(),
+                            InitialHistory::Resumed(ResumedHistory {
+                                conversation_id: id,
+                                history: Arc::new(history.items),
+                                history_revision: history.revision,
+                                rollout_path: old.rollout_path(),
+                            }),
+                            AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy")),
+                            None,
+                            Default::default(),
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(replacement.thread_id, id);
+                    assert!(!Arc::ptr_eq(&old, &replacement.thread));
+                }
+            }
+            Ok::<_, ThreadConfigLoadError>(Vec::new())
+        })
+    }
+}
+
+struct Fixture {
+    home: tempfile::TempDir,
+    processor: McpRequestProcessor,
+    threads: Arc<ThreadManager>,
+    config: Arc<Config>,
+    loader: Arc<ReloadLoader>,
+    _receiver: tokio::sync::mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
+}
+
+impl Fixture {
+    async fn new() -> anyhow::Result<Self> {
+        let home = tempfile::tempdir()?;
+        let loader = Arc::new(ReloadLoader::default());
+        let manager = ConfigManager::new(
+            home.path().to_path_buf(),
+            Vec::new(),
+            codex_config::LoaderOverrides::without_managed_config_for_tests(),
+            /*strict_config*/ false,
+            codex_config::CloudConfigBundleLoader::default(),
+            codex_arg0::Arg0DispatchPaths::default(),
+            loader.clone(),
+        );
+        let config = Arc::new(
+            manager
+                .load_latest_config(Some(home.path().to_path_buf()))
+                .await?,
+        );
+        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("dummy"));
+        let threads = Arc::new(
+            codex_core::test_support::thread_manager_with_models_provider_and_home(
+                CodexAuth::from_api_key("dummy"),
+                config.model_provider.clone(),
+                config.codex_home.to_path_buf(),
+                Arc::new(EnvironmentManager::default_for_tests()),
+            ),
+        );
+        let (sender, receiver) = tokio::sync::mpsc::channel(16);
+        let outgoing = Arc::new(OutgoingMessageSender::new(
+            sender,
+            codex_analytics::AnalyticsEventsClient::disabled(),
+        ));
+        let catalog = Arc::new(crate::model_catalog::ModelCatalog::new(
+            manager.clone(),
+            Some(config.cwd.to_path_buf()),
+            Arc::clone(&config),
+            threads.get_models_manager(),
+            Arc::clone(&auth),
+        ));
+        let account = AccountRequestProcessor::new(
+            Arc::clone(&auth),
+            Arc::clone(&threads),
+            Arc::clone(&outgoing),
+            Arc::clone(&config),
+            manager.clone(),
+            catalog,
+        );
+        Ok(Self {
+            home,
+            processor: McpRequestProcessor::new(
+                auth,
+                Arc::clone(&threads),
+                ThreadStateManager::new(),
+                outgoing,
+                manager,
+                account,
+            ),
+            threads,
+            config,
+            loader,
+            _receiver: receiver,
+        })
+    }
+
+    async fn thread(&self) -> anyhow::Result<(ThreadId, Arc<CodexThread>)> {
+        let new = self
+            .threads
+            .start_thread(codex_core::StartThreadOptions::new(
+                self.config.as_ref().clone(),
+            ))
+            .await?;
+        Ok((new.thread_id, new.thread))
+    }
+
+    fn invalid_config(&self) -> anyhow::Result<()> {
+        std::fs::write(
+            self.home.path().join(codex_config::CONFIG_TOML_FILE),
+            "invalid = [",
+        )?;
+        Ok(())
+    }
+}
+
+fn target(id: ThreadId) -> Option<McpServerRefreshParams> {
+    Some(McpServerRefreshParams {
+        thread_id: Some(id.to_string()),
+    })
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_preserves_legacy_and_targets_one_loaded_thread() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, _) = fixture.thread().await?;
+    let (other_id, other) = fixture.thread().await?;
+    for params in [None, Some(McpServerRefreshParams::default())] {
+        let legacy = fixture
+            .processor
+            .mcp_server_refresh_response(params)
+            .await
+            .expect("legacy reload should succeed");
+        assert_eq!(serde_json::to_value(legacy)?, serde_json::json!({}));
+    }
+    let response = fixture
+        .processor
+        .mcp_server_refresh_response(target(id))
+        .await
+        .expect("targeted reload should succeed");
+    assert_eq!(
+        response.reconnect_queued_for_thread_id,
+        Some(id.to_string())
+    );
+    assert!(Arc::ptr_eq(
+        &other,
+        &fixture.threads.get_thread(other_id).await?
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_rejects_internal_target_before_policy_load() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (parent_id, _) = fixture.thread().await?;
+    let internal = fixture
+        .threads
+        .spawn_internal_session(
+            parent_id,
+            codex_core::StartThreadOptions {
+                session_source: Some(SessionSource::Internal(InternalSessionSource::Guardian)),
+                ..codex_core::StartThreadOptions::new(fixture.config.as_ref().clone())
+            },
+        )
+        .await?;
+    fixture.invalid_config()?;
+    let error = fixture
+        .processor
+        .mcp_server_refresh_response(target(internal.thread_id))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.message,
+        format!("thread not found: {}", internal.thread_id)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_rejects_missing_or_invalid_target_before_policy_load()
+-> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.invalid_config()?;
+    for id in ["not-a-thread".to_string(), ThreadId::new().to_string()] {
+        let error = fixture
+            .processor
+            .mcp_server_refresh_response(Some(McpServerRefreshParams {
+                thread_id: Some(id),
+            }))
+            .await
+            .unwrap_err();
+        assert!(
+            error.message.starts_with("invalid thread id:")
+                || error.message.starts_with("thread not found:")
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_policy_failure_has_no_reconnect_ack() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, _) = fixture.thread().await?;
+    fixture.invalid_config()?;
+    let error = fixture
+        .processor
+        .mcp_server_refresh_response(target(id))
+        .await
+        .unwrap_err();
+    assert!(error.message.starts_with("failed to refresh MCP servers:"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_rechecks_loaded_owner_after_policy_reload() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, _) = fixture.thread().await?;
+    *fixture.loader.unload.lock().unwrap() = Some((Arc::clone(&fixture.threads), id, false));
+    let error = fixture
+        .processor
+        .mcp_server_refresh_response(target(id))
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, format!("thread is no longer loaded: {id}"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_rejects_replacement_runtime_with_same_id() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    // This fixture captures full history to resume the same ID under a new runtime.
+    let original = fixture
+        .threads
+        .start_thread(codex_core::StartThreadOptions {
+            history_mode: Some(ThreadHistoryMode::Legacy),
+            ..codex_core::StartThreadOptions::new(fixture.config.as_ref().clone())
+        })
+        .await?;
+    let (id, old) = (original.thread_id, original.thread);
+    *fixture.loader.unload.lock().unwrap() = Some((Arc::clone(&fixture.threads), id, true));
+    let error = fixture
+        .processor
+        .mcp_server_refresh_response(target(id))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.message,
+        format!("thread runtime changed during MCP reload: {id}")
+    );
+    assert!(!Arc::ptr_eq(&old, &fixture.threads.get_thread(id).await?));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_acknowledges_captured_queue_after_registry_removal()
+-> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, old) = fixture.thread().await?;
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    *fixture.processor.before_refresh_enqueue.lock().unwrap() = Some(Arc::clone(&barrier));
+    let processor = fixture.processor.clone();
+    let refresh =
+        tokio::spawn(async move { processor.mcp_server_refresh_response(target(id)).await });
+    let timeout = std::time::Duration::from_secs(10);
+
+    // First rendezvous is after the registry identity check; the second releases enqueue.
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+    let removed = fixture.threads.remove_thread(&id).await.unwrap();
+    assert!(Arc::ptr_eq(&old, &removed));
+    assert!(fixture.threads.get_thread(id).await.is_err());
+    tokio::time::timeout(timeout, barrier.wait()).await?;
+
+    let response = tokio::time::timeout(timeout, refresh)
+        .await??
+        .expect("the captured runtime queue remains open");
+    assert_eq!(
+        response.reconnect_queued_for_thread_id,
+        Some(id.to_string())
+    );
+    assert!(fixture.threads.get_thread(id).await.is_err());
+    old.shutdown_and_wait().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_reload_handler_closed_submission_queue_has_no_ack() -> anyhow::Result<()> {
+    let fixture = Fixture::new().await?;
+    let (id, thread) = fixture.thread().await?;
+    thread.submit(Op::Shutdown).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !matches!(thread.next_event().await?.msg, EventMsg::ShutdownComplete) {}
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    let error = fixture
+        .processor
+        .mcp_server_refresh_response(target(id))
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with("failed to queue MCP reconnect for")
+    );
+    Ok(())
+}

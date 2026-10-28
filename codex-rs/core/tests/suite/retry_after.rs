@@ -320,7 +320,7 @@ async fn responses_http_uses_retry_after() -> Result<()> {
     );
     assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
     let retry = telemetry.next_retry().await;
-    assert!(retry.delay <= Duration::from_secs(1));
+    assert!((Duration::from_millis(4_500)..=Duration::from_millis(5_501)).contains(&retry.delay));
     assert_eq!(
         retry,
         RetryTelemetryEvent {
@@ -500,7 +500,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
 }
 
 /// Retry advice changes delays but never extends either retry budget or its displayed count.
-#[test_case::test_case(None, 2, 3; "without_advice")]
+#[test_case::test_case(None, 2, 9; "without_advice")]
 #[test_case::test_case(Some("0"), 0, 3; "advice_without_stream_retries")]
 #[test_case::test_case(Some("0"), 2, 9; "advice_with_stream_retries")]
 #[tokio::test(flavor = "current_thread")]
@@ -533,9 +533,15 @@ async fn responses_http_overload_respects_retry_limits(
     submit_user_input(&test, "reject the disabled model").await?;
     let mut error_events = 0;
     let mut reconnect_messages = Vec::new();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(Duration::from_secs(30), async {
         loop {
-            match wait_for_event(&test.codex, |_| true).await {
+            match core_test_support::wait_for_event_with_timeout(
+                &test.codex,
+                |_| true,
+                Duration::from_secs(30),
+            )
+            .await
+            {
                 EventMsg::Error(error) => {
                     error_events += 1;
                     assert_eq!(
@@ -560,16 +566,12 @@ async fn responses_http_overload_respects_retry_limits(
         }
     })
     .await
-    .expect("overload retries should finish the turn within 10 seconds");
+    .expect("overload retries should finish the turn within 30 seconds");
 
     assert_eq!(error_events, 1);
-    let expected_messages = if retry_after.is_some() {
-        (1..=stream_max_retries)
-            .map(|retry| format!("Reconnecting... {retry}/{stream_max_retries}"))
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    let expected_messages = (1..=stream_max_retries)
+        .map(|retry| format!("Model at capacity. Retrying... {retry}/{stream_max_retries}"))
+        .collect::<Vec<_>>();
     assert_eq!(reconnect_messages, expected_messages);
     let request_count = server
         .received_requests()
@@ -1208,7 +1210,6 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) -> 
 #[test_case::test_case("slow_down", Some("1"), "Please try again in 4.000s."; "slow_down_fractional_header")]
 #[test_case::test_case("slow_down", None, "Please try again in 1.000s."; "slow_down_fractional_plaintext")]
 #[test_case::test_case("rate_limit_exceeded", Some("bad"), "Try again in 1 second."; "malformed_header")]
-#[test_case::test_case("server_is_overloaded", Some("1"), "This model is overloaded."; "overload_header")]
 #[tokio::test(flavor = "current_thread")]
 async fn sse_failure_uses_server_advice(
     code: &str,
@@ -1270,9 +1271,9 @@ async fn sse_failure_uses_server_advice(
     Ok(())
 }
 
-/// A streamed backend overload remains terminal despite an enclosing retry header.
+/// Explicitly disabled stream retries also disable capacity recovery.
 #[tokio::test(flavor = "current_thread")]
-async fn sse_overload_with_retry_after_is_terminal() -> Result<()> {
+async fn sse_overload_with_retry_after_and_disabled_retries_is_terminal() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let mut telemetry = RetryTelemetryCapture::install();
@@ -1290,7 +1291,7 @@ async fn sse_overload_with_retry_after_is_terminal() -> Result<()> {
     let test = test_codex()
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(2);
-            config.model_provider.stream_max_retries = Some(2);
+            config.model_provider.stream_max_retries = Some(0);
         })
         .build_with_auto_env(&server)
         .await?;
@@ -1343,9 +1344,9 @@ async fn sse_overload_with_retry_after_is_terminal() -> Result<()> {
     Ok(())
 }
 
-/// A streamed backend overload without retry advice must complete with one terminal error.
+/// Headerless capacity remains terminal when retries are explicitly disabled.
 #[tokio::test(flavor = "current_thread")]
-async fn sse_overload_without_retry_after_is_terminal() -> Result<()> {
+async fn sse_overload_without_retry_after_and_disabled_retries_is_terminal() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let mut telemetry = RetryTelemetryCapture::install();
@@ -1362,7 +1363,7 @@ async fn sse_overload_without_retry_after_is_terminal() -> Result<()> {
     let test = test_codex()
         .with_config(|config| {
             config.model_provider.request_max_retries = Some(2);
-            config.model_provider.stream_max_retries = Some(2);
+            config.model_provider.stream_max_retries = Some(0);
         })
         .build_with_auto_env(&server)
         .await?;
@@ -1811,7 +1812,7 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
     let server = responses::start_mock_server().await;
     let prewarm_rejection = Mock::given(method("GET"))
         .and(path("/v1/responses"))
-        .respond_with(ResponseTemplate::new(/*s*/ 503))
+        .respond_with(ResponseTemplate::new(/*s*/ 500))
         .up_to_n_times(/*n*/ 1)
         .expect(/*r*/ 1)
         .mount_as_scoped(&server)
@@ -1819,15 +1820,15 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
     Mock::given(method("GET"))
         .and(path("/v1/responses"))
         .respond_with(
-            ResponseTemplate::new(/*s*/ 503)
+            ResponseTemplate::new(/*s*/ 500)
                 .insert_header("Retry-After", "1")
-                .set_body_json(json!({ "error": { "code": "server_is_overloaded" } })),
+                .set_body_json(json!({ "error": { "code": "internal_server_error" } })),
         )
         .mount(&server)
         .await;
-    let http_overload = ResponseTemplate::new(/*s*/ 503)
+    let http_overload = ResponseTemplate::new(/*s*/ 500)
         .insert_header("Retry-After", "0")
-        .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
+        .set_body_json(json!({ "error": { "code": "internal_server_error" } }));
     let response_mock = responses::mount_response_sequence(
         &server,
         vec![
@@ -2025,10 +2026,9 @@ async fn websocket_rate_limit_without_retry_after_is_terminal() -> Result<()> {
     Ok(())
 }
 
-/// When an overload stops giving advice, it is terminal even if the retry limit
-/// has been reached. The transport must not switch after that terminal error.
+/// An exhausted capacity budget remains terminal when advice stops; no transport switch.
 #[tokio::test(flavor = "current_thread")]
-async fn websocket_overload_retries_only_while_it_has_retry_after() -> Result<()> {
+async fn websocket_capacity_budget_does_not_fall_back() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let mut telemetry = RetryTelemetryCapture::install();
@@ -2084,7 +2084,9 @@ async fn websocket_overload_retries_only_while_it_has_retry_after() -> Result<()
     for attempt in 1..=3 {
         let retry = telemetry.next_retry().await;
         assert_eq!(retry.attempt, attempt);
-        assert!(retry.delay <= Duration::from_secs(1));
+        let expected = Duration::from_secs(5 * 2_u64.pow(attempt as u32 - 1));
+        assert!(retry.delay >= expected.mul_f64(0.9));
+        assert!(retry.delay <= expected.mul_f64(1.1));
         assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
     }
 
@@ -2122,7 +2124,7 @@ async fn websocket_overload_retries_only_while_it_has_retry_after() -> Result<()
     }
 
     assert_eq!(error_events, 1);
-    assert_eq!(stream_error_events, 2 + usize::from(cfg!(debug_assertions)));
+    assert_eq!(stream_error_events, 3);
     assert_eq!(
         fallback_warning_events, 0,
         "websocket must not fall back to HTTP"
@@ -2141,9 +2143,9 @@ async fn websocket_overload_retries_only_while_it_has_retry_after() -> Result<()
     Ok(())
 }
 
-/// Headerless websocket overloads must neither reconnect nor fall back to HTTP.
+/// Disabling stream retries also disables headerless WebSocket capacity retries.
 #[tokio::test(flavor = "current_thread")]
-async fn websocket_overload_without_retry_after_is_terminal() -> Result<()> {
+async fn websocket_overload_without_retry_after_and_disabled_retries_is_terminal() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let mut telemetry = RetryTelemetryCapture::install();
@@ -2168,7 +2170,7 @@ async fn websocket_overload_without_retry_after_is_terminal() -> Result<()> {
             config.model_catalog =
                 Some(bundled_models_response().expect("bundled models.json should parse"));
             config.model_provider.request_max_retries = Some(2);
-            config.model_provider.stream_max_retries = Some(2);
+            config.model_provider.stream_max_retries = Some(0);
         })
         .build_with_websocket_server(&server)
         .await?;

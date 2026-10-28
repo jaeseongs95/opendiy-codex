@@ -117,24 +117,42 @@ impl ConfigManagerError {
 }
 
 impl ConfigManager {
+    #[cfg(test)]
     pub(crate) async fn read(
         &self,
         params: ConfigReadParams,
     ) -> Result<ConfigReadResponse, ConfigManagerError> {
-        let layers = match params.cwd.as_deref() {
+        self.read_with_config(params)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    /// Derive the API view and runtime features from one validated set of layers.
+    pub(crate) async fn read_with_config(
+        &self,
+        params: ConfigReadParams,
+    ) -> Result<(ConfigReadResponse, codex_core::config::Config), ConfigManagerError> {
+        let cwd = match params.cwd.as_deref() {
             Some(cwd) => {
                 let cwd = AbsolutePathBuf::try_from(PathBuf::from(cwd)).map_err(|err| {
                     ConfigManagerError::io("failed to resolve config cwd to an absolute path", err)
                 })?;
-                self.load_config_layers(Some(cwd)).await.map_err(|err| {
-                    ConfigManagerError::io("failed to read configuration layers", err)
-                })?
+                Some(cwd.to_path_buf())
             }
-            None => self.load_thread_agnostic_config().await.map_err(|err| {
-                ConfigManagerError::io("failed to read configuration layers", err)
-            })?,
+            None => None,
         };
+        let loaded = self
+            .load_latest_config(cwd)
+            .await
+            .map_err(|err| ConfigManagerError::io("failed to read configuration layers", err))?;
+        let response = Self::read_loaded_layers(&loaded.config_layer_stack, params.include_layers)?;
+        Ok((response, loaded))
+    }
 
+    fn read_loaded_layers(
+        layers: &ConfigLayerStack,
+        include_layers: bool,
+    ) -> Result<ConfigReadResponse, ConfigManagerError> {
         let effective = layers.effective_config();
         let mut effective_config_toml: ConfigToml = effective
             .try_into()
@@ -165,7 +183,7 @@ impl ConfigManager {
                 .into_iter()
                 .map(|(path, metadata)| (path, config_layer_metadata_to_api(metadata)))
                 .collect(),
-            layers: params.include_layers.then(|| {
+            layers: include_layers.then(|| {
                 layers
                     .all_layers_high_to_low()
                     .filter(|layer| {

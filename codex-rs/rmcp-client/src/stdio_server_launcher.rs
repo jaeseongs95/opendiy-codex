@@ -21,6 +21,8 @@ use std::os::windows::io::OwnedHandle;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(windows)]
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 #[cfg(unix)]
@@ -49,6 +51,8 @@ use codex_utils_pty::process_group::kill_process_group;
 use codex_utils_pty::process_group::terminate_process_group;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+#[cfg(windows)]
+use futures::future::Shared;
 use rmcp::service::RoleClient;
 use rmcp::service::RxJsonRpcMessage;
 use rmcp::service::TxJsonRpcMessage;
@@ -61,6 +65,7 @@ use tracing::info;
 use tracing::warn;
 
 use crate::executor_process_transport::ExecutorProcessTransport;
+use crate::local_stdio_transport::LocalStdioStderr;
 use crate::local_stdio_transport::LocalStdioTransport;
 use crate::program_resolver;
 use crate::protocol_mode::McpProtocolMode;
@@ -183,6 +188,7 @@ impl StdioServerCommand {
 #[derive(Clone)]
 pub struct LocalStdioServerLauncher {
     fallback_cwd: PathBuf,
+    require_job_containment: bool,
 }
 
 impl LocalStdioServerLauncher {
@@ -191,7 +197,18 @@ impl LocalStdioServerLauncher {
     /// `fallback_cwd` is used when the MCP server config omits `cwd`, so
     /// relative commands resolve from the caller's runtime working directory.
     pub fn new(fallback_cwd: PathBuf) -> Self {
-        Self { fallback_cwd }
+        Self {
+            fallback_cwd,
+            require_job_containment: false,
+        }
+    }
+}
+
+impl LocalStdioServerLauncher {
+    /// Private request work requires a fence covering the entire local process tree.
+    pub fn with_required_job_containment(mut self, required: bool) -> Self {
+        self.require_job_containment = required;
+        self
     }
 }
 
@@ -201,12 +218,15 @@ impl StdioServerLauncher for LocalStdioServerLauncher {
         command: StdioServerCommand,
     ) -> BoxFuture<'static, io::Result<StdioServerTransport>> {
         let fallback_cwd = self.fallback_cwd.clone();
+        let require_job_containment = self.require_job_containment;
         async move {
             // Keep synchronous program resolution and process creation from blocking the
             // caller's startup deadline.
-            tokio::task::spawn_blocking(move || Self::launch_server(command, fallback_cwd))
-                .await
-                .map_err(io::Error::other)?
+            tokio::task::spawn_blocking(move || {
+                Self::launch_server(command, fallback_cwd, require_job_containment)
+            })
+            .await
+            .map_err(io::Error::other)?
         }
         .boxed()
     }
@@ -220,6 +240,32 @@ const PROCESS_GROUP_TERM_GRACE_PERIOD: Duration = Duration::from_secs(2);
 // Keep queued stderr diagnostics before closing the reader, even when an
 // escaped descendant prevents the pipe from reaching EOF.
 const STDERR_READER_DRAIN_GRACE_PERIOD: Duration = Duration::from_millis(250);
+
+#[cfg(windows)]
+async fn confirm_local_termination(probe: impl Fn() -> io::Result<bool>, request: impl Fn()) {
+    loop {
+        match probe() {
+            Ok(true) => return,
+            Ok(false) => request(),
+            Err(error) => {
+                warn!("MCP process termination remains unconfirmed: {error}");
+                request();
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[cfg(windows)]
+async fn retry_after_failed_launch<T>(
+    cleanup: impl Future<Output = ()>,
+    retry: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    cleanup.await;
+    retry()
+}
 
 #[cfg(unix)]
 struct LocalProcessTerminator {
@@ -244,6 +290,8 @@ struct StdioServerProcessHandleInner {
     program_name: String,
     kind: StdioServerProcessKind,
     terminated: AtomicBool,
+    #[cfg(windows)]
+    local_cleanup: StdMutex<Option<Shared<BoxFuture<'static, ()>>>>,
     // An escaped descendant can keep stderr open after the MCP server exits.
     stderr_reader: Option<watch::Sender<()>>,
 }
@@ -263,7 +311,31 @@ impl LocalStdioServerLauncher {
     fn launch_server(
         command: StdioServerCommand,
         fallback_cwd: PathBuf,
+        require_job_containment: bool,
     ) -> io::Result<StdioServerTransport> {
+        #[cfg(windows)]
+        {
+            Self::launch_server_with_job(
+                command,
+                fallback_cwd,
+                require_job_containment,
+                codex_utils_pty::JobObject::create_without_breakaway(),
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            Self::launch_server_with_job(command, fallback_cwd, require_job_containment)
+        }
+    }
+
+    fn launch_server_with_job(
+        command: StdioServerCommand,
+        fallback_cwd: PathBuf,
+        _require_job_containment: bool,
+        #[cfg(windows)] job_result: io::Result<codex_utils_pty::JobObject>,
+    ) -> io::Result<StdioServerTransport> {
+        #[cfg(windows)]
+        let require_job_containment = _require_job_containment;
         let StdioServerCommand {
             program,
             args,
@@ -295,11 +367,12 @@ impl LocalStdioServerLauncher {
         #[cfg(not(windows))]
         let command = build_command();
         #[cfg(windows)]
-        let job = match codex_utils_pty::JobObject::create_without_breakaway() {
+        let job = match job_result {
             Ok(job) => {
                 command.prepare_suspended_spawn(&job);
                 Some(job)
             }
+            Err(error) if require_job_containment => return Err(error),
             Err(error) => {
                 warn!("Windows MCP process job containment unavailable: {error}");
                 None
@@ -308,7 +381,7 @@ impl LocalStdioServerLauncher {
 
         let spawn_transport = |command: Command| -> io::Result<(
             StdioServerTransportInner,
-            Option<tokio::process::ChildStderr>,
+            Option<LocalStdioStderr>,
             Option<u32>,
         )> {
             let (transport, stderr) =
@@ -325,18 +398,44 @@ impl LocalStdioServerLauncher {
         let (transport, stderr, process_id, job) = match job {
             Some(job) => match process_id
                 .ok_or_else(|| io::Error::other("missing suspended MCP server process id"))
-                .and_then(|process_id| job.assign_and_resume_process(process_id))
-            {
+                .and_then(|process_id| {
+                    if require_job_containment {
+                        job.assign_and_resume_process_strict(process_id)
+                            .map(|()| true)
+                    } else {
+                        job.assign_and_resume_process(process_id)
+                    }
+                }) {
                 Ok(true) => (transport, stderr, process_id, Some(job)),
                 Ok(false) => (transport, stderr, process_id, None),
                 Err(error) => {
                     warn!(
-                        "Windows MCP process job containment failed; retrying without it: {error}"
+                        required = require_job_containment,
+                        "Windows MCP process job containment failed: {error}"
                     );
-                    drop(stderr);
-                    drop(transport);
-                    drop(job);
-                    let (transport, stderr, process_id) = spawn_transport(build_command())?;
+                    let cleanup = async {
+                        job.terminate().ok();
+                        if let StdioServerTransportInner::Local(mut transport) = transport {
+                            transport.terminate_failed_launch().await;
+                        }
+                        confirm_local_termination(
+                            || job.is_empty(),
+                            || {
+                                job.terminate().ok();
+                            },
+                        )
+                        .await;
+                        drop(stderr);
+                    };
+                    if require_job_containment {
+                        // A failed assignment never resumes private work or retries uncontained.
+                        tokio::runtime::Handle::current().block_on(cleanup);
+                        return Err(error);
+                    }
+                    let (transport, stderr, process_id) = tokio::runtime::Handle::current()
+                        .block_on(retry_after_failed_launch(cleanup, || {
+                            spawn_transport(build_command())
+                        }))?;
                     (transport, stderr, process_id, None)
                 }
             },
@@ -404,6 +503,15 @@ impl LocalStdioServerLauncher {
 }
 
 impl LocalProcessTerminator {
+    #[cfg(windows)]
+    fn is_terminated(&self) -> io::Result<bool> {
+        match self {
+            Self::Job(job) => job.is_empty(),
+            Self::Process(handle) => {
+                codex_utils_pty::JobObject::process_handle_is_terminated(handle)
+            }
+        }
+    }
     #[cfg(not(windows))]
     fn new(process_group_id: u32) -> Self {
         #[cfg(unix)]
@@ -465,6 +573,8 @@ impl StdioServerProcessHandle {
                 program_name,
                 kind: StdioServerProcessKind::Local(terminator),
                 terminated: AtomicBool::new(false),
+                #[cfg(windows)]
+                local_cleanup: StdMutex::new(None),
                 stderr_reader,
             }),
         }
@@ -476,12 +586,54 @@ impl StdioServerProcessHandle {
                 program_name,
                 kind: StdioServerProcessKind::Executor(process),
                 terminated: AtomicBool::new(false),
+                #[cfg(windows)]
+                local_cleanup: StdMutex::new(None),
                 stderr_reader: None,
             }),
         }
     }
 
     pub(crate) async fn terminate(&self) -> io::Result<()> {
+        #[cfg(windows)]
+        if matches!(self.inner.kind, StdioServerProcessKind::Local(_)) {
+            let cleanup = {
+                let mut cleanup = self
+                    .inner
+                    .local_cleanup
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                cleanup.get_or_insert_with(|| {
+                    let inner = Arc::clone(&self.inner);
+                    // A caller may disappear while waiting. The owned task and
+                    // captured handles survive and all callers await one fence.
+                    let task = tokio::spawn(async move {
+                            match &inner.kind {
+                                StdioServerProcessKind::Local(Some(terminator)) => {
+                                    confirm_local_termination(|| terminator.is_terminated(), || terminator.terminate()).await;
+                                    inner.terminated.store(true, Ordering::Release);
+                                }
+                                _ => {
+                                    // Missing ownership evidence cannot become a
+                                    // successful terminal response and new slot.
+                                    warn!("MCP process handle unavailable; retaining unconfirmed lifetime");
+                                    std::future::pending::<()>().await;
+                                }
+                            }
+                    });
+                    async move {
+                        if let Err(error) = task.await {
+                            warn!("MCP cleanup task failed; retaining unconfirmed lifetime: {error}");
+                            std::future::pending::<()>().await;
+                        }
+                    }.boxed().shared()
+                }).clone()
+            };
+            cleanup.await;
+            if let Some(stderr_reader) = &self.inner.stderr_reader {
+                stderr_reader.send_replace(());
+            }
+            return Ok(());
+        }
         if self.inner.terminated.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
@@ -719,6 +871,185 @@ impl ExecutorStdioServerLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mcp_read_lifetime_required_job_never_runs_an_uncontained_command() -> anyhow::Result<()>
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        const TEST: &str = "stdio_server_launcher::tests::mcp_read_lifetime_required_job_never_runs_an_uncontained_command";
+        const PHASE: &str = "CODEX_TEST_REQUIRED_MCP_JOB_PHASE";
+        match std::env::var(PHASE).as_deref() {
+            Ok("hold") => {
+                std::thread::sleep(Duration::from_secs(30));
+                return Ok(());
+            }
+            Ok("probe") => {
+                std::fs::write(
+                    std::env::var_os("CODEX_TEST_REQUIRED_MCP_MARKER").expect("marker"),
+                    b"ran",
+                )?;
+                return Ok(());
+            }
+            _ => {}
+        }
+        let temp = tempfile::tempdir()?;
+        let marker = temp.path().join("uncontained-command-ran");
+        let executable = std::env::current_exe()?;
+        let make_command = || {
+            StdioServerCommand::new(
+                executable.clone().into_os_string(),
+                vec!["--exact".into(), TEST.into(), "--nocapture".into()],
+                Some(HashMap::from([
+                    (PHASE.into(), "probe".into()),
+                    (
+                        "CODEX_TEST_REQUIRED_MCP_MARKER".into(),
+                        marker.clone().into_os_string(),
+                    ),
+                ])),
+                Vec::new(),
+                None,
+                McpProtocolMode::Legacy,
+            )
+        };
+        let result = LocalStdioServerLauncher::launch_server_with_job(
+            make_command(),
+            temp.path().to_path_buf(),
+            true,
+            Err(io::Error::other("forced job creation failure")),
+        );
+        assert!(
+            result.is_err(),
+            "required creation failure must fail before spawn"
+        );
+        assert!(!marker.exists());
+
+        let full_job = codex_utils_pty::JobObject::create_without_breakaway()?;
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        limits.BasicLimitInformation.ActiveProcessLimit = 1;
+        anyhow::ensure!(
+            unsafe {
+                SetInformationJobObject(
+                    full_job.as_raw_handle().cast(),
+                    JobObjectExtendedLimitInformation,
+                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of_val(&limits) as u32,
+                )
+            } != 0,
+            "{}",
+            io::Error::last_os_error()
+        );
+        let mut holder_command = tokio::process::Command::new(&executable);
+        holder_command.args(["--exact", TEST]).env(PHASE, "hold");
+        let mut holder = full_job.spawn_contained(&mut holder_command)?;
+        let command = make_command();
+        let cwd = temp.path().to_path_buf();
+        let result = tokio::task::spawn_blocking(move || {
+            LocalStdioServerLauncher::launch_server_with_job(command, cwd, true, Ok(full_job))
+        });
+        // The launcher retains the suspended child through confirmed failure cleanup.
+        let result = tokio::time::timeout(Duration::from_secs(10), result).await??;
+        assert!(
+            result.is_err(),
+            "assignment failure cannot retry without containment"
+        );
+        holder.wait().await?;
+        assert!(
+            !marker.exists(),
+            "failed assignment resumed an uncontained command"
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mcp_read_lifetime_failed_launch_waits_before_successful_or_failed_retry() {
+        use std::sync::atomic::AtomicUsize;
+        for succeeds in [false, true] {
+            let (release, wait) = tokio::sync::oneshot::channel::<()>();
+            let retried = Arc::new(AtomicUsize::new(0));
+            let observed = Arc::clone(&retried);
+            let task = tokio::spawn(retry_after_failed_launch(
+                async move {
+                    wait.await.expect("cleanup release");
+                },
+                move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    if succeeds {
+                        Ok(7)
+                    } else {
+                        Err(io::Error::other("fallback spawn failed"))
+                    }
+                },
+            ));
+            tokio::task::yield_now().await;
+            assert!(
+                !task.is_finished(),
+                "unconfirmed first attempt cannot publish a startup outcome"
+            );
+            assert_eq!(retried.load(Ordering::SeqCst), 0);
+            release.send(()).expect("release confirmation");
+            assert_eq!(task.await.expect("retry task").is_ok(), succeeds);
+            assert_eq!(retried.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mcp_read_lifetime_cleanup_waits_for_confirmation_and_survives_caller_drop() {
+        use std::sync::atomic::AtomicUsize;
+        let confirmed = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let terminal = Arc::new(AtomicBool::new(false));
+        let observed = Arc::clone(&confirmed);
+        let attempts = Arc::clone(&requests);
+        let completed = Arc::clone(&terminal);
+        let task = tokio::spawn(async move {
+            confirm_local_termination(
+                || Ok(observed.load(Ordering::Acquire)),
+                || {
+                    // The first request fails to stop the process. Even subsequent
+                    // accepted requests do not signal completion until the probe does.
+                    attempts.fetch_add(1, Ordering::AcqRel);
+                },
+            )
+            .await;
+            completed.store(true, Ordering::Release);
+        });
+        let cleanup = async move {
+            task.await.expect("cleanup task");
+        }
+        .boxed()
+        .shared();
+        let caller_a = tokio::spawn(cleanup.clone());
+        let caller_b = tokio::spawn(cleanup);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while requests.load(Ordering::Acquire) < 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("failed request retried");
+        assert!(
+            !terminal.load(Ordering::Acquire),
+            "unconfirmed termination cannot publish a terminal result"
+        );
+        assert!(!caller_b.is_finished());
+        caller_a.abort();
+        confirmed.store(true, Ordering::Release);
+        tokio::time::timeout(Duration::from_secs(5), caller_b)
+            .await
+            .expect("confirmed cleanup finishes")
+            .expect("remaining caller");
+        assert!(terminal.load(Ordering::Acquire));
+    }
     use codex_protocol::config_types::EnvironmentVariablePattern;
     use codex_protocol::config_types::ShellEnvironmentPolicy;
     use codex_protocol::shell_environment;

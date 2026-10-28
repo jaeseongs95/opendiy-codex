@@ -145,6 +145,123 @@ fn test_model_provider() -> SharedModelProvider {
 }
 
 #[tokio::test]
+async fn capacity_bound_owner_rejects_new_http_and_websocket_setup() {
+    for websockets in [false, true] {
+        let server = MockServer::start().await;
+        let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+        let mut info =
+            create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+        info.supports_websockets = websockets;
+        info.request_max_retries = Some(0);
+        let mut client = test_model_client(SessionSource::Cli);
+        Arc::get_mut(&mut client.state).unwrap().provider =
+            create_model_provider(info, Some(manager.clone()));
+        let mut session = client.new_session();
+        session.bind_capacity_retry_owner(client.auth_owner_generation());
+        assert!(manager.reload().await);
+        let metadata = test_responses_metadata_for_client(
+            &client,
+            None,
+            "capacity-window".into(),
+            None,
+            TestCodexResponsesRequestKind::Turn,
+        );
+        let error = match session
+            .stream(
+                &Prompt::default(),
+                &test_model_info(),
+                &test_session_telemetry(),
+                None,
+                codex_protocol::config_types::ReasoningSummary::None,
+                None,
+                &metadata,
+                &InferenceTraceContext::disabled(),
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("a new account must not inherit the old capacity request"),
+        };
+        assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "transport={websockets}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn capacity_bound_owner_is_checked_after_async_http_preparation() {
+    #[derive(Debug)]
+    struct Gate {
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+    impl AttestationProvider for Gate {
+        fn header_for_request(
+            &self,
+            _context: AttestationContext,
+        ) -> GenerateAttestationFuture<'_> {
+            Box::pin(async move {
+                self.entered.notify_one();
+                self.release.notified().await;
+                None
+            })
+        }
+    }
+    let server = MockServer::start().await;
+    let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+    let info =
+        create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let mut client = test_model_client(SessionSource::Cli);
+    let state = Arc::get_mut(&mut client.state).unwrap();
+    state.provider = create_model_provider(info, Some(manager.clone()));
+    state.include_attestation = true;
+    state.attestation_provider = Some(Arc::new(Gate {
+        entered: entered.clone(),
+        release: release.clone(),
+    }));
+    let mut session = client.new_session();
+    session.bind_capacity_retry_owner(client.auth_owner_generation());
+    let metadata = test_responses_metadata_for_client(
+        &client,
+        None,
+        "capacity-window".into(),
+        None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let prompt = Prompt::default();
+    let model = test_model_info();
+    let telemetry = test_session_telemetry();
+    let trace = InferenceTraceContext::disabled();
+    let request = session.stream(
+        &prompt,
+        &model,
+        &telemetry,
+        None,
+        codex_protocol::config_types::ReasoningSummary::None,
+        None,
+        &metadata,
+        &trace,
+    );
+    tokio::pin!(request);
+    tokio::select! {
+        _ = entered.notified() => {},
+        _ = &mut request => panic!("request must stop at the preparation barrier"),
+    }
+    assert!(manager.reload().await);
+    release.notify_one();
+    let error = match request.await {
+        Err(error) => error,
+        Ok(_) => panic!("ownership changed after setup and before HTTP send"),
+    };
+    assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
     use codex_client::HttpTransport;
     use codex_login::WorkspaceRouting;
