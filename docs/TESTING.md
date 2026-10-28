@@ -1,5 +1,7 @@
 # Current 0.165.0 testing methods
 
+For the later final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.
+
 This source snapshot is pinned to official `360319d8dee62d87e2d59fc0c21805d79519cfed` plus local `f665ccc64aaf6baee8fd137d8054f1daaae4a398`. The public export's offline file/provenance verifier and its synthetic safety checks are distinct from actual Rust component tests and live-app validation. No runtime/build receipt or operational log is published. A new build and Rust test run from this public checkout are **NOT_RUN** in this export task.
 
 ## Separate local candidate results and exclusions
