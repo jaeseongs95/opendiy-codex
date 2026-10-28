@@ -3274,7 +3274,9 @@ async fn guardian_review_capacity_long_advice_prevents_outer_resubmission() -> a
             None,
             codex_guardian_reviewer::GuardianReviewSessionLimits {
                 max_attempts: 3,
-                deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+                deadline: codex_guardian_reviewer::ReviewDeadline::At(
+                    tokio::time::Instant::now() + Duration::from_secs(5),
+                ),
             },
         )
         .await;
@@ -3335,7 +3337,9 @@ async fn guardian_review_capacity_exhaustion_preserves_last_server_advice() -> a
             None,
             codex_guardian_reviewer::GuardianReviewSessionLimits {
                 max_attempts: 3,
-                deadline: tokio::time::Instant::now() + Duration::from_secs(10),
+                deadline: codex_guardian_reviewer::ReviewDeadline::At(
+                    tokio::time::Instant::now() + Duration::from_secs(10),
+                ),
             },
         )
         .await;
