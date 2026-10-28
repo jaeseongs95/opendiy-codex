@@ -122,7 +122,7 @@ async fn fast_selection_preserves_global_defaults_other_threads_and_permissions(
         assert_eq!(updated.cwd, before.cwd);
         assert_eq!(
             updated.active_permission_profile,
-            before.active_permission_profile
+            before.active_permission_profile.clone().map(Into::into)
         );
         assert_eq!(
             PermissionProfile::from_legacy_sandbox_policy_for_cwd(

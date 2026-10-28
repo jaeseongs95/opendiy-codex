@@ -780,6 +780,20 @@ impl RuntimeKeymap {
                         && binding.chord.prefix.parts() == key_hint::plain(KeyCode::F(8)).parts()
                 }));
 
+        // New background shortcuts yield to existing custom keys and chord prefixes.
+        let background_terminal_defaults: Vec<_> = defaults
+            .chat
+            .background_terminal
+            .iter()
+            .copied()
+            .filter(|binding| {
+                !configured_context_binding_is_used(keymap, *binding)
+                    && !chords.bindings.iter().any(|chord| {
+                        chord.chord.prefix.normalized_parts() == binding.normalized_parts()
+                    })
+            })
+            .collect();
+
         let mut chat = ChatKeymap {
             open_presets: resolve_local!(keymap, defaults, chat, open_presets),
             toggle_voice: if voice_toggle_default_is_shadowed {
@@ -803,7 +817,7 @@ impl RuntimeKeymap {
             chord_hints: Arc::clone(&chords),
             background_terminal: resolve_bindings(
                 keymap.chat.background_terminal.as_ref(),
-                &defaults.chat.background_terminal,
+                &background_terminal_defaults,
                 "tui.keymap.chat.background_terminal",
             )?,
             interrupt_turn: resolve_bindings(
@@ -3899,10 +3913,25 @@ mod tests {
         );
         keymap.global.open_transcript = Some(one("f6"));
         let custom = keymap.clone();
-        expect_conflict(&keymap, "open_transcript", "chat.background_terminal");
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("existing shortcut survives");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.app.open_transcript,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
         assert_eq!(keymap, custom);
+        keymap.chat.background_terminal = Some(one("f6"));
+        expect_conflict(&keymap, "open_transcript", "chat.background_terminal");
+        keymap.chat.background_terminal = None;
         let mut editor_custom = TuiKeymap::default();
         editor_custom.editor.move_left = Some(one("f6"));
+        let runtime = RuntimeKeymap::from_config(&editor_custom).expect("existing editor shortcut");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.editor.move_left,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        editor_custom.chat.background_terminal = Some(one("f6"));
         expect_conflict(
             &editor_custom,
             "chat.background_terminal",
@@ -3911,6 +3940,13 @@ mod tests {
 
         let mut vim_custom = TuiKeymap::default();
         vim_custom.vim_normal.move_left = Some(one("f6"));
+        let runtime = RuntimeKeymap::from_config(&vim_custom).expect("existing Vim shortcut");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.vim_normal.move_left,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        vim_custom.chat.background_terminal = Some(one("f6"));
         expect_conflict(&vim_custom, "move_left", "chat.background_terminal");
         let mut text_custom = TuiKeymap::default();
         text_custom.chat.background_terminal = Some(one("b"));

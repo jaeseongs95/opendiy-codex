@@ -617,7 +617,8 @@ mod tests {
         use codex_model_provider_info::ModelProviderInfo;
         use codex_utils_absolute_path::test_support::PathExt;
         let model_server = create_mock_responses_server_sequence_unchecked(vec![
-            create_final_assistant_message_sse_response("cron result")?,
+            create_final_assistant_message_sse_response("cron result")
+                .expect("valid final assistant message fixture"),
         ])
         .await;
         let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
