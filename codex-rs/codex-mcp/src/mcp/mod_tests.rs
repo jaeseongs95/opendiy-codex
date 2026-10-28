@@ -130,6 +130,7 @@ async fn status_snapshot_only_downgrades_oauth_and_ema_authentication_failures()
         error: "OAuth refresh token was rejected".to_string(),
         is_authentication_required: true,
         is_ema_authentication_required: false,
+        is_termination_unconfirmed: false,
     };
     let mut manager = McpConnectionSet::empty(/*prefix_mcp_tool_names*/ true);
     let mut auth_status_entries = HashMap::new();
@@ -147,6 +148,7 @@ async fn status_snapshot_only_downgrades_oauth_and_ema_authentication_failures()
                 error: "provider temporarily unavailable".to_string(),
                 is_authentication_required: false,
                 is_ema_authentication_required: false,
+                is_termination_unconfirmed: false,
             }),
         ),
         (

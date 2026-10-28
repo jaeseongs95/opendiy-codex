@@ -85,6 +85,7 @@ use codex_protocol::protocol::McpStartupFailureReason;
 use codex_protocol::protocol::McpStartupStatus;
 use codex_protocol::protocol::McpStartupUpdateEvent;
 use codex_rmcp_client::determine_streamable_http_auth_status_from_credentials;
+use futures::FutureExt;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::warn;
@@ -160,8 +161,8 @@ impl McpServerConnection {
         result
     }
 
-    async fn shutdown(&self) {
-        self.client.shutdown().await;
+    async fn shutdown(&self) -> Result<()> {
+        self.client.shutdown().await
     }
 
     fn cancel_startup(&self) {
@@ -271,6 +272,11 @@ impl McpServerView {
 /// A published view over a set of running MCP server connections.
 pub(crate) struct McpConnectionSet {
     config: Option<Arc<crate::McpConfig>>,
+    shutdown: OnceLock<
+        futures::future::Shared<
+            futures::future::BoxFuture<'static, std::result::Result<(), Arc<str>>>,
+        >,
+    >,
     network_policy_metadata: Option<Arc<dyn NetworkPolicyMetadataProvider>>,
     servers: HashMap<String, McpServerView>,
     pub(crate) event_stream_connection: Option<Arc<EventStreamConnectionSettings>>,
@@ -967,6 +973,7 @@ impl McpConnectionSet {
             disabled_servers,
             required_servers,
             optional_startup_deadline: OnceLock::new(),
+            shutdown: OnceLock::new(),
             tool_plugin_context,
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers,
@@ -1027,6 +1034,7 @@ impl McpConnectionSet {
             disabled_servers: Vec::new(),
             required_servers: Vec::new(),
             optional_startup_deadline: OnceLock::new(),
+            shutdown: OnceLock::new(),
             tool_plugin_context: Arc::new(ToolPluginContext::default()),
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers: Vec::new(),
@@ -1109,20 +1117,35 @@ impl McpConnectionSet {
     }
 
     /// Stop all MCP clients owned by this manager and terminate stdio server processes.
-    pub async fn shutdown(&self) {
-        let connections = self
-            .servers
-            .values()
-            .map(|view| Arc::clone(&view.connection))
-            .collect::<Vec<_>>();
-        // Keep cleanup alive if an interrupt cancels the refresh that requested it.
-        let shutdown_task = tokio::spawn(async move {
-            futures::future::join_all(connections.iter().map(|connection| connection.shutdown()))
-                .await;
-        });
-        if let Err(error) = shutdown_task.await {
-            warn!("MCP client shutdown task failed: {error}");
-        }
+    pub async fn shutdown(&self) -> Result<()> {
+        self.shutdown
+            .get_or_init(|| {
+                let connections = self
+                    .servers
+                    .values()
+                    .map(|view| Arc::clone(&view.connection))
+                    .collect::<Vec<_>>();
+                // Exactly one owned shutdown survives cancellation of any waiter.
+                let task = tokio::spawn(async move {
+                    let results = futures::future::join_all(
+                        connections.iter().map(|connection| connection.shutdown()),
+                    )
+                    .await;
+                    for result in results {
+                        result.map_err(|error| Arc::<str>::from(error.to_string()))?;
+                    }
+                    Ok(())
+                });
+                async move {
+                    task.await
+                        .unwrap_or_else(|error| Err(Arc::from(error.to_string())))
+                }
+                .boxed()
+                .shared()
+            })
+            .clone()
+            .await
+            .map_err(|error| anyhow!(error.to_string()))
     }
 
     pub(crate) fn cancel_startup(&self) {

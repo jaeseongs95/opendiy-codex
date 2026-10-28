@@ -116,3 +116,5 @@ pub use stdio_server_launcher::LocalStdioServerLauncher;
 pub use stdio_server_launcher::StdioServerLauncher;
 pub use tool_list_changes::ToolListRevision;
 pub use user_verification::UserVerificationReason;
+
+pub use stdio_server_launcher::is_termination_unconfirmed;

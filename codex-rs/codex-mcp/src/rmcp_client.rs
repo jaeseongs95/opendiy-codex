@@ -373,7 +373,7 @@ impl ManagedClientStartup {
                 .as_ref()
                 .map(McpToolCatalogCacheContext::begin_fetch);
             let refresh_start = is_codex_apps_mcp_server.then(Instant::now);
-            let outcome = match async {
+            let mut outcome = match async {
                 if let Err(error) = validate_mcp_server_name(&server_name) {
                     return Err(error.into());
                 }
@@ -468,8 +468,19 @@ impl ManagedClientStartup {
                 // Includes cancelled initialization/tool discovery and a creation
                 // that completed after its deadline. Shutdown is awaited before
                 // publishing the startup outcome to manager.shutdown callers.
-                if let Ok(client) = created.await {
-                    client.shutdown().await;
+                match created.await {
+                    Ok(client) => {
+                        if let Err(error) = client.shutdown().await {
+                            outcome = Err(StartupOutcomeError::from(anyhow!(error)));
+                        }
+                    }
+                    Err(
+                        error @ StartupOutcomeError::Failed {
+                            is_termination_unconfirmed: true,
+                            ..
+                        },
+                    ) => outcome = Err(error),
+                    Err(_) => {}
                 }
             }
             // Log once per startup attempt, including discovery without startup notifications.
@@ -654,14 +665,19 @@ impl AsyncManagedClient {
         }
     }
 
-    pub(crate) async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) -> Result<()> {
         self.cancel_token.cancel();
         match self.client().await {
-            Ok(client) => client.client.shutdown().await,
-            Err(StartupOutcomeError::Cancelled) => {}
-            Err(error) => {
-                warn!("failed to initialize MCP client during shutdown: {error:#}");
-            }
+            Ok(client) => client.client.shutdown().await.map_err(Into::into),
+            Err(StartupOutcomeError::Cancelled) => Ok(()),
+            Err(
+                error @ StartupOutcomeError::Failed {
+                    is_termination_unconfirmed: true,
+                    ..
+                },
+            ) => Err(anyhow!(error)),
+            // Ordinary startup failure has no surviving unconfirmed local owner.
+            Err(_) => Ok(()),
         }
     }
 
@@ -731,6 +747,7 @@ pub(crate) enum StartupOutcomeError {
         error: String,
         is_authentication_required: bool,
         is_ema_authentication_required: bool,
+        is_termination_unconfirmed: bool,
     },
 }
 
@@ -752,6 +769,7 @@ impl From<anyhow::Error> for StartupOutcomeError {
         let is_authentication_required = is_authentication_required_error(&error);
         Self::Failed {
             error: format!("{error:#}"),
+            is_termination_unconfirmed: codex_rmcp_client::is_termination_unconfirmed(&error),
             is_authentication_required,
             is_ema_authentication_required: is_authentication_required
                 && (error.downcast_ref::<EmaTokenSourceError>().is_some()

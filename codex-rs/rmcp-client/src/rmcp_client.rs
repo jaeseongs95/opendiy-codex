@@ -514,7 +514,7 @@ impl RmcpClient {
         };
         let transport = Self::create_pending_transport(&transport_recipe)
             .await
-            .map_err(io::Error::other)?;
+            .map_err(stdio_startup_io_error)?;
         let stdio_process = match &transport {
             PendingTransport::Stdio { transport } => Some(transport.process_handle()),
             PendingTransport::InProcess { .. }
@@ -1086,19 +1086,17 @@ impl RmcpClient {
     }
 
     /// Stop the MCP transport and any stdio server process owned by this client.
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> io::Result<()> {
         let previous_state = {
             let mut guard = self.state.lock().await;
             std::mem::replace(&mut *guard, ClientState::Closed)
         };
-
-        if let Some(process) = &self.stdio_process
-            && let Err(error) = process.terminate().await
-        {
-            warn!("failed to terminate MCP stdio server process: {error}");
-        }
-
+        let result = match &self.stdio_process {
+            Some(process) => process.terminate().await,
+            None => Ok(()),
+        };
         drop(previous_state);
+        result
     }
 
     /// This should be called after every tool call so that if a given tool call triggered
@@ -1808,4 +1806,10 @@ mod tests {
 
         assert_eq!(Ok("done"), result);
     }
+}
+
+// Preserve the concrete startup error when crossing anyhow -> io. The default
+// boxed-anyhow conversion hides its root type from io::Error::get_ref.
+pub(super) fn stdio_startup_io_error(error: anyhow::Error) -> io::Error {
+    io::Error::other(error.reallocate_into_boxed_dyn_error_without_backtrace())
 }

@@ -34,7 +34,9 @@ pub(crate) async fn start(
         while changes.changed().await.is_ok() {
             if notify(&client, &mut changes).await.is_err() {
                 tracing::warn!("MCP auth invalidation delivery failed; closing connection");
-                client.shutdown().await;
+                if let Err(error) = client.shutdown().await {
+                    tracing::warn!(%error, "MCP auth invalidation cleanup remains unconfirmed");
+                }
                 break;
             }
         }

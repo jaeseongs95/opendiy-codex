@@ -547,6 +547,7 @@ impl McpRequestProcessor {
                 cancellation.clone(),
             )
             .await
+            .map_err(|error| internal_error(format!("MCP read cleanup failed: {error:#}")))?
             .ok_or_else(crate::mcp_read_lifetime::cancelled_error)?;
             if mcp_config.xaa_enabled
                 && let Some(thread) = thread.as_ref()
@@ -804,7 +805,11 @@ impl McpRequestProcessor {
             )
             .await
             .and_then(|result| serde_json::to_value(result).map_err(anyhow::Error::from));
-            if cancellation.is_cancelled() {
+            if cancellation.is_cancelled()
+                && !result
+                    .as_ref()
+                    .is_err_and(|error| error.is::<codex_mcp::McpReadCleanupError>())
+            {
                 outgoing
                     .send_error(request_id, crate::mcp_read_lifetime::cancelled_error())
                     .await;

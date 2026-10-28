@@ -55,6 +55,8 @@ use rmcp::service::RoleClient;
 use rmcp::service::RxJsonRpcMessage;
 use rmcp::service::TxJsonRpcMessage;
 use rmcp::transport::Transport;
+#[cfg(windows)]
+use sha2::Digest;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::sync::watch;
@@ -240,28 +242,153 @@ const PROCESS_GROUP_TERM_GRACE_PERIOD: Duration = Duration::from_secs(2);
 const STDERR_READER_DRAIN_GRACE_PERIOD: Duration = Duration::from_millis(250);
 
 #[cfg(windows)]
-async fn confirm_local_termination(probe: impl Fn() -> io::Result<bool>, request: impl Fn()) {
-    loop {
-        match probe() {
-            Ok(true) => return,
-            Ok(false) => request(),
-            Err(error) => {
-                warn!("MCP process termination remains unconfirmed: {error}");
-                request();
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
+async fn confirm_local_termination(
+    probe: impl Fn() -> io::Result<bool>,
+    request: impl Fn(),
+) -> io::Result<()> {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if matches!(probe(), Ok(true)) {
+                return;
+            }
+            request();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .map_err(|_| unconfirmed_termination())
+}
+
+#[cfg(windows)]
+pub(super) fn unconfirmed_termination() -> io::Error {
+    unconfirmed_termination_with_detail("no exit evidence before the cleanup deadline".into())
+}
+
+#[cfg(windows)]
+pub(super) fn unconfirmed_termination_with_detail(detail: String) -> io::Error {
+    io::Error::other(LocalTerminationUnconfirmed(detail))
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("MCP process termination unconfirmed; execution ownership retained: {0}")]
+struct LocalTerminationUnconfirmed(String);
+
+/// Preserve a typed cleanup failure across startup's existing error envelope.
+pub fn is_termination_unconfirmed(error: &anyhow::Error) -> bool {
+    fn matches(cause: &(dyn std::error::Error + 'static)) -> bool {
+        if cause.is::<LocalTerminationUnconfirmed>() {
+            return true;
+        }
+        // io::Error's source skips its directly contained custom error on some
+        // wrappers. Inspect that owned payload as well as the normal chain.
+        if let Some(inner) = cause
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::get_ref)
+        {
+            if matches(inner) {
+                return true;
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        cause.source().is_some_and(matches)
     }
+    error.chain().any(matches)
+}
+
+#[cfg(windows)]
+type LocalLaunchKey = [u8; 32];
+
+// Only failed cleanup generations are retained. The key is never logged, and
+// includes the effective command rather than the configurable server alias.
+#[cfg(windows)]
+fn retained_local_owners()
+-> &'static StdMutex<HashMap<LocalLaunchKey, Vec<Arc<StdioServerProcessHandleInner>>>> {
+    static OWNERS: std::sync::OnceLock<
+        StdMutex<HashMap<LocalLaunchKey, Vec<Arc<StdioServerProcessHandleInner>>>>,
+    > = std::sync::OnceLock::new();
+    OWNERS.get_or_init(StdMutex::default)
+}
+
+#[cfg(windows)]
+fn local_launch_key(
+    program: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &HashMap<OsString, OsString>,
+) -> LocalLaunchKey {
+    use std::os::windows::ffi::OsStrExt;
+    fn append(hash: &mut sha2::Sha256, value: &std::ffi::OsStr) {
+        let words: Vec<u16> = value.encode_wide().collect();
+        hash.update((words.len() as u64).to_le_bytes());
+        for word in words {
+            hash.update(word.to_le_bytes());
+        }
+    }
+    let mut hash = sha2::Sha256::new();
+    let program = std::fs::canonicalize(program).unwrap_or_else(|_| program.to_path_buf());
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    append(&mut hash, program.as_os_str());
+    append(&mut hash, cwd.as_os_str());
+    hash.update((args.len() as u64).to_le_bytes());
+    for arg in args {
+        append(&mut hash, arg);
+    }
+    let mut env: Vec<_> = env
+        .iter()
+        .map(|(k, v)| (k.to_ascii_uppercase(), v))
+        .collect();
+    env.sort_by(|a, b| a.0.cmp(&b.0));
+    for (key, value) in env {
+        append(&mut hash, &key);
+        append(&mut hash, value);
+    }
+    hash.finalize().into()
+}
+
+#[cfg(windows)]
+async fn release_confirmed_owner(inner: &Arc<StdioServerProcessHandleInner>) -> bool {
+    let confirmed = match &inner.kind {
+        StdioServerProcessKind::Local(Some(terminator)) => terminator.confirmed().await,
+        _ => false,
+    };
+    if confirmed {
+        inner.terminated.store(true, Ordering::Release);
+        if let Some(key) = inner.local_launch_key {
+            let mut owners = retained_local_owners()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(generations) = owners.get_mut(&key) {
+                generations.retain(|owner| !Arc::ptr_eq(owner, inner));
+                if generations.is_empty() {
+                    owners.remove(&key);
+                }
+            }
+        }
+    }
+    confirmed
+}
+
+#[cfg(windows)]
+async fn ensure_launch_not_fenced(key: LocalLaunchKey) -> io::Result<()> {
+    let owners = retained_local_owners()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .cloned()
+        .unwrap_or_default();
+    for owner in owners {
+        if !release_confirmed_owner(&owner).await {
+            return Err(unconfirmed_termination());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
 async fn retry_after_failed_launch<T>(
-    cleanup: impl Future<Output = ()>,
+    cleanup: impl Future<Output = io::Result<()>>,
     retry: impl FnOnce() -> io::Result<T>,
 ) -> io::Result<T> {
-    cleanup.await;
+    cleanup.await?;
     retry()
 }
 
@@ -272,7 +399,10 @@ struct LocalProcessTerminator {
 
 #[cfg(windows)]
 enum LocalProcessTerminator {
-    Job(codex_utils_pty::JobObject),
+    Job(
+        codex_utils_pty::JobObject,
+        crate::local_stdio_transport::LocalChild,
+    ),
     Child(crate::local_stdio_transport::LocalChild),
 }
 
@@ -289,7 +419,9 @@ struct StdioServerProcessHandleInner {
     kind: StdioServerProcessKind,
     terminated: AtomicBool,
     #[cfg(windows)]
-    local_cleanup: StdMutex<Option<Shared<BoxFuture<'static, ()>>>>,
+    local_cleanup: StdMutex<Option<Shared<BoxFuture<'static, Result<(), Arc<str>>>>>>,
+    #[cfg(windows)]
+    local_launch_key: Option<LocalLaunchKey>,
     // An escaped descendant can keep stderr open after the MCP server exits.
     stderr_reader: Option<watch::Sender<()>>,
 }
@@ -348,6 +480,11 @@ impl LocalStdioServerLauncher {
         let resolved_program =
             program_resolver::resolve(program, &envs, &cwd).map_err(io::Error::other)?;
 
+        #[cfg(windows)]
+        let launch_key = local_launch_key(Path::new(&resolved_program), &args, &cwd, &envs);
+        #[cfg(windows)]
+        tokio::runtime::Handle::current().block_on(ensure_launch_not_fenced(launch_key))?;
+
         let build_command = || {
             let mut command = Command::new(&resolved_program);
             command.current_dir(&cwd).envs(&envs).args(&args);
@@ -384,6 +521,8 @@ impl LocalStdioServerLauncher {
         )> {
             let (transport, stderr) =
                 LocalStdioTransport::spawn(command, program_name.clone(), protocol_mode)?;
+            #[cfg(all(windows, test))]
+            local_cleanup_failure_tests::record_spawn(launch_key);
             let process_id = transport.id();
             Ok((
                 StdioServerTransportInner::Local(transport),
@@ -411,23 +550,24 @@ impl LocalStdioServerLauncher {
                         required = require_job_containment,
                         "Windows MCP process job containment failed: {error}"
                     );
+                    let child = match &transport {
+                        StdioServerTransportInner::Local(local) => local.child_termination_handle(),
+                        _ => unreachable!("local launch returned executor transport"),
+                    };
+                    let owner = StdioServerProcessHandle::local(
+                        program_name.clone(),
+                        Some(LocalProcessTerminator::Job(job, child)),
+                        None,
+                    )
+                    .with_launch_key(launch_key);
                     let cleanup = async {
-                        job.terminate().ok();
-                        if let StdioServerTransportInner::Local(mut transport) = transport {
-                            transport.terminate_failed_launch().await;
-                        }
-                        confirm_local_termination(
-                            || job.is_empty(),
-                            || {
-                                job.terminate().ok();
-                            },
-                        )
-                        .await;
+                        let result = owner.terminate().await;
+                        drop(transport);
                         drop(stderr);
+                        result
                     };
                     if require_job_containment {
-                        // A failed assignment never resumes private work or retries uncontained.
-                        tokio::runtime::Handle::current().block_on(cleanup);
+                        tokio::runtime::Handle::current().block_on(cleanup)?;
                         return Err(error);
                     }
                     let (transport, stderr, process_id) = tokio::runtime::Handle::current()
@@ -441,7 +581,13 @@ impl LocalStdioServerLauncher {
         };
         #[cfg(windows)]
         let terminator = match job {
-            Some(job) => Some(LocalProcessTerminator::Job(job)),
+            Some(job) => match &transport {
+                StdioServerTransportInner::Local(local) => Some(LocalProcessTerminator::Job(
+                    job,
+                    local.child_termination_handle(),
+                )),
+                _ => unreachable!("local launch returned executor transport"),
+            },
             None => match &transport {
                 // The transport already owns the exact Child, including after process exit.
                 // Reopening its PID can fail or race reuse; use its kill/wait evidence instead.
@@ -491,6 +637,8 @@ impl LocalStdioServerLauncher {
             stop_tx
         });
         let process = StdioServerProcessHandle::local(program_name, terminator, stderr_reader);
+        #[cfg(windows)]
+        let process = process.with_launch_key(launch_key);
 
         Ok(StdioServerTransport {
             inner: transport,
@@ -501,11 +649,42 @@ impl LocalStdioServerLauncher {
 
 impl LocalProcessTerminator {
     #[cfg(windows)]
-    fn is_terminated(&self) -> io::Result<bool> {
-        match self {
-            Self::Job(job) => job.is_empty(),
-            Self::Child(child) => Ok(child.try_lock().is_ok_and(|child| child.id().is_none())),
+    async fn confirmed(&self) -> bool {
+        let (child, job_empty) = match self {
+            Self::Job(job, child) => (child, matches!(job.is_empty(), Ok(true))),
+            Self::Child(child) => (child, true),
+        };
+        if !job_empty {
+            return false;
         }
+        let Ok(mut child) = child.try_lock() else {
+            return false;
+        };
+        matches!(
+            tokio::time::timeout(Duration::from_millis(50), child.wait()).await,
+            Ok(Ok(_))
+        )
+    }
+
+    #[cfg(windows)]
+    async fn terminate_confirmed(&self) -> io::Result<()> {
+        let child = match self {
+            Self::Job(_, child) | Self::Child(child) => child,
+        };
+        if let Self::Job(job, _) = self {
+            let _ = job.terminate();
+        }
+        crate::local_stdio_transport::terminate_local_child(child).await?;
+        if let Self::Job(job, _) = self {
+            confirm_local_termination(
+                || job.is_empty(),
+                || {
+                    let _ = job.terminate();
+                },
+            )
+            .await?;
+        }
+        Ok(())
     }
     #[cfg(not(windows))]
     fn new(process_group_id: u32) -> Self {
@@ -542,21 +721,8 @@ impl LocalProcessTerminator {
 
     #[cfg(windows)]
     fn terminate(&self) {
-        let result = match self {
-            Self::Child(child) => {
-                // Drop cannot await. Retain the same Child until its existing cleanup completes.
-                let child = Arc::clone(child);
-                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                    std::mem::drop(runtime.spawn(async move {
-                        crate::local_stdio_transport::terminate_local_child(&child).await;
-                    }));
-                }
-                return;
-            }
-            Self::Job(job) => job.terminate(),
-        };
-        if let Err(error) = result {
-            warn!("Failed to terminate Windows MCP process: {error}");
+        if let Self::Job(job, _) = self {
+            let _ = job.terminate();
         }
     }
 
@@ -577,6 +743,8 @@ impl StdioServerProcessHandle {
                 terminated: AtomicBool::new(false),
                 #[cfg(windows)]
                 local_cleanup: StdMutex::new(None),
+                #[cfg(windows)]
+                local_launch_key: None,
                 stderr_reader,
             }),
         }
@@ -590,55 +758,68 @@ impl StdioServerProcessHandle {
                 terminated: AtomicBool::new(false),
                 #[cfg(windows)]
                 local_cleanup: StdMutex::new(None),
+                #[cfg(windows)]
+                local_launch_key: None,
                 stderr_reader: None,
             }),
         }
     }
 
+    #[cfg(windows)]
+    fn with_launch_key(mut self, key: LocalLaunchKey) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("new process owner is unique")
+            .local_launch_key = Some(key);
+        self
+    }
+
+    #[cfg(windows)]
+    fn start_local_cleanup(&self) -> Shared<BoxFuture<'static, Result<(), Arc<str>>>> {
+        let mut cleanup = self
+            .inner
+            .local_cleanup
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cleanup.get_or_insert_with(|| {
+            let inner = Arc::clone(&self.inner);
+            // Publish ownership before spawning: caller cancellation or task panic
+            // must not lose the execution fence or the exact process handles.
+            if let Some(key) = inner.local_launch_key {
+                retained_local_owners().lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key).or_default().push(Arc::clone(&inner));
+            }
+            let task = tokio::spawn(async move {
+                let result = match &inner.kind {
+                    StdioServerProcessKind::Local(Some(terminator)) => terminator.terminate_confirmed().await,
+                    _ => Err(unconfirmed_termination()),
+                };
+                if let Some(stderr_reader) = &inner.stderr_reader { stderr_reader.send_replace(()); }
+                match result {
+                    Ok(()) => {
+                        release_confirmed_owner(&inner).await;
+                        Ok(())
+                    }
+                    Err(error) => {
+                        warn!("MCP process cleanup unconfirmed; retaining owner and execution fence");
+                        Err(Arc::<str>::from(error.to_string()))
+                    }
+                }
+            });
+            async move { task.await.unwrap_or_else(|_| Err(Arc::from("MCP cleanup task failed"))) }.boxed().shared()
+        }).clone()
+    }
+
     pub(crate) async fn terminate(&self) -> io::Result<()> {
         #[cfg(windows)]
         if matches!(self.inner.kind, StdioServerProcessKind::Local(_)) {
-            let cleanup = {
-                let mut cleanup = self
-                    .inner
-                    .local_cleanup
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                cleanup.get_or_insert_with(|| {
-                    let inner = Arc::clone(&self.inner);
-                    // A caller may disappear while waiting. The owned task and
-                    // captured handles survive and all callers await one fence.
-                    let task = tokio::spawn(async move {
-                            match &inner.kind {
-                                StdioServerProcessKind::Local(Some(LocalProcessTerminator::Child(child))) => {
-                                    crate::local_stdio_transport::terminate_local_child(child).await;
-                                    inner.terminated.store(true, Ordering::Release);
-                                }
-                                StdioServerProcessKind::Local(Some(terminator)) => {
-                                    confirm_local_termination(|| terminator.is_terminated(), || terminator.terminate()).await;
-                                    inner.terminated.store(true, Ordering::Release);
-                                }
-                                _ => {
-                                    // Missing ownership evidence cannot become a
-                                    // successful terminal response and new slot.
-                                    warn!("MCP process handle unavailable; retaining unconfirmed lifetime");
-                                    std::future::pending::<()>().await;
-                                }
-                            }
-                    });
-                    async move {
-                        if let Err(error) = task.await {
-                            warn!("MCP cleanup task failed; retaining unconfirmed lifetime: {error}");
-                            std::future::pending::<()>().await;
-                        }
-                    }.boxed().shared()
-                }).clone()
-            };
-            cleanup.await;
-            if let Some(stderr_reader) = &self.inner.stderr_reader {
-                stderr_reader.send_replace(());
+            if self.inner.terminated.load(Ordering::Acquire)
+                || release_confirmed_owner(&self.inner).await
+            {
+                return Ok(());
             }
-            return Ok(());
+            return self
+                .start_local_cleanup()
+                .await
+                .map_err(|error| io::Error::other(LocalTerminationUnconfirmed(error.to_string())));
         }
         if self.inner.terminated.swap(true, Ordering::AcqRel) {
             return Ok(());
@@ -662,6 +843,20 @@ impl StdioServerProcessHandle {
             stderr_reader.send_replace(());
         }
         result
+    }
+}
+
+#[cfg(windows)]
+impl Drop for StdioServerProcessHandle {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.inner) == 1
+            && !self.inner.terminated.load(Ordering::Acquire)
+            && matches!(self.inner.kind, StdioServerProcessKind::Local(_))
+        {
+            if tokio::runtime::Handle::try_current().is_ok() {
+                std::mem::drop(self.start_local_cleanup());
+            }
+        }
     }
 }
 
@@ -1045,6 +1240,7 @@ mod tests {
             let task = tokio::spawn(retry_after_failed_launch(
                 async move {
                     wait.await.expect("cleanup release");
+                    Ok(())
                 },
                 move || {
                     observed.fetch_add(1, Ordering::SeqCst);
@@ -1086,7 +1282,8 @@ mod tests {
                     attempts.fetch_add(1, Ordering::AcqRel);
                 },
             )
-            .await;
+            .await
+            .expect("confirmed termination");
             completed.store(true, Ordering::Release);
         });
         let cleanup = async move {
@@ -1248,3 +1445,7 @@ mod tests {
         assert_eq!(child_env, expected);
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "local_cleanup_failure_tests.rs"]
+mod local_cleanup_failure_tests;

@@ -887,9 +887,9 @@ impl McpRuntime {
         cancellation.retained_subscription_cancellation = Some(retained);
     }
 
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> anyhow::Result<()> {
         self.elicitation_router.close().await;
-        self.latest_connections().shutdown().await;
+        self.latest_connections().shutdown().await
     }
 }
 

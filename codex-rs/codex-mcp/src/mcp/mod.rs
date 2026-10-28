@@ -507,7 +507,7 @@ pub async fn read_mcp_resource(
     cancel_token.cancel();
     // Await termination of this request's private transports/processes. Dropping
     // the read future alone would return a slot before asynchronous teardown.
-    manager.shutdown().await;
+    manager.shutdown().await.map_err(McpReadCleanupError)?;
     result
 }
 
@@ -524,6 +524,11 @@ pub struct McpServerStatusSnapshot {
     pub server_names: Vec<String>,
 }
 
+/// A private read completed, but its exact process lifetime is still fenced.
+#[derive(Debug, thiserror::Error)]
+#[error("MCP read cleanup unconfirmed: {0}")]
+pub struct McpReadCleanupError(pub anyhow::Error);
+
 #[allow(clippy::too_many_arguments)]
 pub async fn collect_mcp_server_status_snapshot_with_detail(
     config: &McpConfig,
@@ -535,14 +540,14 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     detail: McpSnapshotDetail,
     server_name: Option<&str>,
     cancellation: CancellationToken,
-) -> Option<McpServerStatusSnapshot> {
+) -> anyhow::Result<Option<McpServerStatusSnapshot>> {
     if cancellation.is_cancelled() {
-        return None;
+        return Ok(None);
     }
     let mut mcp_servers = effective_mcp_servers(config, auth);
     mcp_servers.retain(|name, _| server_name.is_none_or(|selected| name == selected));
     if mcp_servers.is_empty() {
-        return Some(McpServerStatusSnapshot {
+        return Ok(Some(McpServerStatusSnapshot {
             server_infos: HashMap::new(),
             server_capabilities: HashMap::new(),
             tool_list_meta: HashMap::new(),
@@ -552,12 +557,12 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
             resource_templates: HashMap::new(),
             auth_statuses: HashMap::new(),
             server_names: Vec::new(),
-        });
+        }));
     }
 
     let auth_status_entries = tokio::select! {
       biased;
-      () = cancellation.cancelled() => return None,
+      () = cancellation.cancelled() => return Ok(None),
       result = compute_auth_statuses(
         mcp_servers.iter(),
         config.mcp_oauth_credentials_store_mode,
@@ -615,9 +620,12 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     };
 
     cancel_token.cancel();
-    mcp_connection_manager.shutdown().await;
+    mcp_connection_manager
+        .shutdown()
+        .await
+        .map_err(McpReadCleanupError)?;
 
-    snapshot
+    Ok(snapshot)
 }
 
 /// The Responses API requires tool names to match `^[a-zA-Z0-9_-]+$`.

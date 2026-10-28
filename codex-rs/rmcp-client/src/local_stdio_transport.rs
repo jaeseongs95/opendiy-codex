@@ -33,7 +33,86 @@ pub(super) type LocalStdioStdout = ChildStdout;
 pub(super) type LocalStdioStderr = ChildStderr;
 
 #[cfg(windows)]
-pub(super) type LocalChild = std::sync::Arc<tokio::sync::Mutex<Box<Child>>>;
+pub(super) type LocalChild = std::sync::Arc<tokio::sync::Mutex<Box<LocalChildProcess>>>;
+
+#[cfg(all(windows, not(test)))]
+type LocalChildProcess = Child;
+
+#[cfg(all(windows, test))]
+pub(super) enum LocalChildProcess {
+    Real(Child),
+    Fault(std::sync::Arc<CleanupFault>),
+}
+
+#[cfg(all(windows, test))]
+#[derive(Default)]
+pub(super) struct CleanupFault {
+    pub(super) confirmed: std::sync::atomic::AtomicBool,
+    pub(super) kill_calls: std::sync::atomic::AtomicUsize,
+    pub(super) wait_calls: std::sync::atomic::AtomicUsize,
+    pub(super) transient_errors: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(all(windows, test))]
+impl From<Child> for LocalChildProcess {
+    fn from(child: Child) -> Self {
+        Self::Real(child)
+    }
+}
+
+#[cfg(all(windows, test))]
+impl LocalChildProcess {
+    pub(super) fn id(&self) -> Option<u32> {
+        match self {
+            Self::Real(child) => child.id(),
+            Self::Fault(fault) => {
+                (!fault.confirmed.load(std::sync::atomic::Ordering::SeqCst)).then_some(1)
+            }
+        }
+    }
+    pub(super) async fn kill(&mut self) -> io::Result<()> {
+        match self {
+            Self::Real(child) => child.kill().await,
+            Self::Fault(fault) => {
+                use std::sync::atomic::Ordering;
+                fault.kill_calls.fetch_add(1, Ordering::SeqCst);
+                if fault
+                    .transient_errors
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    == Ok(1)
+                {
+                    fault.confirmed.store(true, Ordering::SeqCst);
+                }
+                if fault.confirmed.load(Ordering::SeqCst) {
+                    Ok(())
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "injected kill failure",
+                    ))
+                }
+            }
+        }
+    }
+    pub(super) async fn wait(&mut self) -> io::Result<std::process::ExitStatus> {
+        match self {
+            Self::Real(child) => child.wait().await,
+            Self::Fault(fault) => {
+                use std::os::windows::process::ExitStatusExt;
+                use std::sync::atomic::Ordering;
+                fault.wait_calls.fetch_add(1, Ordering::SeqCst);
+                if fault.confirmed.load(Ordering::SeqCst) {
+                    Ok(std::process::ExitStatus::from_raw(0))
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "injected wait failure",
+                    ))
+                }
+            }
+        }
+    }
+}
 
 pub(super) struct LocalStdioTransport {
     #[cfg(windows)]
@@ -85,7 +164,7 @@ impl LocalStdioTransport {
         };
         let process_id = child.id();
         #[cfg(windows)]
-        let child = std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(child)));
+        let child = std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(child.into())));
         #[cfg(not(windows))]
         let child = Box::new(child);
         Ok((
@@ -106,30 +185,30 @@ impl LocalStdioTransport {
     pub(super) fn child_termination_handle(&self) -> LocalChild {
         std::sync::Arc::clone(&self.child)
     }
-
-    #[cfg(windows)]
-    pub(super) async fn terminate_failed_launch(&mut self) {
-        terminate_local_child(&self.child).await;
-    }
 }
 
 #[cfg(windows)]
-pub(super) async fn terminate_local_child(child: &LocalChild) {
-    let mut child = child.lock().await;
-    // Retain Tokio's exact child handle across a post-spawn launcher error.
-    // Dropping a suspended child only requests an asynchronous kill.
-    loop {
-        match child.kill().await {
-            Ok(()) => return,
-            Err(error) => {
-                tracing::warn!("Failed MCP launch cleanup remains unconfirmed: {error}")
+pub(super) async fn terminate_local_child(child: &LocalChild) -> io::Result<()> {
+    let mut reason = "exact Child was busy before the cleanup deadline".to_string();
+    let attempt = async {
+        let mut child = child.lock().await;
+        loop {
+            match tokio::time::timeout(Duration::from_millis(250), child.kill()).await {
+                Ok(Ok(())) => return,
+                Ok(Err(error)) => reason = format!("kill failed: {error}"),
+                Err(_) => reason = "kill did not finish before its attempt deadline".into(),
             }
+            match tokio::time::timeout(Duration::from_millis(50), child.wait()).await {
+                Ok(Ok(_)) => return,
+                Ok(Err(error)) => reason.push_str(&format!("; wait failed: {error}")),
+                Err(_) => reason.push_str("; wait has no exit evidence"),
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(50), child.wait()).await {
-            return;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
+    };
+    tokio::time::timeout(Duration::from_secs(3), attempt)
+        .await
+        .map_err(|_| crate::stdio_server_launcher::unconfirmed_termination_with_detail(reason))
 }
 
 impl Transport<RoleClient> for LocalStdioTransport {
