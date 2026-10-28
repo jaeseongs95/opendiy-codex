@@ -22,6 +22,8 @@ use std::sync::Arc;
 #[cfg(windows)]
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicBool;
+#[cfg(windows)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 #[cfg(unix)]
 use std::thread::sleep;
@@ -409,7 +411,6 @@ enum LocalProcessTerminator {
 #[cfg(not(any(unix, windows)))]
 struct LocalProcessTerminator;
 
-#[derive(Clone)]
 pub(crate) struct StdioServerProcessHandle {
     inner: Arc<StdioServerProcessHandleInner>,
 }
@@ -418,6 +419,8 @@ struct StdioServerProcessHandleInner {
     program_name: String,
     kind: StdioServerProcessKind,
     terminated: AtomicBool,
+    #[cfg(windows)]
+    handle_users: AtomicUsize,
     #[cfg(windows)]
     local_cleanup: StdMutex<Option<Shared<BoxFuture<'static, Result<(), Arc<str>>>>>>,
     #[cfg(windows)]
@@ -742,6 +745,8 @@ impl StdioServerProcessHandle {
                 kind: StdioServerProcessKind::Local(terminator),
                 terminated: AtomicBool::new(false),
                 #[cfg(windows)]
+                handle_users: AtomicUsize::new(1),
+                #[cfg(windows)]
                 local_cleanup: StdMutex::new(None),
                 #[cfg(windows)]
                 local_launch_key: None,
@@ -756,6 +761,8 @@ impl StdioServerProcessHandle {
                 program_name,
                 kind: StdioServerProcessKind::Executor(process),
                 terminated: AtomicBool::new(false),
+                #[cfg(windows)]
+                handle_users: AtomicUsize::new(1),
                 #[cfg(windows)]
                 local_cleanup: StdMutex::new(None),
                 #[cfg(windows)]
@@ -846,10 +853,25 @@ impl StdioServerProcessHandle {
     }
 }
 
+impl Clone for StdioServerProcessHandle {
+    fn clone(&self) -> Self {
+        #[cfg(windows)]
+        self.inner.handle_users.fetch_add(1, Ordering::Relaxed);
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
 #[cfg(windows)]
 impl Drop for StdioServerProcessHandle {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.inner) == 1
+        // Internal cleanup/registry Arcs do not represent transport users. An
+        // atomic last-user decision also handles two owners dropped concurrently.
+        let last_handle = self.inner.handle_users.fetch_sub(1, Ordering::AcqRel) == 1;
+        #[cfg(test)]
+        local_cleanup_failure_tests::synchronize_last_drop();
+        if last_handle
             && !self.inner.terminated.load(Ordering::Acquire)
             && matches!(self.inner.kind, StdioServerProcessKind::Local(_))
         {

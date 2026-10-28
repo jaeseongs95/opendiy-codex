@@ -261,3 +261,79 @@ fn unconfirmed_marker_survives_nested_startup_io_errors() {
         "ordinary startup failure"
     )));
 }
+
+std::thread_local! {
+    static LAST_DROP_BARRIER: std::cell::RefCell<Option<Arc<std::sync::Barrier>>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn synchronize_last_drop() {
+    LAST_DROP_BARRIER.with(|barrier| {
+        if let Some(barrier) = barrier.borrow().as_ref() {
+            barrier.wait();
+        }
+    });
+}
+
+#[tokio::test]
+async fn concurrent_last_handles_start_one_retained_cleanup() {
+    let key = [94; 32];
+    let fault = Arc::new(CleanupFault::default());
+    let owner = fault_owner(key, Arc::clone(&fault));
+    let weak = Arc::downgrade(&owner.inner);
+    let handles = (0..4).map(|_| owner.clone()).collect::<Vec<_>>();
+    drop(owner);
+    let barrier = Arc::new(std::sync::Barrier::new(handles.len()));
+    let runtime = tokio::runtime::Handle::current();
+    let threads = handles
+        .into_iter()
+        .map(|owner| {
+            let barrier = Arc::clone(&barrier);
+            let runtime = runtime.clone();
+            std::thread::spawn(move || {
+                let _runtime = runtime.enter();
+                LAST_DROP_BARRIER.with(|slot| *slot.borrow_mut() = Some(barrier));
+                drop(owner);
+                LAST_DROP_BARRIER.with(|slot| slot.borrow_mut().take());
+            })
+        })
+        .collect::<Vec<_>>();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert!(
+        weak.upgrade().is_some(),
+        "simultaneous last users must not lose the exact Child"
+    );
+    assert_eq!(
+        retained_local_owners()
+            .lock()
+            .unwrap()
+            .get(&key)
+            .map(Vec::len),
+        Some(1)
+    );
+    let inner = weak.upgrade().unwrap();
+    let cleanup = inner
+        .local_cleanup
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone();
+    drop(inner);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(4), cleanup)
+            .await
+            .unwrap()
+            .is_err()
+    );
+    let calls = fault.kill_calls.load(Ordering::SeqCst);
+    assert!(calls > 1);
+    for _ in 0..8 {
+        assert!(ensure_launch_not_fenced(key).await.is_err());
+    }
+    assert_eq!(fault.kill_calls.load(Ordering::SeqCst), calls);
+    fault.confirmed.store(true, Ordering::SeqCst);
+    ensure_launch_not_fenced(key).await.unwrap();
+    assert!(weak.upgrade().is_none());
+}
