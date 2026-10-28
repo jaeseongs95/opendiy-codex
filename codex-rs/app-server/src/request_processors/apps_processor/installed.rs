@@ -140,7 +140,7 @@ impl AppsRequestProcessor {
                         ))
                     };
                     cancellation_token.cancel();
-                    runtime.shutdown().await;
+                    runtime.shutdown().await?;
                     result.map(|snapshot| {
                         snapshot_age = Some(snapshot.age());
                         snapshot.tools().to_vec()

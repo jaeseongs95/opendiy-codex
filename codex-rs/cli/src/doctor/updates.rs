@@ -568,7 +568,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn build_metadata_preserves_stable_update_comparisons() {
         assert_eq!(
@@ -584,6 +583,7 @@ mod tests {
         assert_eq!(is_newer("0.166.0", "0.165.0-alpha.1+build.1"), None);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn macos_update_probe_uses_the_persisted_production_appcast_feed() {
         let home = tempfile::tempdir().expect("temporary home should be created");
