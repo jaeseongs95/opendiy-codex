@@ -705,14 +705,6 @@ impl ChatWidget {
             return;
         }
 
-        if cmd == SlashCommand::Cron {
-            self.app_event_tx.send(AppEvent::CronCommand {
-                thread_id: self.thread_id(),
-                args,
-            });
-            self.bottom_pane.drain_pending_submission_state();
-            return;
-        }
         if cmd == SlashCommand::Goal {
             self.dispatch_prepared_command_with_args(
                 cmd,

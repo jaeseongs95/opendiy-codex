@@ -3888,3 +3888,27 @@ async fn owned_copy_guard_defers_queued_input_until_released() {
         assert!(chat.input_queue.queued_user_messages.is_empty());
     }
 }
+
+#[tokio::test]
+async fn cron_registration_expands_its_own_large_paste_without_starting_a_turn() {
+    let (mut chat, mut events, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let thread = ThreadId::new();
+    chat.thread_id = Some(thread);
+    handle_turn_started(&mut chat, "manual-active-turn");
+    let paste = "saved-prompt-content ".repeat(200).trim_end().to_string();
+    chat.bottom_pane
+        .set_composer_text("/cron add --every 10m -- ".into(), Vec::new(), Vec::new());
+    chat.handle_paste(paste.clone());
+    submit_current_composer(&mut chat);
+    let (target, args) = loop {
+        match events.try_recv() {
+            Ok(AppEvent::CronCommand { thread_id, args }) => break (thread_id, args),
+            Ok(_) => {}
+            Err(error) => panic!("cron command did not dispatch: {error}"),
+        }
+    };
+    assert_eq!(target, Some(thread));
+    assert_eq!(args, format!("add --every 10m -- {paste}"));
+    assert_no_submit_op(&mut ops);
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+}

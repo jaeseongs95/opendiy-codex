@@ -16,7 +16,8 @@
     "codex-rs/tui/src/app/retained_reply_tests.rs",
     "codex-rs/app-server/tests/suite/v2/turn_start.rs",
     "codex-rs/app-server-protocol/src/protocol/v2/tests.rs",
-    "checks/cron/check-old-backend.py"
+    "checks/cron/check-old-backend.py",
+    "codex-rs/tui/src/chatwidget/tests/slash_commands.rs"
   ],
   "runner": "기존 Rust lib/all fixtures 및 stdlib Python compile/compatibility 명령",
   "environment": "Windows MSVC; cargo 명령 cwd=codex-rs, gate 후 별도 target/j1. 실제 source·명령·exit는 별도 receipts에 기록한다.",
@@ -201,6 +202,31 @@
         "cron_remove_cancel_and_late_reply_keep_exact_turn_until_terminal",
         "--",
         "--test-threads=1"
+      ]
+    },
+    {
+      "id": "REGISTRATION-PASTE",
+      "requirementIds": [
+        "INV-TARGET"
+      ],
+      "scenario": "수동 turn이 실행 중일 때 cron 등록 명령 자체의 큰 paste를 정상 composer 경계에서 전개한다.",
+      "entryPoint": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
+      "level": "integration",
+      "expectedBehavior": "등록한 command의 전체 prompt만 event로 보관; paste marker 잔존0; 일반 model turn/op 전송0; hidden queue0.",
+      "oracle": "CronCommand target와 실제 paste 원문을 비교하고 op/queued input이 비었는지 확인한다.",
+      "testFiles": [
+        "codex-rs/tui/src/chatwidget/tests/slash_commands.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "기존 composer paste/submit fixture를 사용해 raw inline bypass 결함을 포착한다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "cron_registration_expands_its_own_large_paste_without_starting_a_turn"
       ]
     }
   ],

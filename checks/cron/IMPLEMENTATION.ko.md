@@ -26,6 +26,7 @@
 아래 시험 코드는 작성했지만 모두 NOT_RUN이다. native release의 자원 gate가 열리기 전에는 전체 Cargo check/test를 시작하지 않았다.
 
 - `codex-app-server` 실제 core/stdio: 경쟁 idle 요청은 Started 1/SkippedBusy 1, busy 입력의 model/history 기록 0, 수동 steer 계약 보존.
+- `codex-tui`: 수동 turn 실행 중 cron 등록 명령의 큰 paste 전개 및 즉시 등록(일반 turn/op·숨은 queue 없음).
 - `codex-tui`: plain A 등록 → plain B 실제 화면 교체 → A 예약 실행, B draft 및 화면 모델 격리, A terminal/result store.
 - `codex-tui`: side-parent/subagent 조건이 없는 inactive 일반 대화의 승인 표시·origin WebSocket 응답·store 정리.
 - protocol serde 및 schema 생성/fixture 대조. 생성은 기존 `schema_fixtures::write_schema_fixtures_from_env`로 수행해야 한다. Windows raw Option 이름 문제를 피하는 새 named params/response를 사용했다.
