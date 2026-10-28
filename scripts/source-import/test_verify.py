@@ -71,6 +71,21 @@ class VerifierChecks(unittest.TestCase):
         self.assertEqual(EXPORT.canonical_bytes('codex-rs/schema.json.zst',b'\x00\r\n'),b'\x00\r\n')
         self.assertNotIn(b'eol=crlf',EXPORT.prompt_attributes())
         self.assertEqual(EXPORT.prompt_attributes().count(b' text\n'),38)
+    def test_generated_typescript_preserves_actual_rust_prefix_contract(self):
+        root=SCRIPT.resolve().parents[2]
+        inventory=__import__('json').loads((root/'upstream/source-inventory.json').read_bytes())
+        fixtures=[item for item in inventory['files'] if item['modified'] and item['path'].startswith('codex-rs/app-server-protocol/schema/typescript/') and item['path'].endswith('.ts')]
+        self.assertEqual(len(fixtures),8)
+        header=VERIFY.generated_ts_header(root)
+        for item in fixtures:
+            with self.subTest(path=item['path']):
+                data=VERIFY.read_source(root,item)
+                VERIFY.check_generated_ts_prefix(item['path'],data,header)
+                self.assertEqual(EXPORT.notice(item['path']),b'')
+    def test_generated_typescript_rejects_a_notice_before_the_real_header(self):
+        header=VERIFY.generated_ts_header(SCRIPT.resolve().parents[2])
+        with self.assertRaisesRegex(AssertionError,'Generated TypeScript prefix differs'):
+            VERIFY.check_generated_ts_prefix('codex-rs/app-server-protocol/schema/typescript/Fixture.ts',b'// local modification notice\n'+header+b'export type Fixture = string;\n',header)
     def test_source_and_data_notice_formats(self):
         self.assertTrue(EXPORT.notice('codex-rs/core/src/lib.rs').startswith(b'//'))
         self.assertTrue(EXPORT.notice('tools/windows-cli/package_cli.py').startswith(b'#'))

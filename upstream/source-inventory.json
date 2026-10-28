@@ -4600,10 +4600,10 @@
       "gitMode": "100644",
       "gitBlob": "21eb909f22260f8200443b3a545dd77b6de88518",
       "sourceSha256": "56594220ad6c5684e160cc0a6159572a1a362b1119fd1357fc7aa901f04a32c3",
-      "publishedSha256": "00a1b97b9a8be5bdc4e91b2bf3c99d0809068e050086ced6356cc3acf4c7bd74",
-      "bytes": 17455,
+      "publishedSha256": "56594220ad6c5684e160cc0a6159572a1a362b1119fd1357fc7aa901f04a32c3",
+      "bytes": 17369,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/CodexResponseHandoffMode.ts",
@@ -8470,20 +8470,20 @@
       "gitMode": "100644",
       "gitBlob": "013f1cec5edbf9f1ba90a70e6ae991294f871e3b",
       "sourceSha256": "bd08b7c034b575326a515af9f56eabde21ffbdbc93a0eebb6dd87153363a141a",
-      "publishedSha256": "3c223c1ea0b18e359c125739358b2b053ce174879141cfbff48fafaaba5ace55",
-      "bytes": 617,
+      "publishedSha256": "bd08b7c034b575326a515af9f56eabde21ffbdbc93a0eebb6dd87153363a141a",
+      "bytes": 531,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts",
       "gitMode": "100644",
       "gitBlob": "43a50e48336fcea7cbad44d00c2e325d59cd26ea",
       "sourceSha256": "553c3a13556627d93492d4221ed43f99ff7620092c49b95256bfe19b5dccc7aa",
-      "publishedSha256": "a1ac659d6ec1f48f1fe95b8227df537a549ff4ac5ee9e8a55aacf79774cb70a2",
-      "bytes": 520,
+      "publishedSha256": "553c3a13556627d93492d4221ed43f99ff7620092c49b95256bfe19b5dccc7aa",
+      "bytes": 434,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/McpServerStartupFailureReason.ts",
@@ -10840,20 +10840,20 @@
       "gitMode": "100644",
       "gitBlob": "4cf4850564ce246d264e9223befb04c43f79e995",
       "sourceSha256": "81dee7e98522c465a59df4bfb87e4bf008191af01f2dbf65048faf60605ab8de",
-      "publishedSha256": "591aa8d8e4f50283f47658f1c852665378d23c16351a83852a05d7ea4152645e",
-      "bytes": 301,
+      "publishedSha256": "81dee7e98522c465a59df4bfb87e4bf008191af01f2dbf65048faf60605ab8de",
+      "bytes": 215,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts",
       "gitMode": "100644",
       "gitBlob": "a7b8afdd363756ce671bdbdec4e849ed70d21245",
       "sourceSha256": "90eadf507823d3f7f302903b403cea4a4f59b4787f502aff6e6670b0b7cd7db5",
-      "publishedSha256": "4f7a07b45e22c319ade065a3106ae497fbc3dbeebe7d645664aff95bd3c6da57",
-      "bytes": 823,
+      "publishedSha256": "90eadf507823d3f7f302903b403cea4a4f59b4787f502aff6e6670b0b7cd7db5",
+      "bytes": 737,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/ThreadPredictionResult.ts",
@@ -11810,20 +11810,20 @@
       "gitMode": "100644",
       "gitBlob": "c013d510665d0a8c8133064253d1d301f41b272d",
       "sourceSha256": "c6831d067c2169d9b118e71b4c504ccc6b2c96355f33e6ac6b842df0a8bb92f1",
-      "publishedSha256": "bae10da863b2abee1b0c51c29c2065a5a657a3c2e4cfb80248240282f22a50be",
-      "bytes": 562,
+      "publishedSha256": "c6831d067c2169d9b118e71b4c504ccc6b2c96355f33e6ac6b842df0a8bb92f1",
+      "bytes": 476,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleResponse.ts",
       "gitMode": "100644",
       "gitBlob": "d009963a668473da859afd828fc5783f173fd9a3",
       "sourceSha256": "f0586e1a2a63fab5d09cde40aac8806883f4790a887281867d749f27317ae9a7",
-      "publishedSha256": "8b35c540494c2d12eb3235f9a3c290ac6734310f567ba2b7d19c700c308af2dd",
-      "bytes": 427,
+      "publishedSha256": "f0586e1a2a63fab5d09cde40aac8806883f4790a887281867d749f27317ae9a7",
+      "bytes": 341,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/TurnStartParams.ts",
@@ -12060,10 +12060,10 @@
       "gitMode": "100644",
       "gitBlob": "22e54239fa43059bff47095a1e054afbb9f6d6ad",
       "sourceSha256": "242eb78fb722a7cf4de37b04169a9f897aa43c15cad39300e11ce6e7ec42eccb",
-      "publishedSha256": "382f94b4400e68e63f57e6791c0c4dda65372707d428df8557296c2c8d40df94",
-      "bytes": 48835,
+      "publishedSha256": "242eb78fb722a7cf4de37b04169a9f897aa43c15cad39300e11ce6e7ec42eccb",
+      "bytes": 48749,
       "modified": true,
-      "noticeOnly": true
+      "noticeOnly": false
     },
     {
       "path": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",

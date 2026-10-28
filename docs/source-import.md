@@ -17,7 +17,7 @@ cargo build --locked -p codex-cli --bin codex
 cargo build --locked -p codex-app-server --bin codex-app-server
 ```
 
-Offline metadata requires dependencies already present. These are reproducible commands, not a claim that this public checkout's complete build or runtime tests have been executed. [TESTING.md](TESTING.md) gives targeted real-boundary test commands and limitations. The Windows packaging helper and disposable argv test are documented in [tools/windows-cli/README.md](../tools/windows-cli/README.md). Building or packaging does not install the result; generated binaries/packages/receipts should remain outside this source checkout.
+Offline metadata requires dependencies already present. Build and test commands use `--locked`. Cargo.lock is generated input and Cargo can regenerate its comments when intentionally rewriting it; if its bytes change, the source verifier will no longer accept the frozen export. Review that change or re-export from the pinned source instead of treating the modified lockfile as the original publication. These are reproducible commands, not a claim that this public checkout's complete build or runtime tests have been executed. [TESTING.md](TESTING.md) gives targeted real-boundary test commands and limitations. The Windows packaging helper and disposable argv test are documented in [tools/windows-cli/README.md](../tools/windows-cli/README.md). Building or packaging does not install the result; generated binaries/packages/receipts should remain outside this source checkout.
 
 The exporter reads pinned committed Git blobs from a separately supplied repository, never machine working files. In a separate clean worktree containing the previous verified import, update with:
 

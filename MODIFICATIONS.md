@@ -8,8 +8,16 @@ The changes cover MCP request cancellation and process ownership/cleanup, config
 
 The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 148-file modification/provenance list.
 
-Modified Rust, TypeScript, TOML/lock, Python, Markdown and tool configuration files carry a dated OpenDIY modification comment. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the modification notice; adding a comment would invalidate their data formats or test expectations:
+Modified Rust, TOML/lock, Python, Markdown and tool configuration files carry a dated OpenDIY modification comment. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
 
+- `codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleParams.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleResponse.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/index.ts`
 - `codex-rs/app-server-protocol/schema/json/ClientRequest.json`
 - `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json`
 - `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json`
@@ -27,6 +35,8 @@ Modified Rust, TypeScript, TOML/lock, Python, Markdown and tool configuration fi
 - `codex-rs/tui/src/snapshots/codex_tui__keymap_setup__tests__keymap_picker_global_chord.snap`
 - `codex-rs/tui/src/snapshots/codex_tui__keymap_setup__tests__keymap_picker_narrow.snap`
 - `codex-rs/tui/src/snapshots/codex_tui__keymap_setup__tests__keymap_picker_wide.snap`
+
+The tracked upstream workflow `codex-rs/vendor/bubblewrap/.github/workflows/check.yml` is intentionally excluded by the existing export filter: this import does not enable upstream automation. The exact exclusion and reason remain in `upstream/source-inventory.json`; `checks/.gitattributes` and operational checks remain excluded as well.
 
 These generated resources remain source/build/test inputs under their existing notices. Executables, packages, operational checks, logs, credentials, profiles, receipts and private desktop assets are excluded. Existing synthetic AWS credential fixtures are public test data inherited from upstream, not credentials to any account; they remain unchanged.
 

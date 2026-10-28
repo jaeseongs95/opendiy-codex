@@ -27,17 +27,30 @@ def read_source(root,item):
         return value
     if path.is_symlink() or not path.resolve().is_relative_to(root):raise ValueError('Unexpected source symlink or escape')
     return path.read_bytes()
+def generated_ts_header(root):
+    source=(root/'codex-rs/app-server-protocol/src/export.rs').read_text(encoding='utf-8')
+    match=re.search(r'const GENERATED_TS_HEADER: &str = ("(?:[^"\\]|\\.)*");',source)
+    if match is None:raise ValueError('Missing actual Rust GENERATED_TS_HEADER contract')
+    return json.loads(match.group(1)).encode()
+
+def check_generated_ts_prefix(relative,data,header):
+    if relative.startswith('codex-rs/app-server-protocol/schema/typescript/') and relative.endswith('.ts'):
+        assert data.replace(b'\r\n',b'\n').startswith(header),f'Generated TypeScript prefix differs: {relative}'
+
 def main():
     baseline=json.loads((ROOT/'SOURCE_BASELINE.json').read_bytes())
     inventory_raw=(ROOT/'upstream/source-inventory.json').read_bytes()
     assert sha(inventory_raw)==baseline['sourceInventorySha256'],'inventory changed'
     inventory=json.loads(inventory_raw)
+    assert {item['path'] for item in inventory['excluded']}=={'codex-rs/vendor/bubblewrap/.github/workflows/check.yml'}
+    assert not (ROOT/'codex-rs/vendor/bubblewrap/.github/workflows/check.yml').exists()
     from export import WINDOWS_INPUTS,WINDOWS_INPUTS_PATH,canonical_bytes
     assert sha((ROOT/WINDOWS_INPUTS_PATH).read_bytes())==baseline['windowsPromptInputsSha256'],'Windows prompt catalog changed'
     assert baseline['windowsPromptInputsPath']==WINDOWS_INPUTS_PATH
     assert json.loads((ROOT/WINDOWS_INPUTS_PATH).read_bytes())['sourceCommit']==baseline['patchedCommit']
     assert len(WINDOWS_INPUTS)==38
     windows_prompts=0
+    ts_header=generated_ts_header(ROOT)
     assert sha((ROOT/baseline['patchPath']).read_bytes())==baseline['patchSha256'],'patch changed'
     changed={item['path'] for item in baseline['modifiedFiles']}
     assert baseline['officialCommit']=='360319d8dee62d87e2d59fc0c21805d79519cfed'
@@ -53,6 +66,7 @@ def main():
             if os.name=='nt':assert sha(data)==WINDOWS_INPUTS[relative]['windowsSourceSha256'],f'Windows prompt EOL differs: {relative}'
             windows_prompts+=1
         data=canonical_bytes(relative,data)
+        check_generated_ts_prefix(relative,data,ts_header)
         assert len(data)==item['bytes'] and sha(data)==item['publishedSha256'],relative
         if item.get('attributesMerged'):
             from export import notice,ATTR_BEGIN,ATTR_END,prompt_attributes

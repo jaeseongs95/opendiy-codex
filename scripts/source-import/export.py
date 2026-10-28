@@ -25,6 +25,7 @@ def git(repository,*args):return subprocess.check_output(['git','-c','core.autoc
 def encode(value):return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode()
 
 def notice(path):
+    if path.startswith('codex-rs/app-server-protocol/schema/typescript/') and path.endswith('.ts'):return b''
     if path.endswith(('.rs','.ts')):prefix='//'
     elif path.endswith(('.py','.toml','Cargo.lock','.gitattributes','.gitignore')):prefix='#'
     elif path.endswith('.md'):return f'<!-- Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md. -->\n'.encode()

@@ -21,6 +21,14 @@ python -B scripts/source-import/test_verify.py
 
 The source verifier distinguishes canonical Git bytes from Windows working inputs. For 38 embedded prompt files, it checks Windows raw SHA-256 against `upstream/windows-prompt-inputs.json` and canonicalizes only their line endings for the Git-blob comparison. The root attributes preserve the old repository rules, merge the selected upstream LF/generated rules and add native `text` rules only for those 38 prompts. An actual Windows Git materialization with `core.autocrlf=true` and `core.eol=native` matched all 38 pinned raw prompt hashes while preserving both compressed schema resources byte-for-byte. A Linux materialization and a new Rust build of the public checkout are **NOT_RUN**; no Linux CRLF rule is added.
 
+The public-export follow-up for generated TypeScript preserves the original Rust schema comparison: it removes only the publication notice from generated fixture files and records that notice externally in MODIFICATIONS. The Python regression reads GENERATED_TS_HEADER from the actual Rust exporter, checks its position in all eight modified fixtures and rejects a local comment before it. This is a source/contract guard, not a substitute for the actual Rust schema group below. That public-checkout group is **NOT_RUN** at this edit while the separate release build is active. Run it after that build finishes, with a separate target directory:
+
+```sh
+cargo test --manifest-path codex-rs/Cargo.toml --locked --offline --target x86_64-pc-windows-msvc --target-dir <separate-build-target> --profile dev-small -j 1 -p codex-app-server-protocol --lib schema_fixtures_tests -- --test-threads=1 --nocapture
+```
+
+The minimum group contains the TypeScript/JSON generated comparisons, stable/experimental precomputed export comparisons and the existing ignored write-fixtures test. Check that all four read/comparison tests pass and that only the write-fixtures test is ignored. No Rust generator or comparison is changed to accept arbitrary publication comments.
+
 For actual Rust boundaries, use the pinned toolchain and lockfile from `codex-rs`. On Windows the following examples exercise native pipes/Jobs, cleanup fault injection, queued RPC cancellation, WebSocket ownership cancellation and a real background PTY process. Fixtures use temporary processes/directories and loopback servers, without a user profile or external service. The exact-name filters below are existing test names; an appropriate Windows MSVC build environment and dependencies must be prepared separately.
 
 ```sh
