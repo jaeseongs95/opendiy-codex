@@ -7,6 +7,47 @@ use pretty_assertions::assert_eq;
 
 const SAFETY_BUFFERING_HEADER_TEXT: &str = "Giving this request a little extra thought";
 
+#[tokio::test]
+async fn context_window_display_uses_server_budget_and_preserves_running_turn() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(None).await;
+    let thread_id = ThreadId::default();
+    chat.thread_id = Some(thread_id);
+    let original_config_window = chat.config.model_context_window;
+    chat.set_token_info(Some(TokenUsageInfo {
+        total_token_usage: TokenUsage {
+            total_tokens: 20_000,
+            ..Default::default()
+        },
+        last_token_usage: TokenUsage {
+            total_tokens: 20_000,
+            ..Default::default()
+        },
+        model_context_window: Some(171_000),
+    }));
+    let mut notification = thread_settings_for_test(chat.current_model(), thread_id);
+    notification.thread_settings.model_context_window = Some(120_000);
+    notification.thread_settings.effective_context_window = Some(114_000);
+    chat.on_thread_settings_updated(notification.clone());
+    assert_eq!(
+        chat.token_info.as_ref().unwrap().model_context_window,
+        Some(114_000)
+    );
+    assert_eq!(chat.config.model_context_window, original_config_window);
+    chat.input_queue.user_turn_pending_start = true;
+    notification.thread_settings.effective_context_window = Some(95_000);
+    chat.on_thread_settings_updated(notification);
+    assert_eq!(
+        chat.token_info.as_ref().unwrap().model_context_window,
+        Some(114_000)
+    );
+    chat.input_queue.user_turn_pending_start = false;
+    chat.update_context_window_display(Some(95_000));
+    assert_eq!(
+        chat.token_info.as_ref().unwrap().model_context_window,
+        Some(95_000)
+    );
+}
+
 fn thread_settings_for_test(
     model: &str,
     thread_id: ThreadId,
@@ -14,6 +55,8 @@ fn thread_settings_for_test(
     codex_app_server_protocol::ThreadSettingsUpdatedNotification {
         thread_id: thread_id.to_string(),
         thread_settings: codex_app_server_protocol::ThreadSettings {
+            model_context_window: None,
+            effective_context_window: None,
             disabled_plugin_ids: Vec::new(),
             cwd: test_path_buf("/tmp/thread-settings").abs(),
             approval_policy: AskForApproval::OnRequest,

@@ -397,7 +397,12 @@ impl Session {
             let stack = &configuration.original_config_do_not_use.config_layer_stack;
             (
                 stack.requirements().clone(),
-                configuration.model_info_overrides.clone(),
+                {
+                    // Thread defaults change future turns; this turn retains its captured budget.
+                    let mut overrides = configuration.model_info_overrides.clone();
+                    overrides.context_window = turn_context.config.model_context_window;
+                    overrides
+                },
                 configuration.trusted_guardian_reviewer,
             )
         };

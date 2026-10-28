@@ -4,6 +4,25 @@ use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use pretty_assertions::assert_eq;
 use serial_test::serial;
 
+#[tokio::test]
+async fn context_command_routes_arguments_without_starting_a_model_turn() {
+    for argument in ["", "120000", "reset"] {
+        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+        chat.dispatch_command_with_args(SlashCommand::Context, argument.to_string(), Vec::new());
+        match rx.try_recv().expect("context event") {
+            AppEvent::ContextCommand { thread_id, args } => {
+                assert_eq!(thread_id, chat.thread_id());
+                assert_eq!(args, argument);
+            }
+            other => panic!("expected context event, got {other:?}"),
+        }
+        assert!(
+            op_rx.try_recv().is_err(),
+            "context commands must not start inference"
+        );
+    }
+}
+
 fn force_pet_image_support(chat: &mut ChatWidget) {
     chat.set_pet_image_support_for_tests(crate::pets::PetImageSupport::Supported(
         crate::pets::ImageProtocol::Kitty,

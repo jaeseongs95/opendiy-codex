@@ -2185,6 +2185,9 @@ mod tests {
                 .ok_or_else(|| anyhow::anyhow!("missing ClientRequest.ts fixture"))?,
         )?;
         assert_eq!(client_request_ts.contains("mock/experimentalMethod"), false);
+        // Preserve the original omitted/undefined envelope while allowing the
+        // reload extension's typed object. Wire-level null remains accepted.
+        assert!(client_request_ts.contains("params?: McpServerRefreshParams,"));
         assert_eq!(
             client_request_ts.contains("MockExperimentalMethodParams"),
             false

@@ -130,6 +130,7 @@ struct ThreadEnvironmentOverride {
 }
 
 struct ThreadSettingsBuildParams {
+    model_context_window: Option<Option<i64>>,
     method: &'static str,
     disabled_plugin_ids: Option<Vec<String>>,
     environment_override: ThreadEnvironmentOverride,
@@ -677,6 +678,7 @@ impl TurnRequestProcessor {
                 thread.as_ref(),
                 ThreadSettingsBuildParams {
                     method: "turn/start",
+                    model_context_window: None,
                     disabled_plugin_ids: params.disabled_plugin_ids,
                     environment_override,
                     approval_policy: params.approval_policy,
@@ -859,6 +861,7 @@ impl TurnRequestProcessor {
         params: ThreadSettingsBuildParams,
     ) -> Result<codex_protocol::protocol::ThreadSettingsOverrides, JSONRPCErrorError> {
         let ThreadSettingsBuildParams {
+            model_context_window,
             method,
             disabled_plugin_ids,
             environment_override:
@@ -896,7 +899,8 @@ impl TurnRequestProcessor {
             None
         };
 
-        let has_any_overrides = has_environment_override
+        let has_any_overrides = model_context_window.is_some()
+            || has_environment_override
             || disabled_plugin_ids.is_some()
             || approval_policy.is_some()
             || approvals_reviewer.is_some()
@@ -954,6 +958,7 @@ impl TurnRequestProcessor {
         if has_any_overrides {
             thread
                 .preview_thread_settings_overrides(CodexThreadSettingsOverrides {
+                    model_context_window,
                     turn_extension_init: None,
                     disabled_plugin_ids: disabled_plugin_ids.clone(),
                     environments: environment_requests.clone(),
@@ -979,6 +984,7 @@ impl TurnRequestProcessor {
         }
 
         Ok(codex_protocol::protocol::ThreadSettingsOverrides {
+            model_context_window,
             disabled_plugin_ids,
             environments: environment_requests,
             runtime_workspace_roots,
@@ -1020,6 +1026,7 @@ impl TurnRequestProcessor {
                 thread.as_ref(),
                 ThreadSettingsBuildParams {
                     method: "thread/settings/update",
+                    model_context_window: params.model_context_window,
                     disabled_plugin_ids: params.disabled_plugin_ids,
                     environment_override,
                     approval_policy: params.approval_policy,
@@ -1054,6 +1061,9 @@ impl TurnRequestProcessor {
         }
 
         Ok(ThreadSettingsUpdateResponse {
+            thread_settings: Some(super::thread_settings_from_config_snapshot(
+                &thread.config_snapshot().await,
+            )),
             settings_applied: Some(true),
         })
     }

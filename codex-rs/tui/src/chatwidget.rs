@@ -1145,6 +1145,18 @@ impl ChatWidget {
         }
     }
 
+    pub(crate) fn update_context_window_display(&mut self, window: Option<i64>) {
+        // A running turn keeps the budget it captured; thread settings govern future turns.
+        if let Some(window) = window
+            && !self.is_user_turn_pending_or_running()
+            && let Some(mut info) = self.token_info.clone()
+        {
+            info.model_context_window = Some(window);
+            self.apply_token_info(info);
+            self.refresh_status_surfaces();
+        }
+    }
+
     fn apply_token_info(&mut self, info: TokenUsageInfo) {
         self.token_usage_pending = false;
         self.bottom_pane

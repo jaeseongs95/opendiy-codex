@@ -105,6 +105,8 @@ pub(crate) struct Session {
 
 #[derive(Clone)]
 pub(crate) struct SessionConfiguration {
+    /// Thread-owned override; the original config remains the reset baseline.
+    pub(super) context_window_override: Option<i64>,
     /// Runtime provider and its provider-specific execution policy.
     pub(super) provider: SharedModelProvider,
 
@@ -282,6 +284,8 @@ impl SessionConfiguration {
             .map(|config| config.permission_profile.clone())
             .unwrap_or_else(|| self.permission_profile_state.snapshot());
         ThreadConfigSnapshot {
+            model_context_window: self.context_window_override,
+            effective_context_window: None,
             model: self.step_settings.collaboration_mode.model().to_string(),
             model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
             service_tier: self.step_settings.service_tier.clone(),
@@ -324,6 +328,7 @@ impl SessionConfiguration {
         environment_selections: &[TurnEnvironmentSelection],
     ) -> ThreadSettingsSnapshot {
         ThreadSettingsSnapshot {
+            model_context_window: self.context_window_override,
             model: self.step_settings.collaboration_mode.model().to_string(),
             model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
             service_tier: self.step_settings.service_tier.clone(),
@@ -347,6 +352,7 @@ impl SessionConfiguration {
         environment_selections: Vec<TurnEnvironmentSelection>,
     ) -> CodexThreadSettingsOverrides {
         CodexThreadSettingsOverrides {
+            model_context_window: Some(self.context_window_override),
             environments: Some(TurnEnvironmentRequests::new(
                 self.legacy_fallback_cwd.clone(),
                 environment_selections
@@ -414,6 +420,19 @@ impl SessionConfiguration {
         current_environments: &[TurnEnvironmentSelection],
     ) -> ConstraintResult<Self> {
         let mut next_configuration = self.clone();
+        if let Some(context_window) = updates.model_context_window {
+            if context_window.is_some_and(|tokens| tokens <= 0) {
+                return Err(ConstraintError::InvalidValue {
+                    field_name: "model_context_window",
+                    candidate: format!("{context_window:?}"),
+                    allowed: "a positive token count or null to restore defaults".to_string(),
+                    requirement_source: codex_config::RequirementSource::Unknown,
+                });
+            }
+            next_configuration.context_window_override = context_window;
+            next_configuration.model_info_overrides.context_window =
+                context_window.or(self.original_config_do_not_use.model_context_window);
+        }
         if let Some(turn_extension_init) = &updates.turn_extension_init {
             next_configuration.turn_extension_init = turn_extension_init.clone();
         }
@@ -616,6 +635,7 @@ pub(crate) struct SessionSettingsCommit {
 
 #[derive(Default, Clone)]
 pub(crate) struct SessionSettingsUpdate {
+    pub(crate) model_context_window: Option<Option<i64>>,
     pub(crate) step_settings: StepSettingsUpdate,
     /// Omission preserves the current data; an empty initializer clears it.
     pub(crate) turn_extension_init: Option<ExtensionDataInit>,
@@ -684,6 +704,7 @@ impl Session {
             &configuration.model_info_overrides,
         ))
         .await;
+        snapshot.effective_context_window = model_info.usable_context_window();
         snapshot.service_tier = get_service_tier(
             snapshot.service_tier.take(),
             &configuration.original_config_do_not_use.features,

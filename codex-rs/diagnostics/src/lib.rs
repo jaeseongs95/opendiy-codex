@@ -3,6 +3,8 @@ use std::sync::Once;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+pub mod batch_log;
+
 static GAUGES: Mutex<Vec<&'static Gauge>> = Mutex::new(Vec::new());
 
 /// A process-wide gauge that registers itself the first time it is used.

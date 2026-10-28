@@ -19,6 +19,71 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 
 impl App {
+    pub(super) async fn handle_context_command(
+        &mut self,
+        app_server: &mut AppServerSession,
+        thread_id: Option<ThreadId>,
+        args: String,
+    ) {
+        let Some(thread_id) = thread_id.filter(|id| Some(*id) == self.active_thread_id) else {
+            self.chat_widget.add_error_message(
+                crate::i18n::text("Use /context after the current chat is connected.").to_string(),
+            );
+            return;
+        };
+        let model_context_window = match parse_context_window_argument(&args) {
+            Ok(value) => value,
+            Err(message) => {
+                self.chat_widget
+                    .add_error_message(crate::i18n::text(message).to_string());
+                return;
+            }
+        };
+        let params = ThreadSettingsUpdateParams {
+            thread_id: thread_id.to_string(),
+            model_context_window,
+            ..Default::default()
+        };
+        match app_server.request_thread_settings_update(params).await {
+            Ok(Some(response)) if response.settings_applied == Some(true) => {
+                if let Some(settings) = response.thread_settings {
+                    self.chat_widget
+                        .update_context_window_display(settings.effective_context_window);
+                    let selection = settings.model_context_window.map_or_else(
+                        || crate::i18n::text("default").to_string(),
+                        |tokens| format!("{tokens} {}", crate::i18n::text("tokens")),
+                    );
+                    let effective = settings.effective_context_window.map_or_else(
+                        || crate::i18n::text("unknown").to_string(),
+                        |tokens| format!("{tokens} {}", crate::i18n::text("tokens")),
+                    );
+                    self.chat_widget.add_info_message(
+                        format!("{} {selection}\n{} {effective}\n{}",
+                            crate::i18n::text("This chat's context window:"),
+                            crate::i18n::text("Usable window after model limits and headroom:"),
+                            crate::i18n::text("Changes apply to the next turn and do not increase the model's actual limit.")),
+                        Some("/context <tokens> · /context reset · /context".to_string()),
+                    );
+                } else {
+                    self.chat_widget.add_error_message(
+                        crate::i18n::text(
+                            "This server does not support chat context window queries.",
+                        )
+                        .to_string(),
+                    );
+                }
+            }
+            Ok(_) => self.chat_widget.add_error_message(
+                crate::i18n::text("The server did not confirm the context window setting.")
+                    .to_string(),
+            ),
+            Err(error) => self.chat_widget.add_error_message(format!(
+                "{} {error:#}",
+                crate::i18n::text("Failed to set context window:")
+            )),
+        }
+    }
+
     pub(super) async fn sync_active_thread_model_setting(
         &mut self,
         app_server: &mut AppServerSession,
@@ -256,6 +321,19 @@ impl App {
     }
 }
 
+fn parse_context_window_argument(args: &str) -> Result<Option<Option<i64>>, &'static str> {
+    match args.trim() {
+        "" => Ok(None),
+        "reset" | "default" => Ok(Some(None)),
+        value => value
+            .parse::<i64>()
+            .ok()
+            .filter(|tokens| *tokens > 0)
+            .map(|tokens| Some(Some(tokens)))
+            .ok_or("Usage: /context [positive integer tokens|reset]"),
+    }
+}
+
 fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: &ThreadSettings) {
     if settings.collaboration_mode.mode == ModeKind::Default {
         session.model = settings.model.clone();
@@ -281,7 +359,8 @@ fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: 
 }
 
 fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bool {
-    params.cwd.is_some()
+    params.model_context_window.is_some()
+        || params.cwd.is_some()
         || params.approval_policy.is_some()
         || params.approvals_reviewer.is_some()
         || params.sandbox_policy.is_some()
@@ -291,4 +370,23 @@ fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bo
         || params.effort.is_some()
         || params.summary.is_some()
         || params.collaboration_mode.is_some()
+}
+
+#[cfg(test)]
+mod context_window_tests {
+    use super::parse_context_window_argument;
+
+    #[test]
+    fn context_argument_preserves_query_set_and_reset() {
+        assert_eq!(parse_context_window_argument(""), Ok(None));
+        assert_eq!(
+            parse_context_window_argument(" 120000 "),
+            Ok(Some(Some(120_000)))
+        );
+        assert_eq!(parse_context_window_argument("reset"), Ok(Some(None)));
+        assert_eq!(parse_context_window_argument("default"), Ok(Some(None)));
+        for invalid in ["0", "-1", "1.5", "120000 extra", "9223372036854775808"] {
+            assert!(parse_context_window_argument(invalid).is_err(), "{invalid}");
+        }
+    }
 }

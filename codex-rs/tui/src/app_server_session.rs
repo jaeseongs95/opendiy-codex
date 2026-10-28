@@ -1411,7 +1411,7 @@ impl AppServerSession {
             .is_some_and(|response| response.settings_applied == Some(true)))
     }
 
-    async fn request_thread_settings_update(
+    pub(crate) async fn request_thread_settings_update(
         &mut self,
         params: ThreadSettingsUpdateParams,
     ) -> Result<Option<ThreadSettingsUpdateResponse>> {

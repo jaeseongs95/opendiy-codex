@@ -4496,6 +4496,7 @@ async fn set_rate_limits_retains_previous_credits() {
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -4619,6 +4620,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -5244,6 +5246,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -6214,6 +6217,100 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
     submissions.await;
 }
 
+#[test_case(false; "durable before event delivery")]
+#[test_case(true; "storage failure is not acknowledged as saved")]
+#[tokio::test]
+async fn context_window_ack_is_fenced_before_event_delivery(fail_storage: bool) {
+    let (mut session, turn) = make_session_and_context().await;
+    let rollout_path = attach_thread_persistence(&mut session).await;
+    if fail_storage {
+        session
+            .live_thread()
+            .unwrap()
+            .shutdown()
+            .await
+            .expect("close test writer");
+    }
+    let (events, event_rx) = async_channel::bounded(1);
+    session.tx_event = events;
+    session
+        .tx_event
+        .send(Event {
+            id: "occupied".into(),
+            msg: EventMsg::Warning(WarningEvent {
+                message: "occupied".into(),
+            }),
+        })
+        .await
+        .unwrap();
+    let session = Arc::new(session);
+    let (reply, accepted) = tokio::sync::oneshot::channel();
+    let (submissions, receiver) = async_channel::unbounded();
+    submissions
+        .send(Submission {
+            id: "context-settings".into(),
+            turn_extension_init: None,
+            op: Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    model_context_window: Some(Some(120_000)),
+                    ..Default::default()
+                },
+                reply: Some(reply),
+            },
+            trace: None,
+            parent_turn_id: None,
+            root_turn_id: None,
+            residency_guard: None,
+            message_delivery: None,
+        })
+        .await
+        .unwrap();
+    let worker = tokio::spawn(submission_loop(Arc::clone(&session), turn.config, receiver));
+    let accepted = tokio::time::timeout(Duration::from_secs(10), accepted)
+        .await
+        .expect("ACK must not wait for blocked event delivery")
+        .expect("ACK sender");
+    if fail_storage {
+        let error = accepted.expect_err("closed writer must not acknowledge persistence");
+        assert!(
+            error
+                .to_string()
+                .contains("applied in memory but could not be saved")
+        );
+        assert_eq!(
+            session
+                .thread_settings_snapshot()
+                .await
+                .model_context_window,
+            Some(120_000)
+        );
+    } else {
+        accepted.expect("saved context settings");
+        let (items, _, _) = RolloutRecorder::load_rollout_items(&rollout_path)
+            .await
+            .expect("read at ACK");
+        let settings: Vec<_> = items
+            .iter()
+            .filter_map(|item| match item {
+                RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event)) => {
+                    Some(&event.thread_settings)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            settings.len(),
+            1,
+            "one canonical settings record before ACK"
+        );
+        assert_eq!(settings[0].model_context_window, Some(120_000));
+    }
+    event_rx.recv().await.expect("release blocked delivery");
+    event_rx.recv().await.expect("settings event");
+    drop(submissions);
+    worker.await.expect("settings worker");
+}
+
 #[tokio::test]
 async fn compaction_persists_resume_metadata_and_companion_records() {
     let (mut session, turn_context) = make_session_and_context().await;
@@ -6818,6 +6915,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -7139,6 +7237,7 @@ async fn make_session_with_config_and_rx(
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -7276,6 +7375,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config
@@ -9104,6 +9204,7 @@ where
             approval_policy: config.permissions.approval_policy.clone(),
             approvals_reviewer: config.approvals_reviewer,
         }),
+        context_window_override: None,
         model_info_overrides: config.to_models_manager_config().into(),
         developer_instructions: config.developer_instructions.clone(),
         base_instructions: config

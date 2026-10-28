@@ -337,6 +337,8 @@ impl ModelLookupGate {
 struct GatedModelsManager {
     inner: StaticModelsManager,
     first_b_lookup: StdMutex<Option<Arc<ModelLookupGate>>>,
+    refreshed_context_window: Option<i64>,
+    did_refresh: AtomicBool,
 }
 
 impl GatedModelsManager {
@@ -349,6 +351,8 @@ impl GatedModelsManager {
                     ModelsResponse { models },
                 ),
                 first_b_lookup: StdMutex::new(Some(Arc::clone(&lookup))),
+                refreshed_context_window: None,
+                did_refresh: AtomicBool::new(false),
             }),
             lookup,
         )
@@ -356,6 +360,14 @@ impl GatedModelsManager {
 }
 
 impl ModelsManager for GatedModelsManager {
+    fn refresh_after_auth_change(
+        &self,
+        _factory: HttpClientFactory,
+    ) -> ModelsManagerFuture<'_, ()> {
+        Box::pin(async move {
+            self.did_refresh.store(true, Ordering::SeqCst);
+        })
+    }
     fn raw_model_catalog(
         &self,
         strategy: RefreshStrategy,
@@ -403,9 +415,45 @@ impl ModelsManager for GatedModelsManager {
                 pause.started.notify_one();
                 pause.resume.notified().await;
             }
-            self.inner.get_model_info(model, config).await
+            let mut info = self.inner.get_model_info(model, config).await;
+            if self.did_refresh.load(Ordering::SeqCst)
+                && let Some(limit) = self.refreshed_context_window
+            {
+                info.context_window = Some(limit);
+                info.max_context_window = Some(limit);
+            }
+            info
         })
     }
+}
+
+#[tokio::test]
+async fn context_window_refresh_rejects_new_model_limit_before_turn_creation() {
+    let (mut session, _) = make_session_and_context().await;
+    let models = bundled_models_response().expect("bundled catalog").models;
+    let (manager, _) = GatedModelsManager::new(models);
+    let mut manager = Arc::try_unwrap(manager).expect("unshared manager");
+    manager.refreshed_context_window = Some(64_000);
+    session.services.models_manager = Arc::new(manager);
+    session
+        .update_settings(super::session::SessionSettingsUpdate {
+            model_context_window: Some(Some(120_000)),
+            ..Default::default()
+        })
+        .await
+        .expect("context fits pre-refresh catalog");
+    let result = session
+        .new_turn_with_sub_id(
+            "refresh-context-turn".to_string(),
+            Default::default(),
+            Default::default(),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "a refreshed 64k model must reject the retained 120k setting"
+    );
+    assert!(session.active_turn.lock().await.is_none());
 }
 
 struct ActivationFixture {

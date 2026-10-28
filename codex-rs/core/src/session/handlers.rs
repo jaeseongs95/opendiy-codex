@@ -622,17 +622,35 @@ pub(super) async fn submission_loop(
                     reply,
                 } => {
                     let _settings_guard = thread_settings::acquire_persistence_lock(&sess).await;
+                    let persist_context_window = thread_settings.model_context_window.is_some();
                     let thread_settings = WithTurnExtensionData {
                         request: thread_settings,
                         turn_extension_init: sub.turn_extension_init,
                     };
                     match thread_settings::update(&sess, thread_settings).await {
                         Ok(snapshot) => {
-                            // Reply first: the caller may hold a lock its event consumer needs.
+                            let persistence = if persist_context_window {
+                                thread_settings::persist_context_window_settings(&sess, &snapshot).await
+                            } else {
+                                Ok(())
+                            };
+                            // Reply before delivery: the caller may hold a lock its event consumer
+                            // needs. Context edits have already crossed the store's durability fence.
                             if let Some(reply) = reply {
-                                let _ = reply.send(Ok(()));
+                                let _ = reply.send(persistence.map_err(|error| CodexErr::Io(std::io::Error::other(
+                                    format!("context window was applied in memory but could not be saved: {error}"),
+                                ))));
+                            } else if let Err(error) = persistence {
+                                sess.send_event_raw(Event {
+                                    id: sub.id.clone(),
+                                    msg: EventMsg::Error(ErrorEvent {
+                                        misalignment: None,
+                                        message: format!("context window was applied in memory but could not be saved: {error}"),
+                                        codex_error_info: Some(CodexErrorInfo::InternalServerError),
+                                    }),
+                                }).await;
                             }
-                            thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
+                            thread_settings::emit_applied(&sess, sub.id.clone(), snapshot, !persist_context_window).await;
                         }
                         Err(error) => {
                             let message = format!("invalid thread settings override: {error}");

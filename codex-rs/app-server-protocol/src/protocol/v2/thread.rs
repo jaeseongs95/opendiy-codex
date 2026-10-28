@@ -234,6 +234,16 @@ impl ThreadStartResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadSettingsUpdateParams {
+    /// Thread-local context window in tokens. Omission preserves it; null restores defaults.
+    /// Does not increase the model's supported context limit.
+    #[serde(
+        default,
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_double_option",
+        serialize_with = "crate::protocol::serde_helpers::serialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable)]
+    pub model_context_window: Option<Option<i64>>,
     pub thread_id: String,
     /// Replace this thread's disabled plugin IDs.
     /// Omitted/null preserves the list; [] clears it.
@@ -297,6 +307,10 @@ pub struct ThreadSettingsUpdateParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadSettingsUpdateResponse {
+    /// Authoritative settings after acceptance, also returned for a query with no edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub thread_settings: Option<ThreadSettings>,
     /// True only after Core accepted the settings for subsequent turns. Older servers omit this
     /// field and acknowledge only queue submission; absence is not confirmation of application.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -308,6 +322,12 @@ pub struct ThreadSettingsUpdateResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadSettings {
+    /// Thread-local override; null uses the configured/model default.
+    #[serde(default)]
+    pub model_context_window: Option<i64>,
+    /// Model budget after catalog limits and the model's usable-context percentage.
+    #[serde(default)]
+    pub effective_context_window: Option<i64>,
     /// Saved list of disabled plugin IDs. Does not yet filter plugin capabilities.
     #[serde(default)]
     pub disabled_plugin_ids: Vec<String>,

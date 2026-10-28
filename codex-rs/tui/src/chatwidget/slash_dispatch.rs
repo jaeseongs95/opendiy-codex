@@ -390,6 +390,12 @@ impl ChatWidget {
                     args: String::new(),
                 });
             }
+            SlashCommand::Context => {
+                self.app_event_tx.send(AppEvent::ContextCommand {
+                    thread_id: self.thread_id(),
+                    args: String::new(),
+                });
+            }
             SlashCommand::Goal => {
                 if !self.config.features.enabled(Feature::Goals) {
                     return;
@@ -1013,6 +1019,12 @@ impl ChatWidget {
                     args,
                 });
             }
+            SlashCommand::Context => {
+                self.app_event_tx.send(AppEvent::ContextCommand {
+                    thread_id: self.thread_id(),
+                    args,
+                });
+            }
             SlashCommand::Goal if !trimmed.is_empty() => {
                 if !self.config.features.enabled(Feature::Goals) {
                     if source == SlashCommandDispatchSource::Live {
@@ -1328,6 +1340,7 @@ impl ChatWidget {
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::Cron
+            | SlashCommand::Context
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp

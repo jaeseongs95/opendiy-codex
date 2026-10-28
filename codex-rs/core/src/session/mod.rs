@@ -919,7 +919,28 @@ impl Session {
             &model_info,
         );
         let storage_originator = AuthStorageOriginator::from_client_name(&originator);
+        let context_window_override = match &conversation_history {
+            InitialHistory::Resumed(resumed) => resumed
+                .history
+                .iter()
+                .rev()
+                .find_map(|item| match item {
+                    RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event))
+                        if event.thread_id == Some(resumed.conversation_id) =>
+                    {
+                        Some(event.thread_settings.model_context_window)
+                    }
+                    _ => None,
+                })
+                .flatten(),
+            InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => None,
+        };
+        let mut model_info_overrides: step_settings::ModelInfoOverrides =
+            config.to_models_manager_config().into();
+        model_info_overrides.context_window =
+            context_window_override.or(config.model_context_window);
         let session_configuration = SessionConfiguration {
+            context_window_override,
             turn_extension_init,
             provider: create_model_provider(
                 config.model_provider.clone(),
@@ -934,7 +955,7 @@ impl Session {
                 approvals_reviewer: config.approvals_reviewer,
             }),
             environments: environment_selections.clone(),
-            model_info_overrides: config.to_models_manager_config().into(),
+            model_info_overrides,
             developer_instructions: config.developer_instructions.clone(),
             base_instructions,
             permission_profile_state: session_permission_profile_state_from_config(&config)?,
@@ -2050,6 +2071,8 @@ impl Session {
                 }
             };
 
+            self.validate_context_window_override(&updated).await?;
+
             if !should_commit(&state.session_configuration, &updated) {
                 return Ok(None);
             }
@@ -2155,9 +2178,43 @@ impl Session {
             let state = self.state.lock().await;
             self.apply_session_settings(&state.session_configuration, updates)?
         };
+        self.validate_context_window_override(&configuration)
+            .await?;
         Ok(self
             .effective_thread_config_snapshot(&configuration, configuration.environments.clone())
             .await)
+    }
+
+    /// Validate against catalog metadata without the requested override, before publication.
+    async fn validate_context_window_override(
+        &self,
+        configuration: &SessionConfiguration,
+    ) -> ConstraintResult<()> {
+        let Some(requested) = configuration.context_window_override else {
+            return Ok(());
+        };
+        let mut overrides = configuration.model_info_overrides.clone();
+        overrides.context_window = None;
+        let model = configuration
+            .step_settings
+            .resolve_model_info(self.services.models_manager.as_ref(), &overrides)
+            .await;
+        let maximum = (!model.used_fallback_model_metadata)
+            .then(|| model.max_context_window.or(model.context_window))
+            .flatten();
+        let usable = requested.saturating_mul(model.effective_context_window_percent) / 100;
+        if usable <= 0 || maximum.is_none_or(|maximum| requested > maximum) {
+            return Err(crate::config::ConstraintError::InvalidValue {
+                field_name: "model_context_window",
+                candidate: requested.to_string(),
+                allowed: maximum.map_or_else(
+                    || "a model with a known context limit".to_string(),
+                    |maximum| format!("1..={maximum} tokens for the selected model"),
+                ),
+                requirement_source: codex_config::RequirementSource::Unknown,
+            });
+        }
+        Ok(())
     }
 
     pub(crate) async fn thread_config_snapshot(&self) -> ThreadConfigSnapshot {

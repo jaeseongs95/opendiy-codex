@@ -685,7 +685,11 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
 
     let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
 
+    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
+    let batch_layer = batch_layer.map(|layer| layer.with_filter(
+        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
     let _ = tracing_subscriber::registry()
+        .with(batch_layer)
         .with(fmt_layer)
         .with(otel_tracing_layer)
         .with(otel_logger_layer)

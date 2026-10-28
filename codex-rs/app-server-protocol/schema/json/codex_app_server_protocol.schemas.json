@@ -25124,6 +25124,15 @@
             },
             "type": "array"
           },
+          "effectiveContextWindow": {
+            "default": null,
+            "description": "Model budget after catalog limits and the model's usable-context percentage.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "effort": {
             "anyOf": [
               {
@@ -25136,6 +25145,15 @@
           },
           "model": {
             "type": "string"
+          },
+          "modelContextWindow": {
+            "default": null,
+            "description": "Thread-local override; null uses the configured/model default.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "modelProvider": {
             "type": "string"

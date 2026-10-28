@@ -5328,6 +5328,30 @@ fn thread_settings_update_params_preserve_field_level_experimental_gates() {
 }
 
 #[test]
+fn thread_context_window_distinguishes_omitted_set_and_reset() {
+    for (json_value, expected) in [
+        (json!({"threadId":"thread_123"}), None),
+        (
+            json!({"threadId":"thread_123", "modelContextWindow":120000}),
+            Some(Some(120_000)),
+        ),
+        (
+            json!({"threadId":"thread_123", "modelContextWindow":null}),
+            Some(None),
+        ),
+    ] {
+        let params: ThreadSettingsUpdateParams =
+            serde_json::from_value(json_value).expect("valid update");
+        assert_eq!(params.model_context_window, expected);
+        let wire = serde_json::to_value(params).expect("serialize update");
+        assert_eq!(
+            wire.get("modelContextWindow").cloned(),
+            expected.map(|value| value.map_or(serde_json::Value::Null, |tokens| json!(tokens)))
+        );
+    }
+}
+
+#[test]
 fn turn_start_params_round_trip_environments() {
     // Use a path foreign to the test host so this exercises syntax preservation instead of the
     // host-native conversion performed by test_absolute_path().

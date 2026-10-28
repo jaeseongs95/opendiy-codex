@@ -552,3 +552,14 @@ fn editor_handoff_blocks_input_until_acknowledged() {
         AppEvent::OpenConfigEditor(handoff) if handoff.editor == ConfigEditor::TerminalTitle
     ));
 }
+
+#[test]
+fn korean_configuration_renders_group_and_setting_labels() {
+    crate::i18n::with_locale(crate::i18n::Locale::Korean, || {
+        let (panel, _rx) = panel();
+        let rendered = render(&panel, 140).replace(' ', "");
+        assert!(rendered.contains("설정"), "{rendered}");
+        assert!(rendered.contains("테마"), "{rendered}");
+        assert!(rendered.contains("화면"), "{rendered}");
+    });
+}
