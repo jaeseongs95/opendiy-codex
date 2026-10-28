@@ -273,3 +273,49 @@ async fn startup_rejects_foreign_resume_and_fork_before_requests() -> Result<()>
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn background_terminal_stale_thread_and_reconnect_generation_send_zero_requests() -> Result<()>
+{
+    let (mut app, _events, _) = make_test_app_with_channels().await;
+    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let thread_id = ThreadId::new();
+    app.enqueue_primary_thread_session(
+        test_thread_session(thread_id, app.config.cwd.to_path_buf()),
+        Vec::new(),
+    )
+    .await?;
+    let owner_generation = app.chat_widget.background_generation;
+    requests.lock().unwrap().clear();
+    let command =
+        |thread_id, owner_generation| crate::app_command::AppCommand::BackgroundTerminal {
+            thread_id,
+            owner_generation,
+            item_id: "same-call".into(),
+            process_id: "42".into(),
+        };
+    assert!(
+        app.try_submit_active_thread_op_via_app_server(
+            &mut server,
+            thread_id,
+            &command(ThreadId::new(), owner_generation),
+        )
+        .await?
+    );
+    app.chat_widget.invalidate_background_terminal_owner();
+    assert!(
+        app.try_submit_active_thread_op_via_app_server(
+            &mut server,
+            thread_id,
+            &command(thread_id, owner_generation),
+        )
+        .await?
+    );
+    assert!(
+        requests.lock().unwrap().is_empty(),
+        "stale ownership must send zero RPCs"
+    );
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}

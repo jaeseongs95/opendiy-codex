@@ -650,6 +650,7 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
                 process_id,
                 cwd: cwd.clone(),
                 initial_exec_command_active: Arc::new(AtomicBool::new(false)),
+                initial_yield: None,
                 hook_command: format!("command-{process_id}"),
                 tty: false,
                 environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
@@ -680,4 +681,277 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
         (pruned.map(|entry| entry.process_id), store.processes.len()),
         (None, MAX_UNIFIED_EXEC_PROCESSES)
     );
+}
+
+#[tokio::test]
+async fn output_collection_early_yield_keeps_drained_output_and_live_handles() {
+    let output = OutputHandles {
+        output_buffer: Arc::new(tokio::sync::Mutex::new(OutputBuffers::<1024>::default())),
+        output_notify: Arc::new(Notify::new()),
+        output_closed: Arc::new(AtomicBool::new(false)),
+        output_closed_notify: Arc::new(Notify::new()),
+        cancellation_token: CancellationToken::new(),
+        collection_finished: CancellationToken::new(),
+        drain_policy: OutputDrainPolicy::BoundedAfterExit,
+    };
+    let early_yield = CancellationToken::new();
+    output.output_buffer.lock().await.push_chunk(b"before\n");
+    let collect = UnifiedExecProcessManager::collect_output_until_deadline_or_yield(
+        &output,
+        None,
+        Instant::now() + Duration::from_secs(30),
+        Some(&early_yield),
+    );
+    let request = async {
+        loop {
+            if output.output_buffer.lock().await.pending.retained_bytes() == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        // The collector already owns 'before'. Dropping it in a select! would lose this chunk.
+        output.output_buffer.lock().await.push_chunk(b"during\n");
+        early_yield.cancel();
+        early_yield.cancel();
+    };
+    let (collected, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(collect, request)
+    })
+    .await
+    .expect("yield wakes collector without new output notification");
+    assert_eq!(
+        collected.to_bytes_with_omission_marker(),
+        b"before\nduring\n"
+    );
+    assert!(!output.cancellation_token.is_cancelled());
+    assert!(!output.output_closed.load(Ordering::Acquire));
+    assert!(!output.collection_finished.is_cancelled());
+    output.output_buffer.lock().await.push_chunk(b"after\n");
+    let next =
+        UnifiedExecProcessManager::collect_output_until_deadline(&output, None, Instant::now())
+            .await;
+    assert_eq!(next.to_bytes_with_omission_marker(), b"after\n");
+    assert_eq!(
+        output
+            .output_buffer
+            .lock()
+            .await
+            .transcript
+            .to_bytes_with_omission_marker(),
+        b"before\nduring\nafter\n"
+    );
+}
+
+#[tokio::test]
+async fn output_collection_yield_exit_deadline_both_orders_preserve_output() {
+    for exit_first in [false, true] {
+        let output = OutputHandles {
+            output_buffer: Arc::new(tokio::sync::Mutex::new(OutputBuffers::<1024>::default())),
+            output_notify: Arc::new(Notify::new()),
+            output_closed: Arc::new(AtomicBool::new(false)),
+            output_closed_notify: Arc::new(Notify::new()),
+            cancellation_token: CancellationToken::new(),
+            collection_finished: CancellationToken::new(),
+            drain_policy: OutputDrainPolicy::BoundedAfterExit,
+        };
+        let early_yield = CancellationToken::new();
+        output
+            .output_buffer
+            .lock()
+            .await
+            .push_chunk(b"final-output");
+        if exit_first {
+            output.cancellation_token.cancel();
+        }
+        early_yield.cancel();
+        if !exit_first {
+            output.cancellation_token.cancel();
+        }
+        output.output_closed.store(true, Ordering::Release);
+        let result = UnifiedExecProcessManager::collect_output_until_deadline_or_yield(
+            &output,
+            None,
+            Instant::now(),
+            Some(&early_yield),
+        )
+        .await;
+        assert_eq!(result.to_bytes_with_omission_marker(), b"final-output");
+        assert!(output.output_buffer.lock().await.pending.retained_bytes() == 0);
+    }
+}
+
+#[cfg(any(unix, windows))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spawn() {
+    let (session, turn, _events) = crate::session::tests::make_session_and_context_with_rx().await;
+    let manager = &session.services.unified_exec_manager;
+    let process_id = manager.allocate_process_id().await;
+    let temp = tempfile::tempdir().expect("test directory");
+    let cwd: codex_utils_absolute_path::AbsolutePathBuf =
+        temp.path().try_into().expect("absolute cwd");
+    #[cfg(unix)]
+    let (shell, script) = (
+        Shell {
+            shell_type: ShellType::Bash,
+            shell_path: "bash".into(),
+        },
+        r#"printf '%s\n' "$$" >> spawn-count; export BG_SENTINEL=preserved; printf 'before:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$(test -t 0 && echo tty)"; read -r reply; printf 'after:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$reply"; read -r stop"#,
+    );
+    #[cfg(windows)]
+    let (shell, script) = (
+        Shell {
+            shell_type: ShellType::PowerShell,
+            shell_path: "powershell.exe".into(),
+        },
+        r#"Add-Content -LiteralPath spawn-count -Value $PID; $env:BG_SENTINEL='preserved'; $pty=if([Console]::IsInputRedirected){'pipe'}else{'tty'}; [Console]::WriteLine(('before:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$pty)); $reply=[Console]::ReadLine(); [Console]::WriteLine(('after:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$reply)); [Console]::ReadLine() | Out-Null"#,
+    );
+    let context = UnifiedExecContext::new(
+        Arc::clone(&session),
+        crate::session::step_context::StepContext::for_test(Arc::clone(&turn)),
+        CancellationToken::new(),
+        "startup-owned".into(),
+    );
+    let request = ExecCommandRequest {
+        command: shell.derive_exec_args(script, false),
+        shell: ShellInvocation {
+            shell,
+            use_login_shell: false,
+        },
+        hook_command: script.into(),
+        process_id,
+        yield_time_ms: 30_000,
+        max_output_tokens: None,
+        cwd: cwd.clone().into(),
+        sandbox_cwd: cwd.into(),
+        turn_environment: turn
+            .initial_environments
+            .primary()
+            .cloned()
+            .expect("environment"),
+        network: None,
+        tty: true,
+        sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
+        additional_permissions: None,
+        additional_permissions_preapproved: false,
+        justification: None,
+        prefix_rule: None,
+    };
+    let signal = async {
+        let process = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let process = manager
+                    .process_store
+                    .lock()
+                    .await
+                    .processes
+                    .get(&process_id)
+                    .map(|entry| Arc::clone(&entry.process));
+                if let Some(process) = process {
+                    let ready = process
+                        .output_handles()
+                        .output_buffer
+                        .lock()
+                        .await
+                        .transcript
+                        .to_bytes_with_omission_marker()
+                        .windows(7)
+                        .any(|part| part == b"before:");
+                    if ready {
+                        break process;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("spawned shell output");
+        assert!(
+            manager
+                .request_initial_yield(codex_protocol::ThreadId::new(), "startup-owned", process_id)
+                .await
+                .is_err()
+        );
+        assert!(
+            manager
+                .request_initial_yield(session.thread_id(), "stale-call", process_id)
+                .await
+                .is_err()
+        );
+        manager
+            .request_initial_yield(session.thread_id(), "startup-owned", process_id)
+            .await
+            .expect("yield exact owner");
+        // A duplicate either reaches the same request token or observes startup already returned.
+        let _duplicate = manager
+            .request_initial_yield(session.thread_id(), "startup-owned", process_id)
+            .await;
+        process
+    };
+    let (response, process) = tokio::join!(manager.exec_command(request, &context), signal);
+    let response = response.expect("normal tool response");
+    assert_eq!(response.process_id, Some(process_id));
+    assert_eq!(response.exit_code, None);
+    let before = String::from_utf8_lossy(&response.raw_output);
+    let spawned_pid =
+        std::fs::read_to_string(temp.path().join("spawn-count")).expect("spawn witness");
+    assert_eq!(spawned_pid.lines().count(), 1);
+    let pid = spawned_pid.trim();
+    assert!(
+        before.contains(&format!("before:{pid}:preserved:tty")),
+        "{before}"
+    );
+    assert!(!process.has_exited());
+    {
+        let store = manager.process_store.lock().await;
+        assert!(Arc::ptr_eq(
+            &store
+                .processes
+                .get(&process_id)
+                .expect("same process")
+                .process,
+            &process
+        ));
+    }
+    assert!(
+        manager
+            .request_initial_yield(session.thread_id(), "startup-owned", process_id)
+            .await
+            .is_err()
+    );
+    let terminal = manager
+        .resolve_terminal(process_id)
+        .await
+        .expect("retained terminal");
+    let after = manager
+        .write_stdin(
+            &context,
+            WriteStdinRequest {
+                terminal: &terminal,
+                input: if cfg!(windows) {
+                    "continued\r"
+                } else {
+                    "continued\n"
+                },
+                yield_time_ms: 1000,
+                max_output_tokens: None,
+                truncation_policy: codex_utils_output_truncation::TruncationPolicy::Tokens(10_000),
+                interaction_event: None,
+            },
+        )
+        .await
+        .expect("write same terminal");
+    let after_text = String::from_utf8_lossy(&after.raw_output);
+    assert!(
+        after_text.contains(&format!("after:{pid}:preserved:continued")),
+        "{after_text}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("spawn-count")).expect("spawn witness"),
+        spawned_pid
+    );
+    assert_eq!(after.process_id, Some(process_id));
+    assert!(!process.has_exited());
+    assert!(manager.terminate_process(process_id).await);
+    assert!(process.has_exited());
+    assert!(manager.resolve_terminal(process_id).await.is_err());
 }

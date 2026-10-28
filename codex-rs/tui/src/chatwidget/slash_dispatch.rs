@@ -597,6 +597,7 @@ impl ChatWidget {
             SlashCommand::Pets => {
                 self.open_pets_picker();
             }
+            SlashCommand::Background => self.background_terminal(),
             SlashCommand::Ps => {
                 self.add_ps_output();
             }
@@ -1307,6 +1308,7 @@ impl ChatWidget {
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig
+            | SlashCommand::Background
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::Cron

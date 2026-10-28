@@ -1,0 +1,159 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "engineering-test-plan",
+  "taskId": "cli-background-20261028",
+  "contractDigest": "sha256:745ad41bb2ba8523f9dc0fdfd430176ca753525d497e6b917c1fe003480cd3d6",
+  "requirements": [
+    "INV-FENCE",
+    "INV-LIFETIME",
+    "UI-KEY",
+    "PROC-CONTINUITY",
+    "API-FAILCLOSED"
+  ],
+  "scopeFiles": [
+    "codex-rs/core/src/unified_exec/process_manager.rs",
+    "codex-rs/core/src/unified_exec/process_manager_tests.rs",
+    "codex-rs/tui/src/keymap.rs",
+    "codex-rs/tui/src/chatwidget/tests/exec_flow.rs",
+    "codex-rs/tui/src/app/tests/backend_ownership_tests.rs",
+    "codex-rs/app-server-protocol/src/protocol/common.rs",
+    "checks/run-background-collector-proof.py"
+  ],
+  "runner": "Existing Rust tests; source-extracted production collector component with frozen native dependency graph",
+  "environment": "Windows host; full Cargo execution in codex-rs deferred during native ThinLTO. Component uses read-only exact rlibs and own checks output.",
+  "cases": [
+    {
+      "id": "COLLECTOR",
+      "requirementIds": [
+        "INV-LIFETIME"
+      ],
+      "scenario": "Yield after first chunk was removed from pending, concurrent next chunk, duplicate yield; terminal signals/deadline in both precollection orders.",
+      "entryPoint": "UnifiedExecProcessManager::collect_output_until_deadline_or_yield",
+      "level": "unit",
+      "expectedBehavior": "One combined before/during response; live handles unchanged and later output still readable.",
+      "oracle": "Exact bytes before/during/after, open handles, unchanged transcript.",
+      "testFiles": [
+        "codex-rs/core/src/unified_exec/process_manager_tests.rs",
+        "checks/run-background-collector-proof.py"
+      ],
+      "required": true,
+      "sensitivity": "mutation",
+      "sensitivityReason": "Removing only early-yield observation must time out the unchanged bounded-output test.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-core",
+        "--lib",
+        "output_collection_early_yield"
+      ]
+    },
+    {
+      "id": "REAL-PROCESS",
+      "requirementIds": [
+        "PROC-CONTINUITY",
+        "INV-FENCE"
+      ],
+      "scenario": "Actual startup waits on shell stdin, then exact owner early-yields, continues stdin and stops same retained process.",
+      "entryPoint": "background_terminal_real_startup_keeps_pid_pty_environment_and_one_spawn",
+      "level": "integration",
+      "expectedBehavior": "One spawn witness; same PID/PTY/environment and manager Arc; stale owner refused; exact stop confirmed.",
+      "oracle": "Spawn file one PID, before/after markers, same Arc, retained process handle, stop removes process.",
+      "testFiles": [
+        "codex-rs/core/src/unified_exec/process_manager_tests.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "Actual process/UI/API boundaries need integrated execution; unavailable execution remains NOT_RUN.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-core",
+        "--lib",
+        "background_terminal_real_startup"
+      ]
+    },
+    {
+      "id": "KEYS",
+      "requirementIds": [
+        "UI-KEY"
+      ],
+      "scenario": "F6 action/remap/conflicts; Ctrl+B cursor edit and slash exact target; no/multiple targets.",
+      "entryPoint": "keymap::tests and chatwidget::tests background_terminal",
+      "level": "integration",
+      "expectedBehavior": "Ctrl+B edits only; F6/slash emit exact targets; custom F6 conflict leaves config intact.",
+      "oracle": "Expected editor text and command fields, zero commands when no/ambiguous target.",
+      "testFiles": [
+        "codex-rs/tui/src/keymap.rs",
+        "codex-rs/tui/src/chatwidget/tests/exec_flow.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "Actual process/UI/API boundaries need integrated execution; unavailable execution remains NOT_RUN.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "background_terminal"
+      ]
+    },
+    {
+      "id": "STALE-EPOCH",
+      "requirementIds": [
+        "INV-FENCE"
+      ],
+      "scenario": "Thread switch and owner generation invalidation before queued command dispatch.",
+      "entryPoint": "background_terminal_stale_thread_and_reconnect_generation_send_zero_requests",
+      "level": "integration",
+      "expectedBehavior": "No RPC sent for either stale owner.",
+      "oracle": "Recording proxy request list remains empty.",
+      "testFiles": [
+        "codex-rs/tui/src/app/tests/backend_ownership_tests.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "Actual process/UI/API boundaries need integrated execution; unavailable execution remains NOT_RUN.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "background_terminal_stale"
+      ]
+    },
+    {
+      "id": "API-WIRE",
+      "requirementIds": [
+        "API-FAILCLOSED"
+      ],
+      "scenario": "New method requires explicit thread/item/process; old backend must return unsupported without terminate fallback.",
+      "entryPoint": "serialize_thread_background_terminals_yield_exact_target and old-backend manual check",
+      "level": "integration",
+      "expectedBehavior": "Distinct method wire fields; unsupported response is an error.",
+      "oracle": "Exact JSON shape; request trace shows no clean/terminate/interrupt.",
+      "testFiles": [
+        "codex-rs/app-server-protocol/src/protocol/common.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "Actual process/UI/API boundaries need integrated execution; unavailable execution remains NOT_RUN.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-app-server-protocol",
+        "--lib",
+        "serialize_thread_background_terminals_yield"
+      ]
+    }
+  ],
+  "exclusions": [
+    "Actual Windows terminal F6 delivery, IME and terminal-consumed-key /background fallback remain required external E2E; not covered by widget tests.",
+    "Full manager yield-vs-cancel/timeout runtime races, one-shot/hook and approval-before-spawn integration are NOT_RUN; output-token component cases alone do not satisfy them.",
+    "Generated app-server/config schemas and keymap snapshots need regeneration/verification after parent integrates parallel feature changes."
+  ]
+}

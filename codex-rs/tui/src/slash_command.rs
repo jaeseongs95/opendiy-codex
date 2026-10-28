@@ -76,6 +76,7 @@ pub enum SlashCommand {
     Feedback,
     Rollout,
     Ps,
+    Background,
     #[strum(to_string = "stop", serialize = "clean")]
     Stop,
     Clear,
@@ -131,6 +132,7 @@ impl SlashCommand {
             SlashCommand::Theme => "choose a syntax highlighting theme",
             SlashCommand::Pets => "choose or hide the terminal pet",
             SlashCommand::Ps => "list background terminals",
+            SlashCommand::Background => "yield the current terminal while preserving its process",
             SlashCommand::Stop => "stop all background terminals",
             SlashCommand::MemoryDrop => "DO NOT USE",
             SlashCommand::MemoryUpdate => "DO NOT USE",
@@ -292,6 +294,7 @@ impl SlashCommand {
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig
+            | SlashCommand::Background
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::App

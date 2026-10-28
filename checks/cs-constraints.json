@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0.0",
+  "reportId": "CS-BACKGROUND-CONSTRAINTS",
+  "requestDigest": "sha256:ca52e29a98228141c6055cd2139134ffb41074ff58359c003dba6c59b5ceccc3",
+  "sourceSnapshotDigest": "sha256:ffef0e19b50fb8764e4d5af2852c48058603b19cb1c767aed9144dc750cbe32d",
+  "knowledgePackVersion": "0.1.0",
+  "knowledgePackDigest": "sha256:d8351d9aabb433403830fcffc3a2f2438b6d428711c93b6ded9eff002468c3d1",
+  "draftUse": {
+    "allowed": false,
+    "basis": "Only validated concurrency ownership/cancellation cards apply."
+  },
+  "applicability": "applicable",
+  "applicabilityReason": "Early-yield requests race output consumption, process exit, cancellation and backend replacement.",
+  "selectedRules": [
+    {
+      "ruleId": "CONC-FENCE-002",
+      "ruleDigest": "sha256:dfbf006b649529cf5abc3037ab34ba9c84545167ed77d13530c11aa4263a27fa",
+      "applicabilityReason": "Queued UI requests may outlive thread/backend ownership."
+    },
+    {
+      "ruleId": "CONC-CANCEL-004",
+      "ruleDigest": "sha256:d83cfc1ef0ec586c5e818b71c454f06605a43c5b640ed1d0e1fdda45561bbdbc",
+      "applicabilityReason": "Yield must not replace cancellation or discard already-drained output."
+    }
+  ],
+  "facts": [
+    {
+      "id": "FACT-OWNER-LIFETIME",
+      "statement": "Delegated contract requires exact ownership and existing-process lifetime to survive early yield, cancellation and backend replacement.",
+      "evidenceRefs": [
+        "SRC-CONTRACT"
+      ]
+    }
+  ],
+  "assumptions": [],
+  "invariants": [
+    {
+      "id": "INV-FENCE",
+      "statement": "Stale thread/call/process or reconnect generation sends no process-control action.",
+      "scope": "TUI queued command and unified-exec startup token",
+      "basisRefs": [
+        "FACT-OWNER-LIFETIME"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-FENCE-002"
+      ]
+    },
+    {
+      "id": "INV-LIFETIME",
+      "statement": "Early yield returns the current collector output once and preserves process/PTY ownership; exit/cancellation/deadline remain resolved by the existing response and cleanup path.",
+      "scope": "Initial resumable unified-exec collection; one-shot completion is unsupported",
+      "basisRefs": [
+        "FACT-OWNER-LIFETIME"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-CANCEL-004"
+      ]
+    }
+  ],
+  "designChoices": [
+    {
+      "id": "CHOICE-EXISTING-COLLECTOR",
+      "statement": "Add a request token only to the existing resumable startup collector; retain the existing response, process store and cleanup.",
+      "rationale": "The startup already owns the exact process and bounded output; a second runner or cancellable collector future would break continuity.",
+      "basisRefs": [
+        "FACT-OWNER-LIFETIME"
+      ]
+    }
+  ],
+  "verificationObligations": [
+    {
+      "id": "OB-FENCE",
+      "invariantIds": [
+        "INV-FENCE"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "TUI recording app-server and core manager tests",
+      "failureOracle": "Any RPC for stale thread/generation, or accepted wrong call/process owner, is a failure.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-LIFETIME",
+      "invariantIds": [
+        "INV-LIFETIME"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "Production collector component plus actual Windows/Unix shell startup and write/stop",
+      "failureOracle": "Lost/duplicated output, another spawn/PID/PTY, early slot release, or yield overriding terminal cleanup is a failure.",
+      "requirementLevel": "required"
+    }
+  ],
+  "requiredCapabilities": [
+    "cs-constraint-derivation",
+    "cs-implementation-review"
+  ],
+  "verdict": "READY"
+}

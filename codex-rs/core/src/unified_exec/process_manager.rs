@@ -450,6 +450,37 @@ fn terminate_process_on_network_denial(
 }
 
 impl UnifiedExecProcessManager {
+    /// Request only this session/call/process startup to return its existing response early.
+    /// Acceptance is not process exit, turn completion, or resource release.
+    pub(crate) async fn request_initial_yield(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+        call_id: &str,
+        process_id: i32,
+    ) -> Result<(), String> {
+        let store = self.process_store.lock().await;
+        let entry = store.processes.get(&process_id).ok_or_else(|| {
+            "No matching spawned terminal; it may have exited or still await approval.".to_string()
+        })?;
+        let session = entry
+            .session
+            .upgrade()
+            .ok_or("Terminal session is no longer active.")?;
+        if session.thread_id() != thread_id || entry.call_id != call_id {
+            return Err("Stale terminal ownership; background request refused.".into());
+        }
+        if *session.subscribe_elicitation_pause_state().borrow() {
+            return Err("Terminal is awaiting approval; background request refused.".into());
+        }
+        if !entry.initial_exec_command_active.load(Ordering::Acquire) || entry.process.has_exited()
+        {
+            return Err("Terminal has already yielded or exited.".into());
+        }
+        let token = entry.initial_yield.as_ref().ok_or("Terminal is no longer awaiting startup output or this execution path does not support early yield.")?;
+        token.cancel();
+        Ok(())
+    }
+
     pub(crate) async fn allocate_process_id(&self) -> i32 {
         loop {
             let mut store = self.process_store.lock().await;
@@ -629,6 +660,8 @@ impl UnifiedExecProcessManager {
             metrics_sidecar,
             collection_finished: process.output_handles().collection_finished.clone(),
         };
+        // Only the normal tool startup may yield; one-shot/hook completion owns its timeout.
+        let initial_yield = completion.is_none().then(CancellationToken::new);
         if process_stored {
             let initial_exec_command_active = Arc::new(AtomicBool::new(true));
             initial_exec_command_guard.active = Some(Arc::clone(&initial_exec_command_active));
@@ -649,6 +682,7 @@ impl UnifiedExecProcessManager {
                 initial_exec_command_guard.metrics_sidecar.take(),
                 Arc::clone(&output_buffer),
                 Arc::clone(&initial_exec_command_active),
+                initial_yield.clone(),
             )
             .await;
         }
@@ -664,12 +698,21 @@ impl UnifiedExecProcessManager {
         let deadline = start
             .checked_add(wait)
             .ok_or_else(|| UnifiedExecError::process_failed("timeout_ms is too large".into()))?;
-        let collected_output = Self::collect_output_until_deadline(
+        let collected_output = Self::collect_output_until_deadline_or_yield(
             process.output_handles(),
             Some(context.session.subscribe_elicitation_pause_state()),
             deadline,
+            initial_yield.as_ref(),
         )
         .await;
+        {
+            let mut store = self.process_store.lock().await;
+            if let Some(entry) = store.processes.get_mut(&request.process_id)
+                && Arc::ptr_eq(&entry.process, &process)
+            {
+                entry.initial_yield = None;
+            }
+        }
         if let Some(completion) = completion.as_mut()
             && !process.has_exited()
         {
@@ -1256,6 +1299,7 @@ impl UnifiedExecProcessManager {
         metrics_sidecar: Option<PluginMetricsSidecar>,
         output_buffer: Arc<tokio::sync::Mutex<OutputBuffers>>,
         initial_exec_command_active: Arc<AtomicBool>,
+        initial_yield: Option<CancellationToken>,
     ) {
         let plugin_metrics_sidecar =
             metrics_sidecar.map(|sidecar| Arc::new(std::sync::Mutex::new(Some(sidecar))));
@@ -1266,6 +1310,7 @@ impl UnifiedExecProcessManager {
             process_id,
             cwd: cwd.clone(),
             initial_exec_command_active,
+            initial_yield,
             hook_command,
             tty,
             environment_id,
@@ -1604,6 +1649,14 @@ impl UnifiedExecProcessManager {
         result
     }
 
+    pub(super) async fn collect_output_until_deadline<const MAX_BYTES: usize>(
+        output: &OutputHandles<MAX_BYTES>,
+        pause_state: Option<watch::Receiver<bool>>,
+        deadline: Instant,
+    ) -> HeadTailBuffer<MAX_BYTES> {
+        Self::collect_output_until_deadline_or_yield(output, pause_state, deadline, None).await
+    }
+
     #[tracing::instrument(
         name = "unified_exec.collect_output",
         level = "info",
@@ -1615,10 +1668,11 @@ impl UnifiedExecProcessManager {
             output_closed = tracing::field::Empty,
         )
     )]
-    pub(super) async fn collect_output_until_deadline<const MAX_BYTES: usize>(
+    async fn collect_output_until_deadline_or_yield<const MAX_BYTES: usize>(
         output: &OutputHandles<MAX_BYTES>,
         mut pause_state: Option<watch::Receiver<bool>>,
         mut deadline: Instant,
+        early_yield: Option<&CancellationToken>,
     ) -> HeadTailBuffer<MAX_BYTES> {
         const POST_EXIT_CLOSE_WAIT_CAP: Duration = Duration::from_millis(50);
 
@@ -1626,6 +1680,7 @@ impl UnifiedExecProcessManager {
             OutputClosed,
             Deadline,
             PostExitDeadline,
+            EarlyYield,
         }
 
         let OutputHandles {
@@ -1657,6 +1712,13 @@ impl UnifiedExecProcessManager {
                 if !has_drained_output {
                     wait_for_output = Some(output_notify.notified());
                 }
+            }
+
+            // Drain into the same response buffer before honoring the request. Never drop
+            // an in-flight collector future: it may already own output removed from pending.
+            if early_yield.is_some_and(CancellationToken::is_cancelled) {
+                collected.push_buffer(drained_output);
+                break StopReason::EarlyYield;
             }
 
             if !has_drained_output {
@@ -1697,6 +1759,12 @@ impl UnifiedExecProcessManager {
                 tokio::select! {
                     _ = &mut notified => {}
                     _ = &mut exit_notified => exit_signal_received = true,
+                    _ = async {
+                        match early_yield {
+                            Some(token) => token.cancelled().await,
+                            None => std::future::pending().await,
+                        }
+                    } => {},
                     _ = tokio::time::sleep(remaining) => break StopReason::Deadline,
                     _ = Self::wait_for_pause_change(pause_state.as_ref()) => {}
                 }
@@ -1718,6 +1786,7 @@ impl UnifiedExecProcessManager {
                 StopReason::OutputClosed => "output_closed",
                 StopReason::Deadline => "deadline",
                 StopReason::PostExitDeadline => "post_exit_deadline",
+                StopReason::EarlyYield => "early_yield",
             },
         );
         span.record(

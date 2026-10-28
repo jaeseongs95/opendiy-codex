@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "engineering-test-result",
+  "verdict": "INCOMPLETE",
+  "targetDigest": "sha256:cb0daa0026729a75356ae97d064089c04d1eaf92101134a9e43cc2f7f1a00247",
+  "reportDigest": "sha256:32ac4dbc97b22ee0ee325e042be5876a6e88f8f7ad7561b613d1e0ac90f0fad7",
+  "issues": [
+    "REQUIRED COLLECTOR: NOT_RUN — Full core test NOT_RUN. Source-extracted component typechecked but non-LTO linking failed (raw separate receipt); component linking waits on native build resource window.",
+    "REQUIRED REAL-PROCESS: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
+    "REQUIRED KEYS: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
+    "REQUIRED STALE-EPOCH: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
+    "REQUIRED API-WIRE: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+  ],
+  "limitations": [
+    "This is an unsigned local consistency check, not host attestation or an independent audit.",
+    "Snapshots bind only explicitly declared files; environment, dependencies outside scope and omitted Git changes require separate review.",
+    "Semantic correctness, test oracle quality, assertion causality and review completeness remain reviewer responsibilities."
+  ]
+}

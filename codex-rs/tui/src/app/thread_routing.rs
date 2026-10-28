@@ -775,6 +775,31 @@ impl App {
                 self.chat_widget.on_review_started();
                 Ok(true)
             }
+            AppCommand::BackgroundTerminal {
+                thread_id: owner_thread,
+                owner_generation,
+                item_id,
+                process_id,
+            } => {
+                if *owner_thread != thread_id
+                    || self.chat_widget.thread_id() != Some(*owner_thread)
+                    || *owner_generation != self.chat_widget.background_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale background target after thread/backend change; no request was sent."
+                            .into(),
+                    );
+                    return Ok(true);
+                }
+                app_server
+                    .thread_background_terminal_yield(
+                        thread_id,
+                        item_id.clone(),
+                        process_id.clone(),
+                    )
+                    .await?;
+                Ok(true)
+            }
             AppCommand::CleanBackgroundTerminals => {
                 app_server
                     .thread_background_terminals_clean(thread_id)

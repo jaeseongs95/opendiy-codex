@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "requestId": "CS-BACKGROUND-20261028",
+  "mode": "derive",
+  "objective": "Preserve exact process ownership, output and one existing response path while allowing F6/slash early yield.",
+  "sourceSnapshotDigest": "sha256:ffef0e19b50fb8764e4d5af2852c48058603b19cb1c767aed9144dc750cbe32d",
+  "sourceRefs": [
+    {
+      "id": "SRC-CONTRACT",
+      "path": "checks/background-contract.md",
+      "digest": "sha256:745ad41bb2ba8523f9dc0fdfd430176ca753525d497e6b917c1fe003480cd3d6"
+    }
+  ],
+  "operationalFacts": [
+    {
+      "id": "FACT-OWNER-LIFETIME",
+      "statement": "Delegated contract requires exact ownership and existing-process lifetime to survive early yield, cancellation and backend replacement.",
+      "evidenceRefs": [
+        "SRC-CONTRACT"
+      ]
+    }
+  ],
+  "existingContractRef": null
+}

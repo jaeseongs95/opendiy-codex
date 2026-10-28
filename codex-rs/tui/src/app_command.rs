@@ -99,6 +99,12 @@ impl Serialize for RealtimeSpeechText {
 pub(crate) enum AppCommand {
     Interrupt,
     CleanBackgroundTerminals,
+    BackgroundTerminal {
+        thread_id: ThreadId,
+        owner_generation: uuid::Uuid,
+        item_id: String,
+        process_id: String,
+    },
     RealtimeConversationStart {
         thread_id: ThreadId,
         offer_sdp: RealtimeOfferSdp,

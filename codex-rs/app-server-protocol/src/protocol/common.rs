@@ -777,6 +777,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadBackgroundTerminalsListResponse,
     },
+    #[experimental("thread/backgroundTerminals/yield")]
+    ThreadBackgroundTerminalsYield => "thread/backgroundTerminals/yield" {
+        params: v2::ThreadBackgroundTerminalsYieldParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadBackgroundTerminalsYieldResponse,
+    },
     #[experimental("thread/backgroundTerminals/terminate")]
     ThreadBackgroundTerminalsTerminate => "thread/backgroundTerminals/terminate" {
         params: v2::ThreadBackgroundTerminalsTerminateParams,
@@ -4048,6 +4054,26 @@ mod tests {
                 }
             }),
             serde_json::to_value(&request)?,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_thread_background_terminals_yield_exact_target() -> Result<()> {
+        let request = ClientRequest::ThreadBackgroundTerminalsYield {
+            request_id: RequestId::Integer(8),
+            params: v2::ThreadBackgroundTerminalsYieldParams {
+                thread_id: "thr_owned".into(),
+                item_id: "call_owned".into(),
+                process_id: "42".into(),
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&request)?,
+            json!({
+                "method": "thread/backgroundTerminals/yield", "id": 8,
+                "params": { "threadId": "thr_owned", "itemId": "call_owned", "processId": "42" }
+            })
         );
         Ok(())
     }

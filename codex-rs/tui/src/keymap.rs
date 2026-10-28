@@ -139,6 +139,7 @@ pub(crate) struct ChatKeymap {
     pub(crate) chord_hints: Arc<RuntimeChordKeymap>,
     /// Interrupt the active turn.
     pub(crate) interrupt_turn: Vec<KeyBinding>,
+    pub(crate) background_terminal: Vec<KeyBinding>,
     /// Decrease the active reasoning effort.
     pub(crate) decrease_reasoning_effort: Vec<KeyBinding>,
     /// Increase the active reasoning effort.
@@ -800,6 +801,11 @@ impl RuntimeKeymap {
                 )?
             },
             chord_hints: Arc::clone(&chords),
+            background_terminal: resolve_bindings(
+                keymap.chat.background_terminal.as_ref(),
+                &defaults.chat.background_terminal,
+                "tui.keymap.chat.background_terminal",
+            )?,
             interrupt_turn: resolve_bindings(
                 keymap.chat.interrupt_turn.as_ref(),
                 &defaults.chat.interrupt_turn,
@@ -1693,6 +1699,7 @@ impl RuntimeKeymap {
                 toggle_voice_mute: default_bindings![plain(KeyCode::F(9))],
                 chord_hints: Arc::default(),
                 interrupt_turn: default_bindings![plain(KeyCode::Esc)],
+                background_terminal: default_bindings![plain(KeyCode::F(6))],
                 decrease_reasoning_effort: default_bindings![
                     alt(KeyCode::Char(',')),
                     shift(KeyCode::Down)
@@ -2072,6 +2079,10 @@ impl RuntimeKeymap {
             ),
             ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
             (
+                "chat.background_terminal",
+                self.chat.background_terminal.as_slice(),
+            ),
+            (
                 "chat.decrease_reasoning_effort",
                 self.chat.decrease_reasoning_effort.as_slice(),
             ),
@@ -2233,6 +2244,10 @@ impl RuntimeKeymap {
                     self.chat.toggle_voice_mute.as_slice(),
                 ),
                 ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
+                (
+                    "chat.background_terminal",
+                    self.chat.background_terminal.as_slice(),
+                ),
                 (
                     "chat.decrease_reasoning_effort",
                     self.chat.decrease_reasoning_effort.as_slice(),
@@ -3857,6 +3872,51 @@ mod tests {
         keymap.composer.submit = Some(one("ctrl-v"));
 
         expect_conflict(&keymap, "composer.submit", "fixed.paste_image");
+    }
+
+    #[test]
+    fn background_terminal_default_remap_and_conflict_preserve_custom_config() {
+        let mut keymap = TuiKeymap::default();
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("default keymap");
+        assert_eq!(
+            runtime.chat.background_terminal,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        assert!(
+            runtime
+                .editor
+                .move_left
+                .contains(&key_hint::ctrl(KeyCode::Char('b')))
+        );
+        keymap.global.open_transcript = Some(one("f6"));
+        let custom = keymap.clone();
+        expect_conflict(&keymap, "open_transcript", "chat.background_terminal");
+        assert_eq!(keymap, custom);
+        let mut editor_custom = TuiKeymap::default();
+        editor_custom.editor.move_left = Some(one("f6"));
+        expect_conflict(
+            &editor_custom,
+            "chat.background_terminal",
+            "editor.move_left",
+        );
+        keymap.chat.background_terminal = Some(one("f12"));
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("explicit custom binding");
+        assert_eq!(
+            runtime.chat.background_terminal,
+            vec![key_hint::plain(KeyCode::F(12))]
+        );
+        assert_eq!(
+            runtime.app.open_transcript,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        keymap.chat.background_terminal = Some(KeybindingsSpec::Many(vec![]));
+        assert!(
+            RuntimeKeymap::from_config(&keymap)
+                .expect("unbound")
+                .chat
+                .background_terminal
+                .is_empty()
+        );
     }
 
     #[test]

@@ -199,6 +199,7 @@ struct ProcessEntry {
     process_id: i32,
     cwd: PathUri,
     initial_exec_command_active: Arc<std::sync::atomic::AtomicBool>,
+    initial_yield: Option<CancellationToken>,
     hook_command: String,
     tty: bool,
     environment_id: String,

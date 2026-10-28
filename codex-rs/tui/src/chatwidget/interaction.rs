@@ -140,6 +140,14 @@ impl ChatWidget {
         }
 
         if key_event.kind == KeyEventKind::Press
+            && self.chat_keymap.background_terminal.is_pressed(key_event)
+            && self.bottom_pane.no_modal_or_popup_active()
+        {
+            self.background_terminal();
+            return KeyEventAction::None;
+        }
+
+        if key_event.kind == KeyEventKind::Press
             && self.chat_keymap.open_presets.is_pressed(key_event)
             && self.bottom_pane.no_modal_or_popup_active()
         {

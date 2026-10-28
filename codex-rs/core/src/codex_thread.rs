@@ -792,6 +792,18 @@ impl CodexThread {
         self.session.list_background_terminals().await
     }
 
+    pub async fn request_background_terminal_yield(
+        &self,
+        call_id: &str,
+        process_id: i32,
+    ) -> Result<(), String> {
+        self.session
+            .services
+            .unified_exec_manager
+            .request_initial_yield(self.session.thread_id(), call_id, process_id)
+            .await
+    }
+
     pub async fn terminate_background_terminal(&self, process_id: i32) -> bool {
         self.session.terminate_background_terminal(process_id).await
     }

@@ -1752,6 +1752,28 @@ impl AppServerSession {
         Ok(())
     }
 
+    pub(crate) async fn thread_background_terminal_yield(
+        &mut self,
+        thread_id: ThreadId,
+        item_id: String,
+        process_id: String,
+    ) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: codex_app_server_protocol::ThreadBackgroundTerminalsYieldResponse = self
+            .client
+            .request_typed(ClientRequest::ThreadBackgroundTerminalsYield {
+                request_id,
+                params: codex_app_server_protocol::ThreadBackgroundTerminalsYieldParams {
+                    thread_id: thread_id.to_string(),
+                    item_id,
+                    process_id,
+                },
+            })
+            .await
+            .wrap_err("Background yield unavailable or refused by backend")?;
+        Ok(())
+    }
+
     pub(crate) async fn thread_background_terminals_clean(
         &mut self,
         thread_id: ThreadId,

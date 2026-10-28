@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "engineering-test-proof",
+  "planDigest": "sha256:10f1fb9d9cdc7ddf66a3d7e9c8ec6acde7e4a5e7dc5246cc73a4d93c684cf2bf",
+  "candidate": {
+    "schemaVersion": "1.0.0",
+    "kind": "engineering-snapshot",
+    "files": [
+      {
+        "path": "checks/run-background-collector-proof.py",
+        "digest": "sha256:46c38f272cd25bee209876b093ac68dfdcb51efc2beeeae1bd22404f16dcd76b",
+        "size": 6691,
+        "lineCount": 115
+      },
+      {
+        "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
+        "digest": "sha256:02fdcaedfd465015ce557e33911a28294257e28b278f492c191bea918dbf3bab",
+        "size": 180855,
+        "lineCount": 4681
+      },
+      {
+        "path": "codex-rs/core/src/unified_exec/process_manager.rs",
+        "digest": "sha256:8ecfc2c42750babc9fbc794ee0509fba688ca7086628e2b7cc74d237c321439b",
+        "size": 81202,
+        "lineCount": 2023
+      },
+      {
+        "path": "codex-rs/core/src/unified_exec/process_manager_tests.rs",
+        "digest": "sha256:659c1f84474d9c5cc17b6f9959d2ea3c084c9ba1920990d34bb9b011ff340434",
+        "size": 36323,
+        "lineCount": 957
+      },
+      {
+        "path": "codex-rs/tui/src/app/tests/backend_ownership_tests.rs",
+        "digest": "sha256:421c252f0727a10cdbaf647b8d663f9169e12663389ef3d14a17cf356f7b8120",
+        "size": 11226,
+        "lineCount": 321
+      },
+      {
+        "path": "codex-rs/tui/src/chatwidget/tests/exec_flow.rs",
+        "digest": "sha256:d14178c06af8bede2cf1c4a9aa2416fee57a53e234f238dcce827d28440ebe68",
+        "size": 74002,
+        "lineCount": 2021
+      },
+      {
+        "path": "codex-rs/tui/src/keymap.rs",
+        "digest": "sha256:64ab166df40fb3811ec8e40a6e087704813ab6255a3f8be0d0878cb53f9fcba5",
+        "size": 174656,
+        "lineCount": 4226
+      }
+    ],
+    "digest": "sha256:cb0daa0026729a75356ae97d064089c04d1eaf92101134a9e43cc2f7f1a00247"
+  },
+  "proofs": [
+    {
+      "caseId": "COLLECTOR",
+      "status": "NOT_RUN",
+      "red": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "green": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mutationPaths": [],
+      "assertionWitness": "",
+      "reason": "Full core test NOT_RUN. Source-extracted component typechecked but non-LTO linking failed (raw separate receipt); component linking waits on native build resource window."
+    },
+    {
+      "caseId": "REAL-PROCESS",
+      "status": "NOT_RUN",
+      "red": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "green": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mutationPaths": [],
+      "assertionWitness": "",
+      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+    },
+    {
+      "caseId": "KEYS",
+      "status": "NOT_RUN",
+      "red": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "green": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mutationPaths": [],
+      "assertionWitness": "",
+      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+    },
+    {
+      "caseId": "STALE-EPOCH",
+      "status": "NOT_RUN",
+      "red": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "green": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mutationPaths": [],
+      "assertionWitness": "",
+      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+    },
+    {
+      "caseId": "API-WIRE",
+      "status": "NOT_RUN",
+      "red": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "green": {
+        "path": "",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mutationPaths": [],
+      "assertionWitness": "",
+      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+    }
+  ]
+}

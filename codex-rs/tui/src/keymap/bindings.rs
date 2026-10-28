@@ -295,6 +295,7 @@ define_runtime_action_bindings! {
         open_presets,
         toggle_voice,
         interrupt_turn,
+        background_terminal,
         decrease_reasoning_effort,
         increase_reasoning_effort,
         previous_permission_mode,

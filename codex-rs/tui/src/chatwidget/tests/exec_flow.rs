@@ -1984,3 +1984,38 @@ async fn apply_patch_request_omits_diff_summary_from_modal() -> anyhow::Result<(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn background_terminal_f6_and_slash_share_exact_target_ctrl_b_keeps_editing() {
+    let (mut chat, _events, mut operations) = make_chatwidget_manual(None).await;
+    chat.on_task_started();
+    chat.thread_id = Some(ThreadId::new());
+    chat.track_unified_exec_process_begin("call-owned", Some("1234"), "sleep 30");
+    chat.bottom_pane
+        .set_composer_text("ab".into(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(chat.bottom_pane.composer_text(), "b");
+    assert!(operations.try_recv().is_err());
+    chat.handle_key_event(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+    assert_matches!(operations.try_recv(), Ok(Op::BackgroundTerminal { item_id, process_id, .. })
+        if item_id == "call-owned" && process_id == "1234");
+    chat.dispatch_command(SlashCommand::Background);
+    assert_matches!(operations.try_recv(), Ok(Op::BackgroundTerminal { item_id, process_id, .. })
+        if item_id == "call-owned" && process_id == "1234");
+    assert_eq!(chat.bottom_pane.composer_text(), "b");
+    assert!(chat.bottom_pane.is_task_running());
+}
+
+#[tokio::test]
+async fn background_terminal_no_target_and_multiple_targets_do_not_submit() {
+    let (mut chat, _events, mut operations) = make_chatwidget_manual(None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.dispatch_command(SlashCommand::Background);
+    assert!(operations.try_recv().is_err());
+    chat.track_unified_exec_process_begin("a", Some("1"), "sleep 30");
+    chat.track_unified_exec_process_begin("b", Some("2"), "sleep 30");
+    chat.handle_key_event(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+    assert!(operations.try_recv().is_err());
+    assert_eq!(chat.unified_exec_processes.len(), 2);
+}
