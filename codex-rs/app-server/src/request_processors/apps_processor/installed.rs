@@ -140,7 +140,12 @@ impl AppsRequestProcessor {
                         ))
                     };
                     cancellation_token.cancel();
-                    runtime.shutdown().await?;
+                    runtime.shutdown().await.map_err(|cleanup_error| match &result {
+                        Err(refresh_error) => cleanup_error.context(format!(
+                            "connector refresh also failed: {refresh_error:#}"
+                        )),
+                        Ok(_) => cleanup_error,
+                    })?;
                     result.map(|snapshot| {
                         snapshot_age = Some(snapshot.age());
                         snapshot.tools().to_vec()
