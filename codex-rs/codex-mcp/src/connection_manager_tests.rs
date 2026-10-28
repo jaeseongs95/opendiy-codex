@@ -6997,7 +6997,7 @@ async fn shutdown_reports_unconfirmed_startup_and_preserves_normal_failed_startu
         let mut manager =
             McpConnectionSet::new_uninitialized(&approval_policy, &permission_profile, true);
         manager.insert_test_client(
-            "fixture".into(),
+            "fixture",
             AsyncManagedClient {
                 ema_authority: None,
                 client: failed_client,
