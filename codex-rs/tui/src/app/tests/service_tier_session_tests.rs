@@ -68,6 +68,16 @@ async fn fast_selection_preserves_global_defaults_other_threads_and_permissions(
     let selected = server.start_thread(&app.config).await?;
     let before = selected.session.clone();
     let other = server.start_thread(&app.config).await?.session;
+    // A new empty thread has a lazy rollout. Persist real history before testing resume.
+    server
+        .thread_inject_items(
+            other.thread_id,
+            vec![serde_json::from_value(serde_json::json!({
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "Independent conversation fixture"}]
+            }))?],
+        )
+        .await?;
     let id = before.thread_id;
     app.enqueue_primary_thread_session(selected.session, selected.turns)
         .await?;
