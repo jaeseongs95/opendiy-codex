@@ -20,7 +20,7 @@
     "checks/run-background-collector-proof.py"
   ],
   "runner": "Existing Rust tests; source-extracted production collector component with frozen native dependency graph",
-  "environment": "Windows host; full Cargo execution in codex-rs deferred during native ThinLTO. Component uses read-only exact rlibs and own checks output.",
+  "environment": "Windows host; full Cargo execution remains outside this component authorization. Component uses verified exact read-only native rlibs and own checks output.",
   "cases": [
     {
       "id": "COLLECTOR",

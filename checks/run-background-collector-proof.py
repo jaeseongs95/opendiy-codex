@@ -2,6 +2,7 @@
 
 No Cargo resolution, shared target writes, production installation, or copied logic.
 """
+import argparse
 import hashlib
 import json
 import os
@@ -12,6 +13,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT.parent / "official-cli-patch-20261028"
 OUT = ROOT / "checks"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--thin-lto", action="store_true", required=True,
+                    help="Use the frozen graph's required bitcode link format; resource authorization is external.")
+parser.add_argument("--prepare-only", action="store_true", help="Write sources/argv/manifests without running rustc.")
+parser.add_argument("--source-root", type=Path, default=ROOT, help="Read-only candidate source tree.")
+options = parser.parse_args()
+SOURCE = options.source_root.resolve()
 
 
 def sha(value):
@@ -26,16 +34,17 @@ def between(value, start, end):
     return value[value.index(start):value.index(end, value.index(start))]
 
 
-manager = read(ROOT / "codex-rs/core/src/unified_exec/process_manager.rs")
-process = read(ROOT / "codex-rs/core/src/unified_exec/process.rs")
-tests = read(ROOT / "codex-rs/core/src/unified_exec/process_manager_tests.rs")
-module = read(ROOT / "codex-rs/core/src/unified_exec/mod.rs")
+manager = read(SOURCE / "codex-rs/core/src/unified_exec/process_manager.rs")
+process = read(SOURCE / "codex-rs/core/src/unified_exec/process.rs")
+tests = read(SOURCE / "codex-rs/core/src/unified_exec/process_manager_tests.rs")
+module = read(SOURCE / "codex-rs/core/src/unified_exec/mod.rs")
 collector = between(manager, "    pub(super) async fn collect_output_until_deadline<", "    fn prune_processes_if_needed")
 buffers = between(process, "#[derive(Default)]\npub(crate) struct OutputBuffers", "struct OutputTaskGuard")
 policy = between(process, "#[derive(Clone, Copy, PartialEq, Eq)]\npub(super) enum OutputDrainPolicy", "/// Transport-specific process handle")
 selected_tests = between(tests, "#[tokio::test]\nasync fn output_collection_early_yield", '#[cfg(any(unix, windows))]\n#[tokio::test(flavor = "multi_thread", worker_threads = 2)]\nasync fn background_terminal_real_startup')
 marker_fn = between(module, "pub(crate) fn format_output_omission_marker", "pub(crate) fn generate_chunk_id")
-head_tail = between(read(ROOT / "codex-rs/core/src/unified_exec/head_tail_buffer.rs"), "use crate::unified_exec::UNIFIED_EXEC_OUTPUT_MAX_BYTES;", "#[cfg(test)]\n#[path =")
+head_tail = between(read(SOURCE / "codex-rs/core/src/unified_exec/head_tail_buffer.rs"), "use crate::unified_exec::UNIFIED_EXEC_OUTPUT_MAX_BYTES;", "#[cfg(test)]\n#[path =")
+candidate_commit = subprocess.check_output(["git", "-C", str(SOURCE), "rev-parse", "HEAD"]).decode().strip()
 
 # Reuse the completed native build graph, verifying selected library hashes before linking.
 graph_path = NATIVE / "compiled-graph-v1.json"
@@ -53,8 +62,8 @@ env.update(json.loads(subprocess.check_output(["pwsh", "-NoProfile", "-File", st
 env["CARGO_HOME"] = str(OUT / "unused-cargo-home")
 env["CARGO_TARGET_DIR"] = str(OUT / "unused-target")
 
-for label in ("green", "red"):
-    destination = OUT / ("collector-proof-" + label)
+for label in ("red", "green"):
+    destination = OUT / ("collector-proof-thinlto-" + label)
     destination.mkdir(exist_ok=True)
     body = collector
     if label == "red":
@@ -96,14 +105,23 @@ mod unified_exec {
     probe = destination / "proof.rs"
     probe.write_text(source, encoding="utf-8", newline="\n")
     exe = destination / "proof.exe"
-    args = [env["RUSTC"], str(probe), "--crate-name", "background_collector_proof", "--test", "--edition=2024", "--target", "x86_64-pc-windows-msvc", "-C", "opt-level=0", "-C", "debuginfo=0", "-C", "target-feature=+crt-static", "-C", "linker=" + env["CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"], "-L", "dependency=" + str(NATIVE / "target/x86_64-pc-windows-msvc/release/deps"), "-L", "dependency=" + str(NATIVE / "target/release/deps"), "-o", str(exe)]
+    args = [env["RUSTC"], str(probe), "--crate-name", "background_collector_proof", "--test", "--edition=2024", "--target", "x86_64-pc-windows-msvc", "-C", "opt-level=0", "-C", "lto=thin", "-C", "codegen-units=2", "-C", "debuginfo=0", "-C", "target-feature=+crt-static", "-C", "linker=" + env["CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"], "-L", "dependency=" + str(NATIVE / "target/x86_64-pc-windows-msvc/release/deps"), "-L", "dependency=" + str(NATIVE / "target/release/deps"), "-o", str(exe)]
     for name, path in libraries.items():
         args.extend(["--extern", name + "=" + path])
     for path in (NATIVE / "cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f").glob("windows_x86_64_msvc-*/lib"):
         args.extend(["-L", "native=" + str(path)])
+    (destination / "compile-argv.json").write_text(json.dumps(args, indent=2) + "\n", encoding="utf-8")
+    input_manifest = dict(candidateRoot=str(SOURCE), candidateCommit=candidate_commit, label=label,
+                          collectorSha256=sha(collector.encode()), harnessSha256=sha(probe.read_bytes()),
+                          nativeGraphSha256=sha(graph_path.read_bytes()),
+                          libraries={name: dict(path=path, sha256=sha(Path(path).read_bytes())) for name, path in libraries.items()})
+    (destination / "input-manifest.json").write_text(json.dumps(input_manifest, indent=2) + "\n", encoding="utf-8")
+    if options.prepare_only:
+        print(json.dumps(dict(label=label, prepared=str(destination))), flush=True)
+        continue
     with (destination / "compile.log").open("wb") as log:
         built = subprocess.run(args, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=120)
-    receipt = dict(label=label, compileExit=built.returncode, compileArgv=args, nativeGraphSha256=sha(graph_path.read_bytes()), collectorSha256=sha(collector.encode()), headTailSha256=sha(head_tail.encode()), outputDefinitionsSha256=sha(buffers.encode()), selectedTestsSha256=sha(selected_tests.encode()), harnessSha256=sha(probe.read_bytes()), libraries={name: dict(path=path, sha256=sha(Path(path).read_bytes())) for name, path in libraries.items()}, scope="Exact production collector/pause helpers and committed buffer tests; HeadTailBuffer production body extracted unchanged. Not full core/RPC/TUI or process-spawn integration.")
+    receipt = dict(candidateRoot=str(SOURCE), candidateCommit=candidate_commit, label=label, compileExit=built.returncode, compileArgv=args, nativeGraphSha256=sha(graph_path.read_bytes()), collectorSha256=sha(collector.encode()), headTailSha256=sha(head_tail.encode()), outputDefinitionsSha256=sha(buffers.encode()), selectedTestsSha256=sha(selected_tests.encode()), harnessSha256=sha(probe.read_bytes()), libraries={name: dict(path=path, sha256=sha(Path(path).read_bytes())) for name, path in libraries.items()}, scope="Exact production collector/pause helpers and committed buffer tests; HeadTailBuffer production body extracted unchanged. Not full core/RPC/TUI or process-spawn integration.")
     if built.returncode == 0:
         with (destination / "run.log").open("wb") as log:
             run = subprocess.run([str(exe), "--nocapture"], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=15)

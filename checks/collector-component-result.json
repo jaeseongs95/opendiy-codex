@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "background-collector-component-result",
+  "candidateRoot": "D:\\codex\\\uac1c\ubc1c\uc790\\work\\cli-integration-20261028",
+  "candidateCommit": "1e3bd037184f12958b5236abc5f5a121b477c216",
+  "command": [
+    "python",
+    "checks/run-background-collector-proof.py",
+    "--thin-lto",
+    "--source-root",
+    "../cli-integration-20261028"
+  ],
+  "nativeGraphSha256": "1448486d793d355bb4204ab82dbe586e41056359ec3c14743c10acf2c1cdc386",
+  "collectorSha256": "78104a4691b381d176bd12bcb1dd6a73457097993ebc2bdc9f34addc0a4fa34d",
+  "selectedTestsSha256": "a717bc6f84cd1cf8a66ad4cfa1cf0c4494b7bf9d52c57a9c0e4a5f8691db6f89",
+  "sameTestBodies": true,
+  "red": {
+    "compileExit": 0,
+    "runExit": 101,
+    "passed": 1,
+    "failed": 1,
+    "witness": "yield wakes collector without new output notification: Elapsed(())",
+    "mutation": "Only early-yield observation removed from extracted production collector."
+  },
+  "green": {
+    "compileExit": 0,
+    "runExit": 0,
+    "passed": 2,
+    "failed": 0
+  },
+  "observedAssertions": [
+    "Already-drained before and new during bytes returned together as before\\nduring\\n.",
+    "Duplicate token requests leave cancellation/output_closed/collection_finished unchanged.",
+    "Later after output remains collectable and retained transcript is before/during/after.",
+    "Exit/yield/deadline signal orders arranged before collection retain the exact final-output bytes."
+  ],
+  "notVerified": [
+    "Full core/TUI/RPC compilation and generated schemas/snapshots.",
+    "Actual process spawn count/PID/PTY/environment continuity and write/stop.",
+    "Manager yield-versus-cancel/timeout runtime races and approval/hook/unsupported backend integration.",
+    "Actual Windows terminal F6/Ctrl+B/IME behavior."
+  ],
+  "rawFiles": [
+    {
+      "path": "checks/collector-proof-thinlto-red/compile.log",
+      "sha256": "cb9325bb80dd2b9b7bd93b17e42716d8ea5193163e262c309b0b7e1333769685"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-red/run.log",
+      "sha256": "2c0c93a6f4b31f5b2f3e8ff940918db5f5062db5bf34237aa4d82bc2b54c5c85"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-red/compile-argv.json",
+      "sha256": "7d1ad165af60531f7d2fd1e594fda9be2b5b8d4a8735331926458b632c3aad44"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-red/input-manifest.json",
+      "sha256": "48ce4511096d35c934091517559d87c8f937f234e87f3cdbfe3d028cb49cc8de"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-red/receipt.json",
+      "sha256": "f87dc9be870205948efd1026671bc4a1b806d31af97e5b0cf22877173b57be30"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-green/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-green/run.log",
+      "sha256": "74349965181bb1eff3340283169e3874389fdd018ddab83403883c28199224af"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-green/compile-argv.json",
+      "sha256": "4c047267e1f42ae6daf08a3a3c7ef9c3217de2720fdb0d069593d3e4a4751928"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-green/input-manifest.json",
+      "sha256": "44a09a4fca36baede1bdc685bf9649128ab28fab07a73fd34ec46eb730ca3701"
+    },
+    {
+      "path": "checks/collector-proof-thinlto-green/receipt.json",
+      "sha256": "c0373be39bef27230a1ddb8993518bf14d999f3b53b35a3e90109183009a14b0"
+    }
+  ],
+  "scope": "Source-extracted exact production collector and bounded output definitions/tests. No Cargo, dependency resolution, native source/target writes, installation, push, or whole CLI success claim."
+}

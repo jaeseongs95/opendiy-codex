@@ -1,16 +1,16 @@
 {
   "schemaVersion": "1.0.0",
   "kind": "engineering-test-proof",
-  "planDigest": "sha256:10f1fb9d9cdc7ddf66a3d7e9c8ec6acde7e4a5e7dc5246cc73a4d93c684cf2bf",
+  "planDigest": "sha256:5fa070ae158b152f915b1cfc06d5c9b05950383eaca2dc80466331ad582a6611",
   "candidate": {
     "schemaVersion": "1.0.0",
     "kind": "engineering-snapshot",
     "files": [
       {
         "path": "checks/run-background-collector-proof.py",
-        "digest": "sha256:46c38f272cd25bee209876b093ac68dfdcb51efc2beeeae1bd22404f16dcd76b",
-        "size": 6691,
-        "lineCount": 115
+        "digest": "sha256:4bc47b664d0a49a000a37bab14d5acf3410ba69669d896d7da4a0d263657db38",
+        "size": 8234,
+        "lineCount": 133
       },
       {
         "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
@@ -49,7 +49,7 @@
         "lineCount": 4246
       }
     ],
-    "digest": "sha256:4694deb2ef915725adc6ccdfabaf938e5f649571e86b5312b242fde87f7b6836"
+    "digest": "sha256:75b250a54672a51ea9557b7c76769484989c37b5562c02165e8eeb0b08e1ece0"
   },
   "proofs": [
     {
@@ -65,7 +65,7 @@
       },
       "mutationPaths": [],
       "assertionWitness": "",
-      "reason": "Full core test NOT_RUN. Source-extracted component typechecked but non-LTO linking failed (raw separate receipt); component linking waits on native build resource window."
+      "reason": "Full core test NOT_RUN. Separate integrated source-extracted component passed 2 tests and its targeted mutation failed the wakeup assertion; see collector-component-result.json. This is not the full candidate boundary proof."
     },
     {
       "caseId": "REAL-PROCESS",
@@ -80,7 +80,7 @@
       },
       "mutationPaths": [],
       "assertionWitness": "",
-      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+      "reason": "Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed."
     },
     {
       "caseId": "KEYS",
@@ -95,7 +95,7 @@
       },
       "mutationPaths": [],
       "assertionWitness": "",
-      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+      "reason": "Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed."
     },
     {
       "caseId": "STALE-EPOCH",
@@ -110,7 +110,7 @@
       },
       "mutationPaths": [],
       "assertionWitness": "",
-      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+      "reason": "Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed."
     },
     {
       "caseId": "API-WIRE",
@@ -125,7 +125,7 @@
       },
       "mutationPaths": [],
       "assertionWitness": "",
-      "reason": "Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+      "reason": "Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed."
     }
   ]
 }

@@ -2,14 +2,14 @@
   "schemaVersion": "1.0.0",
   "kind": "engineering-test-result",
   "verdict": "INCOMPLETE",
-  "targetDigest": "sha256:4694deb2ef915725adc6ccdfabaf938e5f649571e86b5312b242fde87f7b6836",
-  "reportDigest": "sha256:755138807a833fec6bd2688d8897cb1995caec37587ce20731b123af6375283c",
+  "targetDigest": "sha256:75b250a54672a51ea9557b7c76769484989c37b5562c02165e8eeb0b08e1ece0",
+  "reportDigest": "sha256:db00a0901b6a4ef780b931d3c262eec614a9f6dda83ec742eeec19c6f102aec5",
   "issues": [
-    "REQUIRED COLLECTOR: NOT_RUN — Full core test NOT_RUN. Source-extracted component typechecked but non-LTO linking failed (raw separate receipt); component linking waits on native build resource window.",
-    "REQUIRED REAL-PROCESS: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
-    "REQUIRED KEYS: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
-    "REQUIRED STALE-EPOCH: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed.",
-    "REQUIRED API-WIRE: NOT_RUN — Integrated Rust/API/TUI execution is deferred during native ThinLTO; no runtime PASS is claimed."
+    "REQUIRED COLLECTOR: NOT_RUN — Full core test NOT_RUN. Separate integrated source-extracted component passed 2 tests and its targeted mutation failed the wakeup assertion; see collector-component-result.json. This is not the full candidate boundary proof.",
+    "REQUIRED REAL-PROCESS: NOT_RUN — Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed.",
+    "REQUIRED KEYS: NOT_RUN — Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed.",
+    "REQUIRED STALE-EPOCH: NOT_RUN — Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed.",
+    "REQUIRED API-WIRE: NOT_RUN — Integrated Rust/API/TUI execution remains NOT_RUN outside the authorized component scope; no runtime PASS is claimed."
   ],
   "limitations": [
     "This is an unsigned local consistency check, not host attestation or an independent audit.",
