@@ -2039,7 +2039,14 @@
               "type": "string"
             },
             "params": {
-              "type": "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/v2/McpServerRefreshParams"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -15253,8 +15260,30 @@
         "title": "McpServerOauthLoginResponse",
         "type": "object"
       },
+      "McpServerRefreshParams": {
+        "description": "Reloads MCP configuration without restarting the app.",
+        "properties": {
+          "threadId": {
+            "description": "Also queue an MCP reconnect on the runtime captured for this loaded thread. The registry is rechecked after reload, but may change before enqueue. Existing calls retain their bound clients; reconnect completion is asynchronous.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "McpServerRefreshResponse": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "reconnectQueuedForThreadId": {
+            "description": "The reconnect operation was accepted by the captured runtime's queue. This does not acknowledge current registry membership, runtime readiness, or cleanup of previous clients.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "title": "McpServerRefreshResponse",
         "type": "object"
       },
@@ -16395,6 +16424,18 @@
           }
         ],
         "title": "Nullable_GetAccountTokenUsageParams"
+      },
+      "NullableMcpServerRefreshParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "anyOf": [
+          {
+            "$ref": "#/definitions/v2/McpServerRefreshParams"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Nullable_McpServerRefreshParams"
       },
       "OverriddenMetadata": {
         "properties": {

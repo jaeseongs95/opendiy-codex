@@ -2244,6 +2244,19 @@
       ],
       "type": "object"
     },
+    "McpServerRefreshParams": {
+      "description": "Reloads MCP configuration without restarting the app.",
+      "properties": {
+        "threadId": {
+          "description": "Also queue an MCP reconnect on the runtime captured for this loaded thread. The registry is rechecked after reload, but may change before enqueue. Existing calls retain their bound clients; reconnect completion is asynchronous.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "McpServerStatusDetail": {
       "enum": [
         "full",
@@ -8132,7 +8145,14 @@
           "type": "string"
         },
         "params": {
-          "type": "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/McpServerRefreshParams"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

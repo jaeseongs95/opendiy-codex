@@ -300,6 +300,7 @@ export type { McpServerOauthClientRegistration } from "./McpServerOauthClientReg
 export type { McpServerOauthLoginCompletedNotification } from "./McpServerOauthLoginCompletedNotification";
 export type { McpServerOauthLoginParams } from "./McpServerOauthLoginParams";
 export type { McpServerOauthLoginResponse } from "./McpServerOauthLoginResponse";
+export type { McpServerRefreshParams } from "./McpServerRefreshParams";
 export type { McpServerRefreshResponse } from "./McpServerRefreshResponse";
 export type { McpServerStartupFailureReason } from "./McpServerStartupFailureReason";
 export type { McpServerStartupState } from "./McpServerStartupState";
