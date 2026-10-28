@@ -3,8 +3,8 @@ running 6 tests
 test tests::explicit_non_admission_and_unsupported_do_not_become_unknown_or_retry ... ok
 test tests::invalidated_attempt_cannot_publish_late_reply_into_new_epoch ... ok
 test tests::missed_slots_busy_and_terminal_are_not_a_queue ... ok
-test tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner ... FAILED
 test tests::one_shot_busy_is_terminal_and_unknown_is_not_retried ... ok
+test tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner ... FAILED
 test tests::pause_resume_and_remove_never_cancel_an_owned_turn ... ok
 
 failures:
@@ -15,6 +15,6 @@ failures:
 test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 
-thread 'tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner' (45704) panicked at D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:341:9:
+thread 'tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner' (53096) panicked at D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:359:9:
 assertion failed: !s.submitted(id, d.attempt + 1, Submission::Started("wrong".into()))
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

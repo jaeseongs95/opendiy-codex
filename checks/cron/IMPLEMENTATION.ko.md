@@ -8,7 +8,7 @@
 
 탐색의 `thread_unsubscribe` 및 화면 교체의 `reset_thread_event_state` 두 경계에서 cron 소유 일반 대화의 구독·이벤트 저장소·listener·승인 reply 소유권을 보존한다. 마지막 예약/실행 참조가 끝나면 비활성 대화의 구독을 해제한다. 기존 inactive 승인 UI와 origin-bound reply 경로를 재사용하며 신뢰·권한을 자동 승인하지 않는다.
 
-응답 전 terminal과 중복·역순 응답은 attempt 및 정확한 owned turn으로 처리한다. remove는 미래 예약만 제거한다. cancel은 정확한 owned ID만 사용하고 active turn ID로 대체하지 않는다. interrupt ACK 뒤에도 terminal까지 소유권을 유지한다. 연결/이벤트 유실은 Unknown으로 중지하며 새 연결에서 자동 재전송하지 않는다. 정확한 구 method 거부만 BlockedUnsupported이며 같은 backend의 예약을 일괄 차단한다.
+응답 전 terminal과 중복·역순 응답은 attempt 및 정확한 owned turn으로 처리한다. remove는 미래 예약만 제거한다. cancel은 정확한 owned ID만 사용하고 active turn ID로 대체하지 않는다. interrupt ACK 뒤에도 terminal까지 소유권을 유지한다. 연결/이벤트 유실에서 입장 응답·실행이 미확인이면 Unknown, 아직 입장을 요청하지 않은 예약은 BlockedConnection으로 중지하며 새 연결에서 자동 재전송하지 않는다. 정확한 구 method 거부만 BlockedUnsupported이며 같은 backend의 예약을 일괄 차단한다.
 
 ## 직접 실행한 검증
 
@@ -29,7 +29,7 @@
 - `codex-tui`: plain A 등록 → plain B 실제 화면 교체 → A 예약 실행, B draft 및 화면 모델 격리, A terminal/result store.
 - `codex-tui`: side-parent/subagent 조건이 없는 inactive 일반 대화의 승인 표시·origin WebSocket 응답·store 정리.
 - protocol serde 및 schema 생성/fixture 대조. 생성은 기존 `schema_fixtures::write_schema_fixtures_from_env`로 수행해야 한다. Windows raw Option 이름 문제를 피하는 새 named params/response를 사용했다.
-- 실제 owned cancel과 manual turn 경합, terminal 직전·직후 취소, 마지막 참조 unsubscribe, 구독 실패 오류, reconnect 후 old epoch 응답은 실제 통합 fixture로 추가 확인해야 한다. 단독 scheduler 시험만으로 이 경계를 PASS라고 하지 않는다.
+- 정확한 owned cancel·remove 뒤 소유권·마지막 참조 unsubscribe·terminal 후 늦은 취소 ACK는 기존 실제 request handle/WebSocket worker를 재사용하는 시험을 작성했다(NOT_RUN). 이 fixture의 interrupt ACK는 가짜 backend 응답이므로 실제 core의 수동 turn 경합·취소 수명 시험까지 대체하지 않는다. 구독 실패 오류와 실제 reconnect after old epoch도 추가 확인해야 한다.
 - 최종 실행 파일 build, patched backend 활성화, 실제 Windows 터미널·절전·부하·장시간 사용, 독립감사·설치·배포는 미완이다.
 
 기존 추적 Rust 파일은 checkout의 CRLF를 유지하며 새 파일은 UTF-8(no BOM)/LF다. 기존 prompt/include_str assets를 바꾸지 않았다. 실행 명령은 각 재현 스크립트와 receipt에 있다.

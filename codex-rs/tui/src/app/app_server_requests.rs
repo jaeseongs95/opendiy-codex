@@ -1208,4 +1208,4 @@ mod tests {
 
 #[cfg(test)]
 #[path = "retained_reply_tests.rs"]
-mod retained_reply_tests;
+pub(in crate::app) mod retained_reply_tests;

@@ -22,7 +22,7 @@ use tokio::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 
-async fn connection() -> color_eyre::Result<(
+pub(in crate::app) async fn connection() -> color_eyre::Result<(
     AppServerSession,
     mpsc::UnboundedReceiver<JSONRPCMessage>,
     JoinHandle<color_eyre::Result<()>>,
@@ -49,6 +49,20 @@ async fn connection() -> color_eyre::Result<(
                             }})
                             .to_string()
                             .into(),
+                        ))
+                        .await?;
+                }
+                JSONRPCMessage::Request(request)
+                    if matches!(
+                        request.method.as_str(),
+                        "thread/unsubscribe" | "turn/interrupt"
+                    ) =>
+                {
+                    let id = request.id.clone();
+                    observed.send(JSONRPCMessage::Request(request))?;
+                    socket
+                        .send(Message::Text(
+                            json!({"id":id,"result":{}}).to_string().into(),
                         ))
                         .await?;
                 }

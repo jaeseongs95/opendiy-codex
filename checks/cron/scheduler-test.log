@@ -1,11 +1,10 @@
 
 running 6 tests
-test tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner ... ok
-test tests::explicit_non_admission_and_unsupported_do_not_become_unknown_or_retry ... ok
 test tests::invalidated_attempt_cannot_publish_late_reply_into_new_epoch ... ok
 test tests::missed_slots_busy_and_terminal_are_not_a_queue ... ok
+test tests::completion_before_reply_duplicate_reply_and_remove_preserve_exact_owner ... ok
+test tests::explicit_non_admission_and_unsupported_do_not_become_unknown_or_retry ... ok
 test tests::one_shot_busy_is_terminal_and_unknown_is_not_retried ... ok
 test tests::pause_resume_and_remove_never_cancel_an_owned_turn ... ok
 
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-

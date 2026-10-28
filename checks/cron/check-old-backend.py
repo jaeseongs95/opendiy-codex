@@ -35,8 +35,8 @@ finally:
     process.stdin.close()
     try:process.wait(timeout=10)
     except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
-(root/'old-backend-stdio.jsonl').write_text('\n'.join(records)+'\n',encoding='utf-8')
+(root/'old-backend-stdio.jsonl').write_text('\n'.join(records)+'\n',encoding='utf-8',newline='\n')
 summary={'exe':str(exe),'sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),'version':version.stdout.strip(),'versionExitCode':version.returncode,'exitCode':process.returncode,'requestMethod':'turn/startIfIdle','error':reply['error'],'ordinaryTurnStartSent':0,'turnStartedObserved':0,'home':str(home),'authCopied':False}
-(root/'old-backend-result.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+(root/'old-backend-result.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
 print(json.dumps({key:summary[key] for key in ['version','exitCode','ordinaryTurnStartSent','turnStartedObserved']},ensure_ascii=False))
 print(reply['error']['message'][:180])

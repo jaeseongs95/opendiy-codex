@@ -59,6 +59,7 @@ impl CronState {
         for owner in owners {
             *self.epochs.entry(owner).or_default() += 1;
         }
+        self.unsupported.clear();
         for (_, (_, task)) in self.tasks.drain() {
             task.abort();
         }
@@ -216,6 +217,9 @@ impl App {
                                 }
                             ),
                             Phase::Finished(reason) => reason.clone(),
+                            Phase::BlockedConnection(reason) => {
+                                format!("연결 변경·실행 차단: {reason}")
+                            }
                             Phase::BlockedUnsupported(reason) => {
                                 format!("미지원·실행 차단: {reason}")
                             }
@@ -287,6 +291,9 @@ impl App {
                 match *action {
                     "pause" => self.cron.scheduler.pause(id)?,
                     "resume" => {
+                        if target.epoch != self.cron.epoch(target.backend) {
+                            return Err("등록 당시 backend 연결 세대가 끝났습니다. 실행 상태를 확인한 뒤 새로 등록하세요.".into());
+                        }
                         if self.reconnect.offline {
                             return Err("backend 연결이 끊겨 예약을 재개할 수 없습니다.".into());
                         }
@@ -569,25 +576,30 @@ impl App {
             return;
         }
         // The cached transcript remains available, as in ordinary navigation detach.
-        let result = app_server
-            .request_handle()
-            .request_typed::<codex_app_server_protocol::ThreadUnsubscribeResponse>(
+        let request = app_server.request_handle();
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            request.request_typed::<codex_app_server_protocol::ThreadUnsubscribeResponse>(
                 ClientRequest::ThreadUnsubscribe {
                     request_id: AppServerRequestId::String(uuid::Uuid::new_v4().to_string()),
                     params: codex_app_server_protocol::ThreadUnsubscribeParams {
                         thread_id: thread.to_string(),
                     },
                 },
-            )
-            .await;
+            ),
+        )
+        .await;
         match result {
-            Ok(_) => {
+            Ok(Ok(_)) => {
                 self.abort_thread_event_listener(thread);
                 self.pending_server_profiles.remove(&thread);
             }
-            Err(error) => self
+            Ok(Err(error)) => self
                 .chat_widget
                 .add_error_message(format!("예약 대화 구독 정리 실패: {error}")),
+            Err(_) => self.chat_widget.add_error_message(
+                "예약 대화 구독 정리 timeout: 해제 여부를 확인하지 못했습니다.".into(),
+            ),
         }
     }
 }
@@ -700,6 +712,131 @@ mod tests {
         assert!(!input.contains("manual draft B"));
         app.cron.stop();
         backends.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cron_remove_cancel_and_late_reply_keep_exact_turn_until_terminal()
+    -> color_eyre::Result<()> {
+        use codex_app_server_protocol::{
+            JSONRPCMessage, Turn, TurnCompletedNotification, TurnItemsView, TurnStatus,
+        };
+        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (session, mut observed, worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let registered = ThreadId::new();
+        let displayed = ThreadId::new();
+        app.active_thread_id = Some(displayed);
+        app.primary_thread_id = Some(displayed);
+        app.ensure_thread_channel(registered);
+        app.ensure_thread_channel(displayed);
+        app.thread_event_channels[&registered]
+            .store
+            .lock()
+            .await
+            .active_turn_id = Some("manual-actual-turn-must-not-be-cancelled".into());
+        app.chat_widget
+            .restore_user_message_to_composer("draft B remains".into());
+        let now = MonotonicInstant::now();
+        let target = CronTarget {
+            backend: session.backend_id(),
+            epoch: 0,
+            thread: registered,
+        };
+        let id = app
+            .cron
+            .scheduler
+            .add(
+                target.clone(),
+                "saved".into(),
+                Schedule::Every(Duration::from_secs(10)),
+                now,
+            )
+            .unwrap();
+        let dispatch = app
+            .cron
+            .scheduler
+            .due(now + Duration::from_secs(10))
+            .pop()
+            .unwrap();
+        app.cron.scheduler.submitted(
+            id,
+            dispatch.attempt,
+            Submission::Started("owned-cron-turn".into()),
+        );
+        app.cron_command(&session, Some(displayed), &format!("remove {id}"))
+            .await
+            .unwrap();
+        assert!(app.cron.holds_thread(registered));
+        assert!(
+            observed.try_recv().is_err(),
+            "remove cannot interrupt or unsubscribe a live owner"
+        );
+        app.cron_command(&session, Some(displayed), &format!("cancel {id}"))
+            .await
+            .unwrap();
+        let request = tokio::time::timeout(Duration::from_secs(5), observed.recv())
+            .await?
+            .unwrap();
+        let JSONRPCMessage::Request(request) = request else {
+            panic!("expected owned interrupt");
+        };
+        assert_eq!(request.method, "turn/interrupt");
+        let params = request.params.unwrap();
+        assert_eq!(params["threadId"], registered.to_string());
+        assert_eq!(params["turnId"], "owned-cron-turn");
+        let late_reply = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(AppEvent::CronCancelReply(reply)) = events.recv().await {
+                    break reply;
+                }
+            }
+        })
+        .await?;
+        assert!(
+            app.cron.holds_thread(registered),
+            "interrupt ACK cannot release a live turn"
+        );
+        app.note_cron_notification(
+            &session,
+            &ServerNotification::TurnCompleted(TurnCompletedNotification {
+                thread_id: registered.to_string(),
+                turn: Turn {
+                    id: "owned-cron-turn".into(),
+                    root_turn_id: Some("owned-cron-turn".into()),
+                    items: vec![],
+                    items_view: TurnItemsView::NotLoaded,
+                    error: None,
+                    status: TurnStatus::Interrupted,
+                    started_at: None,
+                    completed_at: None,
+                    duration_ms: None,
+                },
+            }),
+        )
+        .await;
+        assert!(app.cron.scheduler.jobs.is_empty());
+        assert!(!app.cron.holds_thread(registered));
+        let request = tokio::time::timeout(Duration::from_secs(5), observed.recv())
+            .await?
+            .unwrap();
+        let JSONRPCMessage::Request(request) = request else {
+            panic!("expected last-reference unsubscribe");
+        };
+        assert_eq!(request.method, "thread/unsubscribe");
+        assert_eq!(request.params.unwrap()["threadId"], registered.to_string());
+        app.handle_cron_cancel_reply(*late_reply);
+        assert!(
+            app.cron.scheduler.jobs.is_empty(),
+            "late cancel reply must not resurrect terminal ownership"
+        );
+        assert_eq!(
+            app.chat_widget.composer_text_with_pending(),
+            "draft B remains"
+        );
+        app.cron.stop();
+        session.shutdown().await?;
+        worker.await??;
         Ok(())
     }
 

@@ -24,6 +24,7 @@ pub(crate) enum Phase {
     Finished(String),
     Unknown(String),
     BlockedUnsupported(String),
+    BlockedConnection(String),
 }
 
 #[derive(Debug)]
@@ -45,7 +46,7 @@ impl<T> Job<T> {
         (!self.removed
             && !matches!(
                 self.phase,
-                Phase::Finished(_) | Phase::BlockedUnsupported(_)
+                Phase::Finished(_) | Phase::BlockedUnsupported(_) | Phase::BlockedConnection(_)
             ))
             || matches!(
                 self.phase,
@@ -132,7 +133,12 @@ impl<T: Clone + PartialEq> Scheduler<T> {
             .filter(|job| {
                 !job.paused
                     && !job.removed
-                    && !matches!(job.phase, Phase::Unknown(_) | Phase::BlockedUnsupported(_))
+                    && !matches!(
+                        job.phase,
+                        Phase::Unknown(_)
+                            | Phase::BlockedUnsupported(_)
+                            | Phase::BlockedConnection(_)
+                    )
             })
             .filter_map(|job| job.next_due)
             .min()
@@ -143,7 +149,10 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         for job in &mut self.jobs {
             if job.paused
                 || job.removed
-                || matches!(job.phase, Phase::Unknown(_) | Phase::BlockedUnsupported(_))
+                || matches!(
+                    job.phase,
+                    Phase::Unknown(_) | Phase::BlockedUnsupported(_) | Phase::BlockedConnection(_)
+                )
                 || job.next_due.is_none_or(|due| due > now)
             {
                 continue;
@@ -250,7 +259,10 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         }
         if matches!(
             job.phase,
-            Phase::Unknown(_) | Phase::BlockedUnsupported(_) | Phase::Pending { .. }
+            Phase::Unknown(_)
+                | Phase::BlockedUnsupported(_)
+                | Phase::BlockedConnection(_)
+                | Phase::Pending { .. }
         ) {
             return Err("실행 상태가 미확인입니다. 자동 재전송하지 않습니다.".into());
         }
@@ -287,7 +299,13 @@ impl<T: Clone + PartialEq> Scheduler<T> {
             .iter_mut()
             .filter(|job| target_matches(&job.target))
         {
-            job.phase = Phase::Unknown(reason.into());
+            job.phase = match &job.phase {
+                Phase::Pending { .. } | Phase::Running { .. } | Phase::Unknown(_) => {
+                    Phase::Unknown(reason.into())
+                }
+                Phase::Finished(_) | Phase::BlockedUnsupported(_) => continue,
+                _ => Phase::BlockedConnection(reason.into()),
+            };
             job.next_due = None;
         }
     }
@@ -406,6 +424,11 @@ mod tests {
         assert!(matches!(s.jobs[0].phase, Phase::Finished(_)));
         assert!(!s.jobs[0].holds_target());
         assert!(s.next_deadline().is_none());
+        s.invalidate(|_| true, "connection replaced after explicit refusal");
+        assert!(
+            matches!(s.jobs[0].phase, Phase::Finished(_)),
+            "known refusal is not an uncertain execution"
+        );
         s.remove(id).unwrap();
         assert!(s.jobs.is_empty());
         recurring(&mut s, now);

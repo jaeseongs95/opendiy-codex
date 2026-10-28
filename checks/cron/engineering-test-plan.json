@@ -174,6 +174,34 @@
         "--lib",
         "start_if_idle_wire_has_explicit_outcomes_and_no_screen_setting_overrides"
       ]
+    },
+    {
+      "id": "EXACT-CANCEL-CLEANUP",
+      "requirementIds": [
+        "INV-TERMINAL",
+        "INV-ORDER"
+      ],
+      "scenario": "제거한 live cron의 cancel을 실제 request handle/WebSocket으로 보내고 terminal 후 늦은 ACK를 처리한다.",
+      "entryPoint": "codex-rs/tui/src/app/cron_jobs.rs",
+      "level": "integration",
+      "expectedBehavior": "active-actual ID 차용0; exact owned interrupt1; ACK 뒤 소유권 유지; terminal 뒤 마지막 unsubscribe1; late reply 복원0.",
+      "oracle": "WebSocket method/params와 scheduler ownership/store를 직접 비교한다. 가짜 backend ACK이므로 실제 core 취소 경쟁의 별도 시험을 대체하지 않는다.",
+      "testFiles": [
+        "codex-rs/tui/src/app/cron_jobs.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "기존 origin-bound WebSocket worker fixture에서 실제 송신 패킷과 terminal 이후 상태를 관측한다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "cron_remove_cancel_and_late_reply_keep_exact_turn_until_terminal",
+        "--",
+        "--test-threads=1"
+      ]
     }
   ],
   "exclusions": [

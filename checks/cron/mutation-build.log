@@ -1,16 +1,15 @@
 warning: unused variable: `attempt`
-   --> D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:172:49
+   --> D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:181:49
     |
-172 |     pub(crate) fn submitted(&mut self, id: u64, attempt: u64, submission: Submission) -> bool {
+181 |     pub(crate) fn submitted(&mut self, id: u64, attempt: u64, submission: Submission) -> bool {
     |                                                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_attempt`
     |
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused variable: `expected`
-   --> D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:177:22
+   --> D:\codex\개발자\work\cli-cron-feature-20261028\checks\cron\mutation-scheduler.rs:186:22
     |
-177 |             attempt: expected,
+186 |             attempt: expected,
     |                      ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
 
 warning: 2 warnings emitted
-
