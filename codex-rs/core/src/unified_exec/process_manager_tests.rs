@@ -783,7 +783,23 @@ async fn output_collection_yield_exit_deadline_both_orders_preserve_output() {
 #[cfg(any(unix, windows))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spawn() {
-    let (session, turn, _events) = crate::session::tests::make_session_and_context_with_rx().await;
+    // Exercise the real process lifetime without waiting for an unrelated approval UI.
+    // The default Windows test configuration is read-only with no sandbox backend.
+    let (session, turn, _events) =
+        crate::session::tests::make_session_and_context_with_auth_and_config_and_rx(
+            codex_login::CodexAuth::from_api_key("Test API Key"),
+            Vec::new(),
+            |config| {
+                config.permissions.approval_policy = crate::config::Constrained::allow_any(
+                    codex_protocol::protocol::AskForApproval::Never,
+                );
+                config
+                    .permissions
+                    .set_permission_profile(codex_protocol::models::PermissionProfile::Disabled)
+                    .expect("allow the local fixture process");
+            },
+        )
+        .await;
     let manager = &session.services.unified_exec_manager;
     let process_id = manager.allocate_process_id().await;
     let temp = tempfile::tempdir().expect("test directory");
@@ -887,8 +903,14 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
             .await;
         process
     };
-    let (response, process) = tokio::join!(manager.exec_command(request, &context), signal);
-    let response = response.expect("normal tool response");
+    let exec = manager.exec_command(request, &context);
+    tokio::pin!(exec);
+    let process = tokio::select! {
+        biased;
+        response = &mut exec => panic!("exec_command returned before startup yield: {response:?}"),
+        process = signal => process,
+    };
+    let response = exec.await.expect("normal tool response");
     assert_eq!(response.process_id, Some(process_id));
     assert_eq!(response.exit_code, None);
     let before = String::from_utf8_lossy(&response.raw_output);
