@@ -1546,9 +1546,12 @@ mod tests {
                 "ws://{}",
                 listener.local_addr()?
             )))?);
+            let cwd = std::env::current_dir()?;
             let mut config: McpServerConfig = serde_json::from_value(serde_json::json!({
                 "command": "never-started-fixture",
-                "environment_id": "executor-fixture"
+                "environment_id": "executor-fixture",
+                // The executor launcher rejects a missing cwd before connecting.
+                "cwd": cwd
             }))?;
             config.startup_timeout_sec = Some(Duration::from_millis(500));
             let cancel_token = CancellationToken::new();
@@ -1567,7 +1570,7 @@ mod tests {
                 tool_catalog_cache_context: None,
                 runtime_context: McpRuntimeContext::new(
                     Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
-                    std::env::current_dir()?,
+                    cwd,
                 ),
                 resolved_environment: Ok(Some(environment)),
                 runtime_auth_provider: None,
@@ -1580,16 +1583,29 @@ mod tests {
                 startup_complete: Arc::clone(&startup_complete),
                 server_capabilities: Arc::default(),
             };
-            let mut task = tokio::spawn(startup.start());
-            let (peer, _) =
-                tokio::time::timeout(Duration::from_secs(5), listener.accept()).await??;
+            // Poll startup alongside the listener so fixture/auth/path errors are
+            // reported immediately instead of being hidden by an accept timeout.
+            let mut task = startup.start();
+            let (peer, _) = tokio::select! {
+                biased;
+                outcome = &mut task => match outcome {
+                    Err(error) => anyhow::bail!(
+                        "executor fixture startup failed before connecting: {error}"
+                    ),
+                    Ok(_) => anyhow::bail!(
+                        "executor fixture startup completed without connecting"
+                    ),
+                },
+                accepted = tokio::time::timeout(Duration::from_secs(5), listener.accept()) => {
+                    accepted??
+                }
+            };
             if cancel {
                 cancel_token.cancel();
             }
             let result = tokio::time::timeout(Duration::from_secs(2), &mut task).await;
-            task.abort();
             drop(peer);
-            let outcome = result.expect("remote creation must retain its startup deadline")?;
+            let outcome = result.expect("remote creation must retain its startup deadline");
             if cancel {
                 assert!(matches!(outcome, Err(StartupOutcomeError::Cancelled)));
             } else {
