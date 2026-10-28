@@ -783,7 +783,7 @@ impl App {
             } => {
                 if *owner_thread != thread_id
                     || self.chat_widget.thread_id() != Some(*owner_thread)
-                    || *owner_generation != self.chat_widget.background_generation
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
                 {
                     self.chat_widget.add_error_message(
                         "Stale background target after thread/backend change; no request was sent."
@@ -869,7 +869,17 @@ impl App {
                     .await?;
                 Ok(true)
             }
-            AppCommand::ReloadPlugins => {
+            AppCommand::ReloadPlugins { owner_generation } => {
+                // Fail closed after any screen replacement, including another conversation on
+                // the same backend. A thread UUID alone cannot identify a backend runtime.
+                if self.chat_widget.thread_id() != Some(thread_id)
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale plugin reload after conversation/backend change or reconnect; no request was sent. Run /reload_plugin again in the displayed conversation.".into(),
+                    );
+                    return Ok(true);
+                }
                 match app_server.reload_plugins(thread_id).await {
                     Ok(response)
                         if response.thread_id == thread_id.to_string()

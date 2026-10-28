@@ -620,7 +620,9 @@ impl ChatWidget {
                 if let Some(thread_id) = self.thread_id {
                     self.app_event_tx.send(AppEvent::SubmitThreadOp {
                         thread_id,
-                        op: AppCommand::ReloadPlugins,
+                        op: AppCommand::ReloadPlugins {
+                            owner_generation: self.thread_runtime_generation,
+                        },
                     });
                 } else {
                     self.add_error_message("Plugin reload requires a loaded conversation.".into());

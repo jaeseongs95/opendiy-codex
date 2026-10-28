@@ -241,6 +241,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
             let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
             app.chat_widget.show_bottom_pane_view(Box::new(view));
         }
+        let plugin_reload_owner_generation = app.chat_widget.thread_runtime_generation;
         app.begin_reconnect();
         if deferred_notice {
             assert_eq!(
@@ -315,6 +316,10 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
         app.finish_reconnect(&mut tui, &mut session, &mut events, connected, "2.1.0")
             .await?;
         assert_eq!(session.backend_id(), backend_id);
+        assert_ne!(
+            app.chat_widget.thread_runtime_generation,
+            plugin_reload_owner_generation
+        );
         if edit_offline {
             assert!(!app.chat_widget.has_active_view());
             assert!(
@@ -464,8 +469,38 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
         while let Ok(event) = events.try_recv() {
             app.handle_event(&mut tui, &mut session, event).await?;
         }
+        // Deliver a retained pre-reconnect runtime command through the normal event handler.
+        // A recovered transport with the same thread UUID must never receive this old command.
+        app.handle_event(
+            &mut tui,
+            &mut session,
+            AppEvent::SubmitThreadOp {
+                thread_id: id,
+                op: Op::ReloadPlugins {
+                    owner_generation: plugin_reload_owner_generation,
+                },
+            },
+        )
+        .await?;
+        let stale_messages = std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|event| {
+                if let AppEvent::InsertHistoryCell(cell) = event {
+                    Some(lines_to_single_string(&cell.display_lines(160)))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(stale_messages.contains("Stale plugin reload"));
+        assert!(!stale_messages.contains("Reloaded plugin configuration"));
         session.shutdown().await?;
         let methods = server.await??;
+        assert!(
+            !methods
+                .iter()
+                .any(|method| method == "thread/plugin/reload")
+        );
         assert_eq!(
             methods
                 .iter()

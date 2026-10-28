@@ -285,7 +285,7 @@ async fn background_terminal_stale_thread_and_reconnect_generation_send_zero_req
         Vec::new(),
     )
     .await?;
-    let owner_generation = app.chat_widget.background_generation;
+    let owner_generation = app.chat_widget.thread_runtime_generation;
     requests.lock().unwrap().clear();
     let command =
         |thread_id, owner_generation| crate::app_command::AppCommand::BackgroundTerminal {

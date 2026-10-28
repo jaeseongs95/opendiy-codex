@@ -2925,7 +2925,8 @@ async fn reload_plugin_captures_thread_preserves_draft_and_runs_while_busy() {
         })
         .expect("thread-scoped reload");
     assert_eq!(thread_id, original);
-    assert!(matches!(op, AppCommand::ReloadPlugins));
+    assert!(matches!(op, AppCommand::ReloadPlugins { owner_generation }
+        if owner_generation == chat.thread_runtime_generation));
     assert_eq!(chat.bottom_pane.composer_text(), "keep this draft");
     assert!(chat.turn_lifecycle.agent_turn_running);
     assert!(operations.try_recv().is_err());

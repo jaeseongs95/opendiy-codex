@@ -178,7 +178,9 @@ pub(crate) enum AppCommand {
         response: RequestPermissionsResponse,
     },
     ReloadUserConfig,
-    ReloadPlugins,
+    ReloadPlugins {
+        owner_generation: uuid::Uuid,
+    },
     ListSkills {
         cwds: Vec<PathBuf>,
         force_reload: bool,

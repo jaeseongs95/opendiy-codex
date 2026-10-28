@@ -625,8 +625,8 @@ pub(crate) struct ChatWidget {
     safety_buffering: SafetyBufferingState,
     task_complete_pending: bool,
     unified_exec_processes: Vec<UnifiedExecProcessSummary>,
-    /// Fences queued foreground requests across widget replacement and backend reconnect.
-    pub(crate) background_generation: uuid::Uuid,
+    /// Fences queued thread-runtime commands across widget replacement and backend reconnect.
+    pub(crate) thread_runtime_generation: uuid::Uuid,
     /// Tracks per-server MCP startup state while startup is in progress.
     ///
     /// The map is `Some(_)` from the first startup status update until the
@@ -1516,7 +1516,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn invalidate_background_terminal_owner(&mut self) {
-        self.background_generation = uuid::Uuid::new_v4();
+        self.thread_runtime_generation = uuid::Uuid::new_v4();
         self.unified_exec_processes.clear();
         self.sync_unified_exec_footer();
     }
@@ -1530,7 +1530,7 @@ impl ChatWidget {
             [process] => {
                 let item_id = process.call_id.clone();
                 let process_id = process.key.clone();
-                if self.submit_op(AppCommand::BackgroundTerminal { thread_id, owner_generation: self.background_generation, item_id, process_id }) {
+                if self.submit_op(AppCommand::BackgroundTerminal { thread_id, owner_generation: self.thread_runtime_generation, item_id, process_id }) {
                     self.add_info_message("Background yield requested; the process and turn remain owned until their normal completion.".into(), None);
                 }
             }
