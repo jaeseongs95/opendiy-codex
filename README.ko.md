@@ -2,7 +2,7 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-현재 소스: [공식 0.165.0 + native CLI 패치](docs/source-import.md) · [시험 범위와 남은 한계](docs/TESTING.md). 아래 r22 소개는 프로젝트 이력으로 보존합니다.
+현재 소스: [공식 0.165.0 기반 CLI 패치](docs/source-import.md) · [시험 범위와 남은 한계](docs/TESTING.md). 아래 r22 설명은 프로젝트 이력으로 보존합니다.
 
 Windows에서 Codex를 사용할 때 생기는 요청 정체와 하위 프로세스 정리 문제를 수정하는 Codex CLI·Rust App Server 포크입니다.
 
