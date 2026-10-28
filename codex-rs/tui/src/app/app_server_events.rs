@@ -252,6 +252,8 @@ impl App {
 
             return;
         }
+        self.note_cron_notification(app_server_client, &notification)
+            .await;
         self.handle_agent_picker_visibility_notification(app_server_client, &notification);
 
         if let ServerNotification::ThreadStarted(started) = &notification

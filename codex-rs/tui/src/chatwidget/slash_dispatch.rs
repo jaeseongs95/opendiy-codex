@@ -384,6 +384,12 @@ impl ChatWidget {
             SlashCommand::Plan => {
                 self.apply_plan_slash_command();
             }
+            SlashCommand::Cron => {
+                self.app_event_tx.send(AppEvent::CronCommand {
+                    thread_id: self.thread_id(),
+                    args: String::new(),
+                });
+            }
             SlashCommand::Goal => {
                 if !self.config.features.enabled(Feature::Goals) {
                     return;
@@ -699,6 +705,14 @@ impl ChatWidget {
             return;
         }
 
+        if cmd == SlashCommand::Cron {
+            self.app_event_tx.send(AppEvent::CronCommand {
+                thread_id: self.thread_id(),
+                args,
+            });
+            self.bottom_pane.drain_pending_submission_state();
+            return;
+        }
         if cmd == SlashCommand::Goal {
             self.dispatch_prepared_command_with_args(
                 cmd,
@@ -987,6 +1001,12 @@ impl ChatWidget {
                         Vec::new(),
                     );
                 }
+            }
+            SlashCommand::Cron => {
+                self.app_event_tx.send(AppEvent::CronCommand {
+                    thread_id: self.thread_id(),
+                    args,
+                });
             }
             SlashCommand::Goal if !trimmed.is_empty() => {
                 if !self.config.features.enabled(Feature::Goals) {
@@ -1297,6 +1317,7 @@ impl ChatWidget {
             | SlashCommand::DebugConfig
             | SlashCommand::Ps
             | SlashCommand::Stop
+            | SlashCommand::Cron
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp

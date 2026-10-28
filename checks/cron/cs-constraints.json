@@ -1,0 +1,181 @@
+{
+  "schemaVersion": "1.0.0",
+  "reportId": "CS-CLI-CRON",
+  "requestDigest": "sha256:a5153669ff09c83b763b5cd7a192ad772c6d0e815fda2cb1ffe083a4b18d0d8c",
+  "sourceSnapshotDigest": "sha256:03d9825d8b8b4fbbd7d6224ed90c22741b9b816c548bf6c807876f82fa4dd4e7",
+  "knowledgePackVersion": "0.1.0",
+  "knowledgePackDigest": "sha256:d8351d9aabb433403830fcffc3a2f2438b6d428711c93b6ded9eff002468c3d1",
+  "draftUse": {
+    "allowed": false,
+    "basis": "실제 경쟁·소유권·취소·ACK·순서 경계에 validated 카드만 선택했다."
+  },
+  "applicability": "applicable",
+  "applicabilityReason": "예약 입장과 수동 입력이 경쟁하고 응답/terminal/연결 교체의 순서가 정확성을 바꾼다.",
+  "selectedRules": [
+    {
+      "ruleId": "CONC-CLAIM-001",
+      "ruleDigest": "sha256:f63ee6c2485b305be4a3dba783b65066f0242bfc183e87260231acb368bc9016",
+      "applicabilityReason": "배정 계약의 원자 입장·소유권·종료·ACK·순서 경계와 직접 연결된다."
+    },
+    {
+      "ruleId": "CONC-FENCE-002",
+      "ruleDigest": "sha256:dfbf006b649529cf5abc3037ab34ba9c84545167ed77d13530c11aa4263a27fa",
+      "applicabilityReason": "배정 계약의 원자 입장·소유권·종료·ACK·순서 경계와 직접 연결된다."
+    },
+    {
+      "ruleId": "CONC-CANCEL-004",
+      "ruleDigest": "sha256:d83cfc1ef0ec586c5e818b71c454f06605a43c5b640ed1d0e1fdda45561bbdbc",
+      "applicabilityReason": "배정 계약의 원자 입장·소유권·종료·ACK·순서 경계와 직접 연결된다."
+    },
+    {
+      "ruleId": "DIST-ACK-001",
+      "ruleDigest": "sha256:c528027cb8ccf129f5b8914bf787392d7b2d56bfccf3d5bcbb965227fe60d326",
+      "applicabilityReason": "배정 계약의 원자 입장·소유권·종료·ACK·순서 경계와 직접 연결된다."
+    },
+    {
+      "ruleId": "DIST-ORDER-004",
+      "ruleDigest": "sha256:81f49c7b4052724b31fa62894bb6bb938d48962d75acab5b3549c280dc5d6995",
+      "applicabilityReason": "배정 계약의 원자 입장·소유권·종료·ACK·순서 경계와 직접 연결된다."
+    }
+  ],
+  "facts": [
+    {
+      "id": "FACT-CONTRACT",
+      "statement": "배정 계약은 원자 idle 입장, 고정 소유권, 승인 보존, 늦은 응답 격리, missed 회차 coalesce와 종료 수명을 요구한다.",
+      "evidenceRefs": [
+        "SRC-POLICY",
+        "SRC-ADMISSION"
+      ]
+    }
+  ],
+  "assumptions": [],
+  "invariants": [
+    {
+      "id": "INV-ADMISSION",
+      "statement": "같은 대상에서 예약 입력은 새 turn을 원자적으로 수락하거나 busy skip하며 steer·queue하지 않는다.",
+      "scope": "실제 app-server/core",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-CLAIM-001"
+      ]
+    },
+    {
+      "id": "INV-TARGET",
+      "statement": "등록 backend/epoch/thread/prompt만 사용하며 현재 화면과 오래된 세대가 다른 소유권을 바꾸지 않는다.",
+      "scope": "TUI registration/navigation/request/approval store",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-FENCE-002"
+      ]
+    },
+    {
+      "id": "INV-TERMINAL",
+      "statement": "remove는 실행을 취소하지 않으며 cancel은 정확한 owned turn만 요청하고 terminal이 소유권을 끝낸다.",
+      "scope": "scheduler and exact interrupt",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-CANCEL-004"
+      ]
+    },
+    {
+      "id": "INV-ACK",
+      "statement": "명시적 미입장·미지원과 결과 미확인을 구별하고 알 수 없는 입장을 재전송하지 않는다.",
+      "scope": "protocol response and transport",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "DIST-ACK-001"
+      ]
+    },
+    {
+      "id": "INV-ORDER",
+      "statement": "응답 전 terminal·중복·역순·새 epoch를 정확한 attempt/turn으로 처리하고 missed 회차를 최대 한 회로 병합한다.",
+      "scope": "scheduler event ordering and lifetime",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "DIST-ORDER-004"
+      ]
+    }
+  ],
+  "designChoices": [
+    {
+      "id": "CHOICE-LOOP",
+      "statement": "기존 event loop에 다음 monotonic deadline 하나와 기존 request 작업만 연결한다.",
+      "rationale": "job별 polling thread·OS scheduler·새 DB·중복 retry 계층이 필요하지 않다.",
+      "basisRefs": [
+        "FACT-CONTRACT"
+      ]
+    }
+  ],
+  "verificationObligations": [
+    {
+      "id": "OB-ADMISSION",
+      "invariantIds": [
+        "INV-ADMISSION"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "windows-msvc-real-app-server-core",
+      "failureOracle": "동시 RPC 둘이 두 turn을 만들거나 busy prompt가 model/history에 남으면 실패.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-TARGET",
+      "invariantIds": [
+        "INV-TARGET"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "windows-msvc-embedded-tui-and-websocket",
+      "failureOracle": "A 등록 후 B 전환에서 B draft/model이 사용되거나 A 승인 응답이 B 연결로 가면 실패.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-TERMINAL",
+      "invariantIds": [
+        "INV-TERMINAL"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "windows-msvc-scheduler-and-tui",
+      "failureOracle": "remove 또는 cancel ACK가 실행 종료로 처리되거나 다른 turn을 취소하면 실패.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-ACK",
+      "invariantIds": [
+        "INV-ACK"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "windows-official-0.165-stdio-and-scheduler",
+      "failureOracle": "old backend 일반 start fallback 또는 Unknown 재전송이 한 건이라도 발생하면 실패.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-ORDER",
+      "invariantIds": [
+        "INV-ORDER"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "windows-rustc-production-scheduler-module",
+      "failureOracle": "늦은 응답이 현재 상태를 되돌리거나 missed backlog·제거 후 dispatch가 생기면 실패.",
+      "requirementLevel": "required"
+    }
+  ],
+  "requiredCapabilities": [
+    "cs-constraint-derivation",
+    "cs-implementation-review"
+  ],
+  "verdict": "READY"
+}

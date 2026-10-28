@@ -1073,6 +1073,11 @@ client_request_definitions! {
         serialization: global("config"),
         response: v2::PluginUninstallResponse,
     },
+    TurnStartIfIdle => "turn/startIfIdle" {
+        params: v2::TurnStartIfIdleParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::TurnStartIfIdleResponse,
+    },
     TurnStart => "turn/start" {
         params: v2::TurnStartParams,
         inspect_params: true,

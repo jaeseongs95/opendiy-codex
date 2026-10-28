@@ -6500,6 +6500,7 @@ async fn make_test_app() -> Box<App> {
         pending_plugin_enabled_writes: HashMap::new(),
         pending_hook_enabled_writes: HashMap::new(),
         recap: recap::RecapState::default(),
+        cron: cron_jobs::CronState::default(),
         _test_codex_home: test_codex_home,
     })
 }
@@ -6626,6 +6627,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
             recap: recap::RecapState::default(),
+            cron: cron_jobs::CronState::default(),
             _test_codex_home: test_codex_home,
         }),
         rx,

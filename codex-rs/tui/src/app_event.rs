@@ -295,6 +295,12 @@ pub(crate) struct AgentPickerThreadRefresh {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
+    CronCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
+    CronReply(Box<crate::app::cron_jobs::CronReply>),
+    CronCancelReply(Box<crate::app::cron_jobs::CronCancelReply>),
     AccountEmailLoaded {
         request_id: uuid::Uuid,
         email: Option<String>,

@@ -1,0 +1,6 @@
+2026-10-28 /root가 배정하고 확정한 CLI cron 구현 계약 요약. 원본 설계: ../cli-features-design-20261028/DESIGN-r03.ko.md, 정책: ../cli-cron-policy-panel-20261028/DECISION.ko.md 및 decision-record.json. 이 파일은 새로운 정책 승인이나 구현 PASS가 아니다.
+CLI 실행 중 메모리 예약만 지원한다. 등록 thread/backend/epoch/prompt를 고정하고 화면 B의 draft/model/권한을 차용하지 않는다. 화면 이동 뒤에도 A가 계속 실행되고 정상 승인 경계와 원래 연결의 응답 소유권을 보존한다.
+예약은 core.start_turn_if_idle을 사용하는 새 전용 RPC만 호출한다. 대상 busy면 해당 회차를 건너뛴다. 일회성 busy는 terminal skip이다. 일반 turn/start fallback, 숨은 큐, scheduler 재시도는 없다. 구 공식의 정확한 unknown method 응답은 BlockedUnsupported이며 결과가 유실됐을 때만 Unknown이다.
+반복 예약이 지연·절전 복귀 시 due를 늦게 받으면 admission 최대 1회만 시도하고 다음을 now+interval로 잡는다. missed backlog와 고정 cadence 복구는 없다. busy면 그 1회도 skip한다. CLI 종료 뒤 신규 실행은 0이어야 한다.
+응답보다 terminal 알림이 먼저 오거나 응답이 중복·역순으로 와도 현재 attempt와 정확한 turn ID만 반영한다. remove는 미래 예약만 제거하고 이미 수락한 turn은 별도 cancel의 정확한 owned ID로만 취소한다. 취소 ACK는 terminal이 아니다. 연결 교체 뒤 오래된 epoch의 응답을 반영하거나 자동 재전송하지 않는다.
+전체 Cargo 검사·fixture 생성은 native release 자원 gate가 열릴 때 수행한다. 그 전에는 NOT_RUN이다. 최종 결과는 구현자와 분리된 감사가 필요하다.

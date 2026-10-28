@@ -129,6 +129,7 @@ impl App {
         for thread_id in thread_ids {
             if self.voice_owner_thread_id() == Some(thread_id)
                 || destination == Some(thread_id)
+                || self.cron.holds_thread(thread_id)
                 || self.side_threads.contains_key(&thread_id)
                 || self
                     .agents_overview

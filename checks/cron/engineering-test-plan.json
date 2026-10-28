@@ -1,0 +1,183 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "engineering-test-plan",
+  "taskId": "CLI-CRON-20261028",
+  "contractDigest": "sha256:dbbb44c1ecbb9ac00c0e5efe5bd222f6357b9f93fc1307ca8845642507630046",
+  "requirements": [
+    "INV-ADMISSION",
+    "INV-TARGET",
+    "INV-TERMINAL",
+    "INV-ACK",
+    "INV-ORDER"
+  ],
+  "scopeFiles": [
+    "codex-rs/tui/src/cron.rs",
+    "codex-rs/tui/src/app/cron_jobs.rs",
+    "codex-rs/tui/src/app/retained_reply_tests.rs",
+    "codex-rs/app-server/tests/suite/v2/turn_start.rs",
+    "codex-rs/app-server-protocol/src/protocol/v2/tests.rs",
+    "checks/cron/check-old-backend.py"
+  ],
+  "runner": "기존 Rust lib/all fixtures 및 stdlib Python compile/compatibility 명령",
+  "environment": "Windows MSVC; cargo 명령 cwd=codex-rs, gate 후 별도 target/j1. 실제 source·명령·exit는 별도 receipts에 기록한다.",
+  "cases": [
+    {
+      "id": "SCHEDULER",
+      "requirementIds": [
+        "INV-TERMINAL",
+        "INV-ACK",
+        "INV-ORDER"
+      ],
+      "scenario": "실제 production scheduler 모듈을 직접 컴파일해 fake monotonic 시각·busy·remove·응답 순서·epoch를 검사한다.",
+      "entryPoint": "codex-rs/tui/src/cron.rs",
+      "level": "unit",
+      "expectedBehavior": "수동 계산한 next=107, 중복 수락0, 정확한 owned terminal만 정리.",
+      "oracle": "수동 계산한 next=107, 중복 수락0, 정확한 owned terminal만 정리.",
+      "testFiles": [
+        "codex-rs/tui/src/cron.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "python",
+        "checks/cron/check-scheduler.py",
+        "--rustc",
+        "D:/codex/개발자/codex-app-server-hotfix-records/toolchain/rustup/toolchains/1.99.1-x86_64-pc-windows-msvc/bin/rustc.exe"
+      ]
+    },
+    {
+      "id": "OLD-BACKEND",
+      "requirementIds": [
+        "INV-ACK"
+      ],
+      "scenario": "격리 CODEX_HOME의 공식 0.165 stdio에서 새 method만 전송한다.",
+      "entryPoint": "checks/cron/check-old-backend.py",
+      "level": "integration",
+      "expectedBehavior": "-32600 exact unknown variant; normal start 전송0; turnStarted0.",
+      "oracle": "-32600 exact unknown variant; normal start 전송0; turnStarted0.",
+      "testFiles": [
+        "checks/cron/check-old-backend.py"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "python",
+        "checks/cron/check-old-backend.py"
+      ]
+    },
+    {
+      "id": "CORE-ADMISSION",
+      "requirementIds": [
+        "INV-ADMISSION"
+      ],
+      "scenario": "응답 gate로 실제 active core turn을 유지하며 경쟁 요청·busy prompt·manual steer를 검사한다.",
+      "entryPoint": "codex-rs/app-server/tests/suite/v2/turn_start.rs",
+      "level": "integration",
+      "expectedBehavior": "Started1/SkippedBusy1, busy prompt model/history0, 수동 steer는 같은 turn.",
+      "oracle": "Started1/SkippedBusy1, busy prompt model/history0, 수동 steer는 같은 turn.",
+      "testFiles": [
+        "codex-rs/app-server/tests/suite/v2/turn_start.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-app-server",
+        "--test",
+        "all",
+        "turn_start_if_idle_atomically_skips_busy_without_recording_or_steering",
+        "--",
+        "--test-threads=1"
+      ]
+    },
+    {
+      "id": "A-TO-B",
+      "requirementIds": [
+        "INV-TARGET"
+      ],
+      "scenario": "embedded A 등록 후 plain B로 실제 화면 교체·timer dispatch한다.",
+      "entryPoint": "codex-rs/tui/src/app/cron_jobs.rs",
+      "level": "e2e",
+      "expectedBehavior": "A saved prompt/model만 model server로 전송; B draft 유지; A result store 보존.",
+      "oracle": "A saved prompt/model만 model server로 전송; B draft 유지; A result store 보존.",
+      "testFiles": [
+        "codex-rs/tui/src/app/cron_jobs.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "cron_a_survives_plain_b_navigation_and_preserves_b_draft",
+        "--",
+        "--test-threads=1"
+      ]
+    },
+    {
+      "id": "APPROVAL-OWNER",
+      "requirementIds": [
+        "INV-TARGET"
+      ],
+      "scenario": "plain inactive A 승인 modal을 B에서 표시하고 다른 backend를 통해 submit해도 원래 connection으로 응답한다.",
+      "entryPoint": "codex-rs/tui/src/app/retained_reply_tests.rs",
+      "level": "integration",
+      "expectedBehavior": "자동승인0, A label, A original socket response1, B socket0, pending store clear.",
+      "oracle": "자동승인0, A label, A original socket response1, B socket0, pending store clear.",
+      "testFiles": [
+        "codex-rs/tui/src/app/retained_reply_tests.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-tui",
+        "--lib",
+        "cron_plain_inactive_thread_approval_keeps_origin_and_store",
+        "--",
+        "--test-threads=1"
+      ]
+    },
+    {
+      "id": "WIRE",
+      "requirementIds": [
+        "INV-ACK",
+        "INV-TARGET"
+      ],
+      "scenario": "전용 입력의 설정 override 거부 및 typed outcomes를 serde 경계에서 검사한다.",
+      "entryPoint": "codex-rs/app-server-protocol/src/protocol/v2/tests.rs",
+      "level": "unit",
+      "expectedBehavior": "모델/권한/cwd override 거부, Busy/NotStarted 명시적 JSON.",
+      "oracle": "모델/권한/cwd override 거부, Busy/NotStarted 명시적 JSON.",
+      "testFiles": [
+        "codex-rs/app-server-protocol/src/protocol/v2/tests.rs"
+      ],
+      "required": true,
+      "sensitivity": "manual-review",
+      "sensitivityReason": "실제 공개 경계의 실패 oracle을 확인한다. scheduler guard mutation의 실제 red/green 로그는 별도 receipt이며 collocated test source digest 제약 때문에 formal mutation proof와 혼동하지 않는다.",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "codex-app-server-protocol",
+        "--lib",
+        "start_if_idle_wire_has_explicit_outcomes_and_no_screen_setting_overrides"
+      ]
+    }
+  ],
+  "exclusions": [
+    "native release와 실제 터미널 부하·장시간 실행·배포 검증은 이 구현 단위의 단독 PASS에 포함하지 않는다.",
+    "schema fixtures는 생성기 빌드 gate 뒤 갱신·대조해야 하며 현재 NOT_RUN."
+  ]
+}

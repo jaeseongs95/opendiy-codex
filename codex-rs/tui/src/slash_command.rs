@@ -44,6 +44,7 @@ pub enum SlashCommand {
     Plan,
     Voice,
     Goal,
+    Cron,
     Agents,
     Side,
     Btw,
@@ -92,6 +93,7 @@ impl SlashCommand {
     /// User-visible description shown in the popup.
     pub fn description(self) -> &'static str {
         match self {
+            SlashCommand::Cron => "CLI 실행 중에만 대화별 프롬프트 예약 실행",
             SlashCommand::Config => "configure Codex preferences",
             SlashCommand::Feedback => "send logs to maintainers",
             SlashCommand::New => "start a new chat during a conversation",
@@ -183,6 +185,7 @@ impl SlashCommand {
                 | SlashCommand::Fork
                 | SlashCommand::Plan
                 | SlashCommand::Goal
+                | SlashCommand::Cron
                 | SlashCommand::Voice
                 | SlashCommand::Ide
                 | SlashCommand::Keymap
@@ -293,6 +296,7 @@ impl SlashCommand {
             | SlashCommand::Stop
             | SlashCommand::App
             | SlashCommand::Goal
+            | SlashCommand::Cron
             | SlashCommand::Voice
             | SlashCommand::Mcp
             | SlashCommand::Apps

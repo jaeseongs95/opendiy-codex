@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "requestId": "CLI-CRON-20261028",
+  "mode": "derive",
+  "objective": "메모리 cron을 기존 TUI→app-server→core 경계에 연결한다.",
+  "sourceSnapshotDigest": "sha256:03d9825d8b8b4fbbd7d6224ed90c22741b9b816c548bf6c807876f82fa4dd4e7",
+  "sourceRefs": [
+    {
+      "id": "SRC-POLICY",
+      "path": "checks/cron/POLICY.ko.txt",
+      "digest": "sha256:682d1f0601f30de594d3ccd76c08e01cc970609c709ce7efe9ba2df3301d0122"
+    },
+    {
+      "id": "SRC-ADMISSION",
+      "path": "codex-rs/core/src/codex_thread.rs",
+      "digest": "sha256:e6e5f39e5735cf050deb6d27a9b6a2222fecf827c910f9cfe0b47c5d25e56a54"
+    }
+  ],
+  "operationalFacts": [
+    {
+      "id": "FACT-CONTRACT",
+      "statement": "배정 계약은 원자 idle 입장, 고정 소유권, 승인 보존, 늦은 응답 격리, missed 회차 coalesce와 종료 수명을 요구한다.",
+      "evidenceRefs": [
+        "SRC-POLICY",
+        "SRC-ADMISSION"
+      ]
+    }
+  ],
+  "existingContractRef": null
+}

@@ -1070,6 +1070,7 @@ See the Codex keymap documentation for supported actions and examples."
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
             recap: recap::RecapState::default(),
+            cron: cron_jobs::CronState::default(),
             #[cfg(test)]
             _test_codex_home: None,
         };
@@ -1413,7 +1414,18 @@ See the Codex keymap documentation for supported actions and examples."
                     .chat_widget
                     .rate_limit_refresh_interval()
                     .and_then(|interval| app.rate_limit_refresh_state.poll_deadline(interval));
+                let cron_deadline = app.cron.next_deadline();
                 let control = select! {
+                    _ = async {
+                        match cron_deadline {
+                            Some(deadline) => tokio::time::sleep_until(deadline).await,
+                            None => std::future::pending().await,
+                        }
+                    }, if cron_deadline.is_some() && !app.reconnect.offline => {
+                        app.dispatch_due_cron(&backends);
+                        AppRunControl::Continue
+                    }
+
                     result = async {
                         match app.daemon_restart.as_mut() {
                             Some(task) => task.await,
@@ -1666,6 +1678,7 @@ See the Codex keymap documentation for supported actions and examples."
                 }
             }
         };
+        app.cron.stop();
         app.chat_widget.mention_usage_mut().flush().await;
         if let Err(err) = backends.shutdown().await {
             tracing::warn!(error = %err, "failed to shut down embedded app server");

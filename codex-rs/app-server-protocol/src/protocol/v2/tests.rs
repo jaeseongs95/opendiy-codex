@@ -5546,3 +5546,33 @@ fn feedback_paths_preserve_native_wire_spelling_before_host_validation() {
         );
     }
 }
+
+#[test]
+fn start_if_idle_wire_has_explicit_outcomes_and_no_screen_setting_overrides() {
+    use super::{TurnStartIfIdleParams, TurnStartIfIdleResponse};
+    assert_eq!(
+        serde_json::to_value(TurnStartIfIdleResponse::SkippedBusy).unwrap(),
+        json!({"status":"skippedBusy"})
+    );
+    assert_eq!(
+        serde_json::to_value(TurnStartIfIdleResponse::NotStarted {
+            reason: "ServerDraining".into()
+        })
+        .unwrap(),
+        json!({"status":"notStarted","reason":"ServerDraining"})
+    );
+    let valid = json!({"threadId":"registered-thread","input":[{"type":"text","text":"saved prompt","text_elements":[]}]});
+    assert!(serde_json::from_value::<TurnStartIfIdleParams>(valid.clone()).is_ok());
+    for (field, value) in [
+        ("model", json!("screen-model")),
+        ("approvalPolicy", json!("never")),
+        ("cwd", json!("screen-cwd")),
+    ] {
+        let mut invalid = valid.clone();
+        invalid[field] = value;
+        assert!(
+            serde_json::from_value::<TurnStartIfIdleParams>(invalid).is_err(),
+            "{field} must not override target-thread settings"
+        );
+    }
+}
