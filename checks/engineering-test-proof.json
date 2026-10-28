@@ -44,12 +44,12 @@
       },
       {
         "path": "codex-rs/tui/src/keymap.rs",
-        "digest": "sha256:64ab166df40fb3811ec8e40a6e087704813ab6255a3f8be0d0878cb53f9fcba5",
-        "size": 174656,
-        "lineCount": 4226
+        "digest": "sha256:a96d6bae4f67b7836f10386467b6c524b62e9a1bc92063048e24533962fa0fbd",
+        "size": 175498,
+        "lineCount": 4246
       }
     ],
-    "digest": "sha256:cb0daa0026729a75356ae97d064089c04d1eaf92101134a9e43cc2f7f1a00247"
+    "digest": "sha256:4694deb2ef915725adc6ccdfabaf938e5f649571e86b5312b242fde87f7b6836"
   },
   "proofs": [
     {

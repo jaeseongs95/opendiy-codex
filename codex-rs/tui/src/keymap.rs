@@ -2007,6 +2007,7 @@ impl RuntimeKeymap {
         for (action, bindings) in [
             ("open_presets", &self.chat.open_presets),
             ("toggle_voice", &self.chat.toggle_voice),
+            ("background_terminal", &self.chat.background_terminal),
             (
                 "previous_permission_mode",
                 &self.chat.previous_permission_mode,
@@ -2030,6 +2031,7 @@ impl RuntimeKeymap {
             ("global.open_agents", &self.app.open_agents),
             ("chat.open_presets", &self.chat.open_presets),
             ("chat.toggle_voice", &self.chat.toggle_voice),
+            ("chat.background_terminal", &self.chat.background_terminal),
         ] {
             if bindings.contains(&key_hint::ctrl(KeyCode::Char('z'))) {
                 return Err(format!(
@@ -2345,8 +2347,15 @@ impl RuntimeKeymap {
             KeymapContext::VimNormal,
             KeymapContext::VimOperator,
             KeymapContext::VimTextObject,
+            KeymapContext::VimSearch,
         ] {
-            validate_unique(context.config_name(), context_bindings(context))?;
+            validate_unique(
+                context.config_name(),
+                context_bindings(context).chain([(
+                    "chat.background_terminal",
+                    self.chat.background_terminal.as_slice(),
+                )]),
+            )?;
         }
 
         validate_unique("pager", context_bindings(KeymapContext::Pager))?;
@@ -3898,6 +3907,17 @@ mod tests {
             &editor_custom,
             "chat.background_terminal",
             "editor.move_left",
+        );
+
+        let mut vim_custom = TuiKeymap::default();
+        vim_custom.vim_normal.move_left = Some(one("f6"));
+        expect_conflict(&vim_custom, "move_left", "chat.background_terminal");
+        let mut text_custom = TuiKeymap::default();
+        text_custom.chat.background_terminal = Some(one("b"));
+        assert!(
+            RuntimeKeymap::from_config(&text_custom)
+                .unwrap_err()
+                .contains("printable")
         );
         keymap.chat.background_terminal = Some(one("f12"));
         let runtime = RuntimeKeymap::from_config(&keymap).expect("explicit custom binding");
