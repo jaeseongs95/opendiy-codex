@@ -262,6 +262,180 @@ async fn capacity_bound_owner_is_checked_after_async_http_preparation() {
 }
 
 #[tokio::test]
+async fn capacity_owner_change_cancels_websocket_trace_after_untraced_warmup() -> anyhow::Result<()>
+{
+    struct FixtureOwner;
+    impl codex_login::auth::ExternalAuth for FixtureOwner {
+        fn resolve(&self) -> codex_login::auth::ExternalAuthFuture<'_, CodexAuth> {
+            Box::pin(async { Ok(CodexAuth::from_api_key("fixture-owner")) })
+        }
+        fn refresh(
+            &self,
+            _context: codex_login::auth::ExternalAuthRefreshContext,
+        ) -> codex_login::auth::ExternalAuthFuture<'_, CodexAuth> {
+            self.resolve()
+        }
+    }
+    #[derive(Debug)]
+    struct ClearOwnerBeforeDispatch(Arc<AuthManager>);
+    impl codex_extension_api::ModelRequestContributor for ClearOwnerBeforeDispatch {
+        fn request(
+            &self,
+            input: codex_extension_api::ModelRequestInput<'_>,
+        ) -> Option<Box<dyn codex_extension_api::ModelResponseInterceptor>> {
+            if input.kind == codex_extension_api::ModelRequestKind::Generation {
+                // This existing extension boundary runs after logical warmup tracing,
+                // and before the final owner check and websocket dispatch.
+                self.0.clear_external_auth();
+            }
+            None
+        }
+    }
+    for warmup in [false, true] {
+        let mut batches = Vec::new();
+        if warmup {
+            batches.push(vec![
+                core_test_support::responses::ev_response_created("warmup"),
+                core_test_support::responses::ev_completed("warmup"),
+            ]);
+        }
+        // Keep the connection open awaiting the generation that must never be sent.
+        batches.push(Vec::new());
+        let server = core_test_support::responses::start_websocket_server(vec![batches]).await;
+        let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+        manager.set_external_auth(Arc::new(FixtureOwner)).await?;
+        let mut info =
+            create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+        info.supports_websockets = true;
+        info.request_max_retries = Some(0);
+        let mut client = test_model_client(SessionSource::Cli);
+        Arc::get_mut(&mut client.state).unwrap().provider =
+            create_model_provider(info, Some(manager.clone()));
+        client.request_contributors = vec![Arc::new(ClearOwnerBeforeDispatch(manager.clone()))];
+        let metadata = test_responses_metadata_for_client(
+            &client,
+            None,
+            "capacity-window".into(),
+            None,
+            TestCodexResponsesRequestKind::Turn,
+        );
+        let prompt = Prompt {
+            input: vec![output_message("fixture", "logical prompt")],
+            ..Default::default()
+        };
+        let model = test_model_info();
+        let telemetry = test_session_telemetry();
+        let mut session = client.new_session();
+        if warmup {
+            session
+                .prewarm_websocket(
+                    &prompt,
+                    &model,
+                    &telemetry,
+                    None,
+                    codex_protocol::config_types::ReasoningSummary::None,
+                    None,
+                    &metadata,
+                )
+                .await?;
+            assert!(session.websocket_session.last_response_from_untraced_warmup);
+        }
+        session.bind_capacity_retry_owner(client.auth_owner_generation());
+        let temp = TempDir::new()?;
+        let writer = Arc::new(TraceWriter::create(
+            temp.path(),
+            "trace-1".into(),
+            "rollout-1".into(),
+            "thread-root".into(),
+        )?);
+        writer.append(RawTraceEventPayload::ThreadStarted {
+            thread_id: "thread-root".into(),
+            agent_path: "/root".into(),
+            metadata_payload: None,
+        })?;
+        writer.append(RawTraceEventPayload::CodexTurnStarted {
+            codex_turn_id: "turn-1".into(),
+            thread_id: "thread-root".into(),
+        })?;
+        let trace = InferenceTraceContext::enabled(
+            writer,
+            "thread-root".into(),
+            "turn-1".into(),
+            "gpt-test".into(),
+            "test-provider".into(),
+        );
+        let error = match session
+            .stream(
+                &prompt,
+                &model,
+                &telemetry,
+                None,
+                codex_protocol::config_types::ReasoningSummary::None,
+                None,
+                &metadata,
+                &trace,
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("changed owner must abort before generation dispatch"),
+        };
+        assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+        assert_ne!(
+            session.capacity_retry_owner(),
+            Some(client.auth_owner_generation())
+        );
+        assert_eq!(server.single_connection().len(), usize::from(warmup));
+        let events = std::fs::read_to_string(temp.path().join("trace.jsonl"))?
+            .lines()
+            .map(serde_json::from_str::<codex_rollout_trace::RawTraceEvent>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let starts = events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                RawTraceEventPayload::InferenceStarted {
+                    inference_call_id, ..
+                } => Some(inference_call_id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let cancelled = events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                RawTraceEventPayload::InferenceCancelled {
+                    inference_call_id,
+                    reason,
+                    ..
+                } => {
+                    assert_eq!(reason, "capacity retry auth owner changed before dispatch");
+                    Some(inference_call_id)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(starts.len(), 1, "warmup={warmup}");
+        assert_eq!(
+            cancelled, starts,
+            "each started attempt needs its own terminal event"
+        );
+        let rollout = replay_bundle(temp.path())?;
+        assert_eq!(rollout.inference_calls.len(), 1);
+        assert_eq!(
+            rollout
+                .inference_calls
+                .values()
+                .next()
+                .unwrap()
+                .execution
+                .status,
+            ExecutionStatus::Cancelled
+        );
+        server.shutdown().await;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
     use codex_client::HttpTransport;
     use codex_login::WorkspaceRouting;

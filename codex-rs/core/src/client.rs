@@ -2281,13 +2281,11 @@ impl ModelClientSession {
                 .capacity_retry_owner
                 .is_some_and(|owner| owner != self.client.auth_owner_generation())
             {
-                if !previous_response_id_from_untraced_warmup {
-                    inference_trace_attempt.record_cancelled(
-                        "capacity retry auth owner changed before dispatch",
-                        None,
-                        &[],
-                    );
-                }
+                inference_trace_attempt.record_cancelled(
+                    "capacity retry auth owner changed before dispatch",
+                    None,
+                    &[],
+                );
                 return Err(CodexErr::TurnAborted);
             }
             let stream_result = websocket_connection
