@@ -1,7 +1,7 @@
 //! Public-boundary capacity retry tests (CONC-FENCE-002 / CONC-CANCEL-004).
 //!
 //! Plan: stop/account changes during PreModelRequest admit zero stale HTTP requests;
-//! steering during that hook or delayed headers admits a request containing the new input;
+//! with InstantInterrupt enabled, steering during that hook or delayed headers admits fresh input;
 //! an owner change during a resumed stream dispatches zero tools. Local HTTP mocks remove
 //! the remote model only; native hooks, auth notifications, turn scheduling and dispatch stay real.
 use anyhow::Context;
@@ -254,8 +254,8 @@ async fn capacity_steering_pre_request_barrier_sends_only_fresh_prompt() -> anyh
             trust_discovered_hooks(config);
             config
                 .features
-                .disable(Feature::InstantInterrupt)
-                .expect("disable InstantInterrupt for capacity steering fixture");
+                .enable(Feature::InstantInterrupt)
+                .expect("enable InstantInterrupt for capacity steering fixture");
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
         })
@@ -325,6 +325,7 @@ async fn capacity_cancellation_drops_delayed_headers(action: &str) -> anyhow::Re
     responses::mount_sse_once(&server, capacity_response()).await;
     let admitted = Arc::new(Notify::new());
     let notify = Arc::clone(&admitted);
+    let steering = action == "steer";
     let test = test_codex()
         .with_auth_manager(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
             "fixture-owner",
@@ -332,12 +333,13 @@ async fn capacity_cancellation_drops_delayed_headers(action: &str) -> anyhow::Re
         .with_pre_build_hook(|home| {
             write_barrier_hooks(home, "--no-barrier").expect("write native hook fixture")
         })
-        .with_config(|config| {
+        .with_config(move |config| {
             trust_discovered_hooks(config);
-            config
-                .features
-                .disable(Feature::InstantInterrupt)
-                .expect("disable InstantInterrupt for capacity steering fixture");
+            if steering {
+                config.features.enable(Feature::InstantInterrupt).unwrap();
+            } else {
+                config.features.disable(Feature::InstantInterrupt).unwrap();
+            }
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
         })

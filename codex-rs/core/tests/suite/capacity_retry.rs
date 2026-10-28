@@ -108,7 +108,7 @@ async fn capacity_recovers_in_same_turn_with_same_request_identity(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn capacity_new_input_interrupts_wait_without_instant_interrupt() -> anyhow::Result<()> {
+async fn capacity_new_input_interrupts_wait_with_instant_interrupt() -> anyhow::Result<()> {
     let server = responses::start_mock_server().await;
     let mock = responses::mount_sse_sequence(
         &server,
@@ -122,8 +122,8 @@ async fn capacity_new_input_interrupts_wait_without_instant_interrupt() -> anyho
         .with_config(|config| {
             config
                 .features
-                .disable(Feature::InstantInterrupt)
-                .expect("test config must disable InstantInterrupt");
+                .enable(Feature::InstantInterrupt)
+                .expect("test config must enable InstantInterrupt");
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
         })
@@ -157,9 +157,14 @@ async fn capacity_new_input_interrupts_wait_without_instant_interrupt() -> anyho
     Ok(())
 }
 
+#[test_case::test_case(true; "enabled preempts resumed stream")]
+#[test_case::test_case(false; "disabled retains queued input through retry and stream")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn capacity_new_input_interrupts_resumed_active_stream() -> anyhow::Result<()> {
+async fn capacity_new_input_respects_instant_interrupt(
+    instant_interrupt: bool,
+) -> anyhow::Result<()> {
     let (release, gate) = tokio::sync::oneshot::channel();
+    let mut release = Some(release);
     let (server, _) = start_streaming_sse_server(vec![
         vec![StreamingSseChunk {
             gate: None,
@@ -186,11 +191,12 @@ async fn capacity_new_input_interrupts_resumed_active_stream() -> anyhow::Result
     ])
     .await;
     let test = test_codex()
-        .with_config(|config| {
-            config
-                .features
-                .disable(Feature::InstantInterrupt)
-                .expect("test config must disable InstantInterrupt");
+        .with_config(move |config| {
+            if instant_interrupt {
+                config.features.enable(Feature::InstantInterrupt).unwrap();
+            } else {
+                config.features.disable(Feature::InstantInterrupt).unwrap();
+            }
             config.model_provider.request_max_retries = Some(0);
             config.model_provider.stream_max_retries = Some(1);
         })
@@ -199,10 +205,46 @@ async fn capacity_new_input_interrupts_resumed_active_stream() -> anyhow::Result
     test.codex
         .start_or_steer_turn(input("capacity active original"))
         .await?;
+    if !instant_interrupt {
+        wait_for_event(&test.codex, |event| {
+            matches!(event, EventMsg::StreamError(_))
+        })
+        .await;
+        assert_eq!(server.requests().await.len(), 1);
+        test.codex
+            .start_or_steer_turn(input("capacity active replacement"))
+            .await?;
+    }
     wait_for_event(&test.codex, |event| matches!(event, EventMsg::AgentMessageContentDelta(delta) if delta.delta.contains("capacity active stream"))).await;
-    test.codex
-        .start_or_steer_turn(input("capacity active replacement"))
-        .await?;
+    if instant_interrupt {
+        test.codex
+            .start_or_steer_turn(input("capacity active replacement"))
+            .await?;
+    } else {
+        let requests = server.requests().await;
+        assert_eq!(requests.len(), 2);
+        let retry: serde_json::Value = serde_json::from_slice(&requests[1])?;
+        assert!(retry.to_string().contains("capacity active original"));
+        assert!(!retry.to_string().contains("capacity active replacement"));
+        assert!(
+            tokio::time::timeout(
+                Duration::from_secs(3),
+                wait_for_event(&test.codex, |event| {
+                    assert!(!matches!(event, EventMsg::Error(_)), "{event:?}");
+                    matches!(event, EventMsg::TurnComplete(_))
+                }),
+            )
+            .await
+            .is_err(),
+            "disabled InstantInterrupt must keep the retried stream running"
+        );
+        assert_eq!(server.requests().await.len(), 2);
+        release
+            .take()
+            .unwrap()
+            .send(())
+            .expect("release retained stream");
+    }
     tokio::time::timeout(
         Duration::from_secs(3),
         wait_for_event(
@@ -211,7 +253,7 @@ async fn capacity_new_input_interrupts_resumed_active_stream() -> anyhow::Result
         ),
     )
     .await
-    .expect("capacity chain must yield the active request to new input");
+    .expect("queued input must be handled after preemption or normal response completion");
     let requests = server.requests().await;
     assert_eq!(requests.len(), 3);
     let third: serde_json::Value = serde_json::from_slice(&requests[2])?;

@@ -1739,7 +1739,7 @@ async fn run_sampling_request(
 ) -> CodexResult<(SamplingRequestResult, Vec<ResponseItem>)> {
     let turn_context = Arc::clone(&step_context.turn);
     let preempt = step_context.preempt.clone().unwrap_or_default();
-    let mut _input_watch = if let Some(preempt) = &step_context.preempt {
+    let _input_watch = if let Some(preempt) = &step_context.preempt {
         sess.input_queue
             .watch_user_input(&sess.active_turn, &turn_context.sub_id, preempt.clone())
             .await
@@ -1853,12 +1853,6 @@ async fn run_sampling_request(
             }
             capacity_retry_active = true;
             client_session.bind_capacity_retry_owner(auth_owner);
-            if _input_watch.is_none() {
-                _input_watch = sess
-                    .input_queue
-                    .watch_user_input(&sess.active_turn, &turn_context.sub_id, preempt.clone())
-                    .await;
-            }
         }
 
         let original_input = original_input.get_or_insert(prompt.input);
