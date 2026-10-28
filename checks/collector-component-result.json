@@ -82,5 +82,6 @@
       "sha256": "c0373be39bef27230a1ddb8993518bf14d999f3b53b35a3e90109183009a14b0"
     }
   ],
-  "scope": "Source-extracted exact production collector and bounded output definitions/tests. No Cargo, dependency resolution, native source/target writes, installation, push, or whole CLI success claim."
+  "scope": "Source-extracted exact production collector and bounded output definitions/tests. No Cargo, dependency resolution, native source/target writes, installation, push, or whole CLI success claim.",
+  "committedCollectorAndTestBodiesMatch": true
 }
