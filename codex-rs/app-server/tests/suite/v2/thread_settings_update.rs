@@ -637,8 +637,9 @@ async fn send_thread_settings_update(
     params: ThreadSettingsUpdateParams,
 ) -> Result<()> {
     let request_id = mcp.send_thread_settings_update_request(params).await?;
-    let _: ThreadSettingsUpdateResponse =
+    let response: ThreadSettingsUpdateResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
+    assert_eq!(response.settings_applied, Some(true));
     Ok(())
 }
 

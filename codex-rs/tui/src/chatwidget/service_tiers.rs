@@ -40,6 +40,7 @@ impl ChatWidget {
     pub(crate) fn can_toggle_fast_mode_from_keybinding(&self) -> bool {
         self.fast_mode_enabled()
             && self.current_model_fast_service_tier().is_some()
+            && !self.input_queue.service_tier_selection_pending
             && !self.is_user_turn_pending_or_running()
             && self.bottom_pane.no_modal_or_popup_active()
     }
@@ -97,23 +98,46 @@ impl ChatWidget {
             .unwrap_or_default()
     }
 
+    /// Validate against the current catalog and existing feature/account filtering.
+    pub(crate) fn can_select_service_tier(&self, service_tier: Option<&str>) -> bool {
+        service_tier.is_none_or(|tier| {
+            tier == SERVICE_TIER_DEFAULT_REQUEST_VALUE
+                || self
+                    .current_model_service_tier_commands()
+                    .iter()
+                    .any(|command| command.id == tier)
+        })
+    }
+
+    pub(crate) fn set_service_tier_selection_pending(&mut self, pending: bool) {
+        self.input_queue.service_tier_selection_pending = pending;
+    }
+
     fn set_service_tier_selection(&mut self, service_tier: Option<String>) {
-        self.set_service_tier(service_tier.clone());
-        self.app_event_tx
-            .send(AppEvent::CodexOp(AppCommand::override_turn_context(
-                /*cwd*/ None,
-                /*approval_policy*/ None,
-                /*approvals_reviewer*/ None,
-                /*permission_profile*/ None,
-                /*active_permission_profile*/ None,
-                /*model*/ None,
-                /*effort*/ None,
-                /*summary*/ None,
-                Some(service_tier.clone()),
-                /*collaboration_mode*/ None,
-            )));
-        self.app_event_tx
-            .send(AppEvent::PersistServiceTierSelection { service_tier });
+        if self.input_queue.service_tier_selection_pending {
+            self.add_error_message("A service tier selection is awaiting confirmation.".into());
+            return;
+        }
+        let Some(thread_id) = self.thread_id else {
+            self.add_error_message("Service tier selection requires a loaded conversation.".into());
+            return;
+        };
+        if !self.can_select_service_tier(service_tier.as_deref()) {
+            self.add_error_message(
+                "The selected service tier is unavailable for this model.".into(),
+            );
+            return;
+        }
+        // Keep following queued input behind the thread-settings ACK. The indicator stays at
+        // its confirmed value, and no default is persisted by this session selection.
+        self.set_service_tier_selection_pending(true);
+        self.app_event_tx.send(AppEvent::SubmitThreadOp {
+            thread_id,
+            op: AppCommand::SelectServiceTier {
+                owner_generation: self.thread_runtime_generation,
+                service_tier,
+            },
+        });
     }
 
     fn current_model_fast_service_tier(&self) -> Option<ServiceTierCommand> {

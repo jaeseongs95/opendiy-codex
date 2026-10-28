@@ -1037,19 +1037,25 @@ impl TurnRequestProcessor {
             .await?;
 
         if thread_settings != codex_protocol::protocol::ThreadSettingsOverrides::default() {
+            let (reply, accepted) = tokio::sync::oneshot::channel();
             self.submit_core_op(
                 request_id,
                 thread.as_ref(),
                 Op::ThreadSettings {
                     thread_settings,
-                    reply: None,
+                    reply: Some(reply),
                 },
             )
             .await
             .map_err(|err| internal_error(format!("failed to update thread settings: {err}")))?;
+            // Core replies before emitting the settings notification, so no event-consumer
+            // progress is required while the serialized request waits for acceptance.
+            await_thread_settings_acceptance(accepted).await?;
         }
 
-        Ok(ThreadSettingsUpdateResponse {})
+        Ok(ThreadSettingsUpdateResponse {
+            settings_applied: Some(true),
+        })
     }
 
     async fn thread_inject_items_response_inner(
@@ -1781,4 +1787,57 @@ fn xcode_26_4_mcp_elicitations_auto_deny(
     // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
     client_name == Some("Xcode")
         && client_version.is_some_and(|version| version.starts_with("26.4"))
+}
+
+async fn await_thread_settings_acceptance(
+    accepted: tokio::sync::oneshot::Receiver<CodexResult<()>>,
+) -> Result<(), JSONRPCErrorError> {
+    accepted
+        .await
+        .map_err(|_| internal_error("thread settings acceptance was not confirmed"))?
+        .map_err(|err| internal_error(format!("failed to apply thread settings: {err}")))
+}
+
+#[cfg(test)]
+mod service_tier_acceptance_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn service_tier_settings_ack_waits_for_core_and_preserves_rejection() {
+        for accepted_by_core in [true, false] {
+            let (reply, accepted) = tokio::sync::oneshot::channel();
+            let mut acceptance = Box::pin(await_thread_settings_acceptance(accepted));
+            assert!(
+                futures::poll!(acceptance.as_mut()).is_pending(),
+                "queue submission is not acceptance"
+            );
+            let result = if accepted_by_core {
+                Ok(())
+            } else {
+                Err(codex_protocol::error::CodexErr::InvalidRequest(
+                    "core rejected settings".into(),
+                ))
+            };
+            reply
+                .send(result)
+                .expect("acceptance receiver remains open");
+            match acceptance.await {
+                Ok(()) => assert!(accepted_by_core),
+                Err(error) => {
+                    assert!(!accepted_by_core);
+                    assert!(error.message.contains("core rejected settings"));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn service_tier_settings_ack_closed_reply_is_not_success() {
+        let (reply, accepted) = tokio::sync::oneshot::channel();
+        drop(reply);
+        let error = await_thread_settings_acceptance(accepted)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("not confirmed"));
+    }
 }

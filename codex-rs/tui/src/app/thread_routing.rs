@@ -505,6 +505,16 @@ impl App {
         op: AppCommand,
     ) -> Result<()> {
         if self.thread_unavailable(thread_id) {
+            if let AppCommand::SelectServiceTier {
+                owner_generation, ..
+            } = &op
+                && self.chat_widget.thread_id() == Some(thread_id)
+                && *owner_generation == self.chat_widget.thread_runtime_generation
+            {
+                self.chat_widget
+                    .retain_input_after_failed_permission_selection();
+                self.chat_widget.set_service_tier_selection_pending(false);
+            }
             if let AppCommand::RealtimeConversationSpeech { delivery_id, .. } = &op {
                 self.chat_widget
                     .restore_undelivered_realtime_speech(*delivery_id);
@@ -523,6 +533,16 @@ impl App {
             return Ok(());
         }
         if self.chat_widget.rejects_misalignment_policy_op(&op) {
+            if let AppCommand::SelectServiceTier {
+                owner_generation, ..
+            } = &op
+                && self.chat_widget.thread_id() == Some(thread_id)
+                && *owner_generation == self.chat_widget.thread_runtime_generation
+            {
+                self.chat_widget
+                    .retain_input_after_failed_permission_selection();
+                self.chat_widget.set_service_tier_selection_pending(false);
+            }
             if let AppCommand::RealtimeConversationSpeech { delivery_id, .. } = &op {
                 self.chat_widget
                     .restore_undelivered_realtime_speech(*delivery_id);
@@ -867,6 +887,70 @@ impl App {
                 app_server
                     .thread_shell_command(thread_id, command.to_string())
                     .await?;
+                Ok(true)
+            }
+            AppCommand::SelectServiceTier {
+                owner_generation,
+                service_tier,
+            } => {
+                if self.chat_widget.thread_id() != Some(thread_id)
+                    || self.current_displayed_thread_id() != Some(thread_id)
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale service tier selection after conversation/backend change or reconnect; no request was sent. Select the tier again in the displayed conversation.".into(),
+                    );
+                    return Ok(true);
+                }
+                if !self
+                    .chat_widget
+                    .can_select_service_tier(service_tier.as_deref())
+                {
+                    self.chat_widget
+                        .retain_input_after_failed_permission_selection();
+                    self.chat_widget.set_service_tier_selection_pending(false);
+                    self.chat_widget.add_error_message(
+                        "Service tier selection is no longer available for this model; queued input was retained.".into(),
+                    );
+                    return Ok(true);
+                }
+                let params = codex_app_server_protocol::ThreadSettingsUpdateParams {
+                    thread_id: thread_id.to_string(),
+                    service_tier: Some(service_tier.clone()),
+                    ..Default::default()
+                };
+                match app_server.thread_settings_update_confirmed(params).await {
+                    Ok(true) => {
+                        self.chat_widget.set_service_tier(service_tier.clone());
+                        self.sync_active_thread_service_tier_to_cached_session()
+                            .await;
+                        self.chat_widget.add_info_message(
+                            format!(
+                                "Service tier set to {} for this conversation only",
+                                service_tier.as_deref().unwrap_or("model default")
+                            ),
+                            None,
+                        );
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.maybe_send_next_queued_input();
+                    }
+                    Ok(false) => {
+                        self.chat_widget
+                            .retain_input_after_failed_permission_selection();
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.add_error_message(
+                            "Service tier selection requires a backend that confirms thread/settings/update application. The current selection and queued input were retained.".into(),
+                        );
+                    }
+                    Err(err) => {
+                        self.chat_widget
+                            .retain_input_after_failed_permission_selection();
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.add_error_message(format!(
+                            "Service tier selection was not confirmed: {err:#}. The current selection and queued input were retained."
+                        ));
+                    }
+                }
                 Ok(true)
             }
             AppCommand::ReloadPlugins { owner_generation } => {

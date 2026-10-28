@@ -1516,6 +1516,10 @@ impl ChatWidget {
     }
 
     pub(crate) fn invalidate_background_terminal_owner(&mut self) {
+        if self.input_queue.service_tier_selection_pending {
+            self.retain_input_after_failed_permission_selection();
+            self.set_service_tier_selection_pending(false);
+        }
         self.thread_runtime_generation = uuid::Uuid::new_v4();
         self.unified_exec_processes.clear();
         self.sync_unified_exec_footer();

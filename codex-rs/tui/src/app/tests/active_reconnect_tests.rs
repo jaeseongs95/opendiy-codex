@@ -482,6 +482,18 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
             },
         )
         .await?;
+        app.handle_event(
+            &mut tui,
+            &mut session,
+            AppEvent::SubmitThreadOp {
+                thread_id: id,
+                op: Op::SelectServiceTier {
+                    owner_generation: plugin_reload_owner_generation,
+                    service_tier: Some(ServiceTier::Fast.request_value().into()),
+                },
+            },
+        )
+        .await?;
         let stale_messages = std::iter::from_fn(|| events.try_recv().ok())
             .filter_map(|event| {
                 if let AppEvent::InsertHistoryCell(cell) = event {
@@ -493,13 +505,15 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
             .collect::<Vec<_>>()
             .join("\n");
         assert!(stale_messages.contains("Stale plugin reload"));
+        assert!(stale_messages.contains("Stale service tier selection"));
+        assert!(!stale_messages.contains("Service tier set"));
         assert!(!stale_messages.contains("Reloaded plugin configuration"));
         session.shutdown().await?;
         let methods = server.await??;
         assert!(
-            !methods
-                .iter()
-                .any(|method| method == "thread/plugin/reload")
+            !methods.iter().any(
+                |method| method == "thread/plugin/reload" || method == "thread/settings/update"
+            )
         );
         assert_eq!(
             methods

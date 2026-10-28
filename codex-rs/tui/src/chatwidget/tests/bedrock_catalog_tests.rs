@@ -166,6 +166,7 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
             )
             .await;
         let (mut chat, mut events, _ops) = make_chatwidget_manual(Some(model)).await;
+        chat.thread_id = Some(ThreadId::new());
         chat.model_catalog = Arc::new(ModelCatalog::new(presets));
         chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
         chat.set_service_tier(/*service_tier*/ None);
@@ -173,11 +174,20 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
             .set_composer_text("/ultrafast".to_string(), Vec::new(), Vec::new());
         let bundled_view = normalize_snapshot_paths(render_bottom_popup(&chat, /*width*/ 100));
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-        assert_eq!(chat.current_service_tier(), Some("ultrafast"));
-        assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
-            matches!(event, AppEvent::PersistServiceTierSelection { service_tier }
-                if service_tier.as_deref() == Some("ultrafast"))
+        assert_eq!(chat.current_service_tier(), None);
+        let pending = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
+        assert!(pending.iter().any(|event| {
+            matches!(event, AppEvent::SubmitThreadOp { thread_id, op: Op::SelectServiceTier { service_tier, .. } }
+                if Some(*thread_id) == chat.thread_id && service_tier.as_deref() == Some("ultrafast"))
         }));
+        assert!(
+            !pending
+                .iter()
+                .any(|event| matches!(event, AppEvent::PersistServiceTierSelection { .. }))
+        );
+        // The app-level suite supplies the native acceptance; this fixture checks catalog choices.
+        chat.set_service_tier(Some("ultrafast".into()));
+        chat.set_service_tier_selection_pending(false);
 
         chat.set_model(standard_model);
         assert_eq!(chat.current_service_tier(), None);
@@ -187,7 +197,13 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
         chat.bottom_pane
             .set_composer_text("/ultrafast".to_string(), Vec::new(), Vec::new());
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-        assert_eq!(chat.current_service_tier(), Some("default"));
+        assert_eq!(chat.current_service_tier(), Some("ultrafast"));
+        assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+            matches!(event, AppEvent::SubmitThreadOp { op: Op::SelectServiceTier { service_tier, .. }, .. }
+                if service_tier.as_deref() == Some("default"))
+        }));
+        chat.set_service_tier(Some("default".into()));
+        chat.set_service_tier_selection_pending(false);
 
         let mut custom_model = codex_models_manager::bundled_models_response()
             .expect("bundled catalog")
@@ -226,6 +242,10 @@ async fn bedrock_ultrafast_slash_command_selects_and_clears_tier() {
             format!("Bundled catalog:\n{bundled_view}\n\nCustom catalog:\n{custom_view}")
         );
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-        assert_eq!(chat.current_service_tier(), Some("ultrafast"));
+        assert_eq!(chat.current_service_tier(), Some("default"));
+        assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+            matches!(event, AppEvent::SubmitThreadOp { op: Op::SelectServiceTier { service_tier, .. }, .. }
+                if service_tier.as_deref() == Some("ultrafast"))
+        }));
     }
 }

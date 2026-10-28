@@ -181,6 +181,10 @@ pub(crate) enum AppCommand {
     ReloadPlugins {
         owner_generation: uuid::Uuid,
     },
+    SelectServiceTier {
+        owner_generation: uuid::Uuid,
+        service_tier: Option<String>,
+    },
     ListSkills {
         cwds: Vec<PathBuf>,
         force_reload: bool,

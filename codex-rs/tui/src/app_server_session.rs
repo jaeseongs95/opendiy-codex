@@ -1397,8 +1397,26 @@ impl AppServerSession {
         &mut self,
         params: ThreadSettingsUpdateParams,
     ) -> Result<bool> {
+        Ok(self.request_thread_settings_update(params).await?.is_some())
+    }
+
+    /// Require Core acceptance, preserving fail-closed behavior with older queue-only servers.
+    pub(crate) async fn thread_settings_update_confirmed(
+        &mut self,
+        params: ThreadSettingsUpdateParams,
+    ) -> Result<bool> {
+        Ok(self
+            .request_thread_settings_update(params)
+            .await?
+            .is_some_and(|response| response.settings_applied == Some(true)))
+    }
+
+    async fn request_thread_settings_update(
+        &mut self,
+        params: ThreadSettingsUpdateParams,
+    ) -> Result<Option<ThreadSettingsUpdateResponse>> {
         if !self.thread_settings_update_supported {
-            return Ok(false);
+            return Ok(None);
         }
         let request_id = self.next_request_id();
         match self
@@ -1409,7 +1427,7 @@ impl AppServerSession {
             })
             .await
         {
-            Ok(_) => Ok(true),
+            Ok(response) => Ok(Some(response)),
             Err(TypedRequestError::Server { source, .. })
                 if is_thread_settings_update_unsupported(&source) =>
             {
@@ -1419,7 +1437,7 @@ impl AppServerSession {
                 // downgrade so local TUI setting changes stay best-effort instead
                 // of showing an error every time the user changes model, effort, or mode.
                 self.thread_settings_update_supported = false;
-                Ok(false)
+                Ok(None)
             }
             Err(err) => Err(err).wrap_err("thread/settings/update failed in TUI"),
         }

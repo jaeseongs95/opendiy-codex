@@ -1223,7 +1223,11 @@ impl ChatWidget {
                 }
                 SlashCommandItem::ServiceTier(command) => {
                     self.handle_service_tier_command_dispatch(command);
-                    QueueDrain::Continue
+                    if self.input_queue.submissions_paused() {
+                        QueueDrain::Stop
+                    } else {
+                        QueueDrain::Continue
+                    }
                 }
             };
         }

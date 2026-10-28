@@ -72,8 +72,16 @@ fn queued_reload_plugin(
     app: &mut App,
     events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
 ) -> AppEvent {
+    queued_runtime_command(app, events, "/reload_plugin")
+}
+
+fn queued_runtime_command(
+    app: &mut App,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<AppEvent>,
+    command: &str,
+) -> AppEvent {
     while events.try_recv().is_ok() {}
-    app.chat_widget.insert_str("/reload_plugin");
+    app.chat_widget.insert_str(command);
     app.chat_widget.handle_key_event(KeyCode::Esc.into());
     app.chat_widget.handle_key_event(KeyCode::Enter.into());
     std::iter::from_fn(|| events.try_recv().ok())
@@ -81,7 +89,7 @@ fn queued_reload_plugin(
             matches!(
                 event,
                 AppEvent::SubmitThreadOp {
-                    op: Op::ReloadPlugins { .. },
+                    op: Op::ReloadPlugins { .. } | Op::SelectServiceTier { .. },
                     ..
                 }
             )
@@ -90,9 +98,15 @@ fn queued_reload_plugin(
 }
 
 #[tokio::test]
-async fn reload_plugin_queued_before_screen_or_backend_replacement_sends_zero_rpcs() -> Result<()> {
+async fn reload_plugin_and_fast_queued_before_screen_or_backend_replacement_sends_zero_rpcs()
+-> Result<()> {
     // Same-backend navigation is intentionally rejected too; users can issue a new command.
-    for switch_backend in [false, true] {
+    for (switch_backend, command, stale_error) in [
+        (false, "/reload_plugin", "Stale plugin reload"),
+        (true, "/reload_plugin", "Stale plugin reload"),
+        (false, "/fast", "Stale service tier selection"),
+        (true, "/fast", "Stale service tier selection"),
+    ] {
         let (mut app, mut events, _) = make_test_app_with_channels().await;
         let timestamp = "2026-01-01T00-00-00";
         let saved = app_test_support::create_fake_rollout(
@@ -150,8 +164,11 @@ async fn reload_plugin_queued_before_screen_or_backend_replacement_sends_zero_rp
             None,
         )
         .await?;
+        app.chat_widget.set_model("gpt-5.4");
+        set_fast_mode_test_catalog(&mut app.chat_widget);
+        app.chat_widget.set_feature_enabled(Feature::FastMode, true);
         let owner = app.chat_widget.thread_runtime_generation;
-        let queued = queued_reload_plugin(&mut app, &mut events);
+        let queued = queued_runtime_command(&mut app, &mut events, command);
         let replacement = if switch_backend {
             other
                 .resume_thread(
@@ -200,7 +217,8 @@ async fn reload_plugin_queued_before_screen_or_backend_replacement_sends_zero_rp
             "keep replacement draft"
         );
         let history = next_history_message(&mut events);
-        assert!(history.contains("Stale plugin reload"));
+        assert!(history.contains(stale_error));
+        assert!(!history.contains("Service tier set"));
         assert!(!history.contains("Reloaded plugin configuration"));
         origin_proxy.abort();
         other_proxy.abort();
