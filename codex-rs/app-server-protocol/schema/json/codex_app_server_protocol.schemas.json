@@ -877,6 +877,31 @@
           "type": "object"
         },
         {
+          "description": "Reload plugin runtime configuration for one already-loaded thread.",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/plugin/reload"
+              ],
+              "title": "Thread/plugin/reloadRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/ThreadPluginReloadParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/plugin/reloadRequest",
+          "type": "object"
+        },
+        {
           "properties": {
             "id": {
               "$ref": "#/definitions/v2/RequestId"
@@ -1724,6 +1749,30 @@
             },
             "method": {
               "enum": [
+                "turn/startIfIdle"
+              ],
+              "title": "Turn/startIfIdleRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/TurnStartIfIdleParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Turn/startIfIdleRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
                 "turn/start"
               ],
               "title": "Turn/startRequestMethod",
@@ -2039,7 +2088,14 @@
               "type": "string"
             },
             "params": {
-              "type": "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/v2/McpServerRefreshParams"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -8579,6 +8635,7 @@
               "rateLimitExceeded",
               "flexUnavailable",
               "serverOverloaded",
+              "modelNotFound",
               "cyberPolicy",
               "misalignmentPolicyViolation",
               "tooManyDenials",
@@ -15252,8 +15309,30 @@
         "title": "McpServerOauthLoginResponse",
         "type": "object"
       },
+      "McpServerRefreshParams": {
+        "description": "Reloads MCP configuration without restarting the app.",
+        "properties": {
+          "threadId": {
+            "description": "Also queue an MCP reconnect on the runtime captured for this loaded thread. The registry is rechecked after reload, but may change before enqueue. Existing calls retain their bound clients; reconnect completion is asynchronous.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "McpServerRefreshResponse": {
         "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "reconnectQueuedForThreadId": {
+            "description": "The reconnect operation was accepted by the captured runtime's queue. This does not acknowledge current registry membership, runtime readiness, or cleanup of previous clients.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "title": "McpServerRefreshResponse",
         "type": "object"
       },
@@ -16299,6 +16378,16 @@
               "null"
             ]
           },
+          "reviewDomains": {
+            "description": "Host patterns routed to network approval before ordinary allow rules.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "socksPort": {
             "format": "uint16",
             "minimum": 0.0,
@@ -16384,6 +16473,18 @@
           }
         ],
         "title": "Nullable_GetAccountTokenUsageParams"
+      },
+      "NullableMcpServerRefreshParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "anyOf": [
+          {
+            "$ref": "#/definitions/v2/McpServerRefreshParams"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Nullable_McpServerRefreshParams"
       },
       "OverriddenMetadata": {
         "properties": {
@@ -23644,6 +23745,46 @@
         "title": "ThreadNameUpdatedNotification",
         "type": "object"
       },
+      "ThreadPluginReloadParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ],
+        "title": "ThreadPluginReloadParams",
+        "type": "object"
+      },
+      "ThreadPluginReloadResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "The target's user-file configuration and hooks were refreshed. MCP readiness is asynchronous. Shared plugin/skill discovery caches are invalidated; other threads' later discovery may observe disk changes, although their configuration/hooks are not republished by this request.",
+        "properties": {
+          "mcpReconnectRequested": {
+            "description": "Reconnection is requested for the next MCP capture, not confirmed ready.",
+            "type": "boolean"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Plugin or hook load diagnostics. A nonempty list means a partial refresh.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "mcpReconnectRequested",
+          "threadId",
+          "warnings"
+        ],
+        "title": "ThreadPluginReloadResponse",
+        "type": "object"
+      },
       "ThreadPredictionResult": {
         "oneOf": [
           {
@@ -26332,6 +26473,86 @@
         ],
         "title": "TurnPlanUpdatedNotification",
         "type": "object"
+      },
+      "TurnStartIfIdleParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "description": "Starts user input only if core atomically admits a new turn. Never steers or queues. Thread model, environment, and permission settings are inherited and validated by the server.",
+        "properties": {
+          "input": {
+            "items": {
+              "$ref": "#/definitions/v2/UserInput"
+            },
+            "type": "array"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "input",
+          "threadId"
+        ],
+        "title": "TurnStartIfIdleParams",
+        "type": "object"
+      },
+      "TurnStartIfIdleResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "oneOf": [
+          {
+            "properties": {
+              "status": {
+                "enum": [
+                  "started"
+                ],
+                "type": "string"
+              },
+              "turn": {
+                "$ref": "#/definitions/v2/Turn"
+              }
+            },
+            "required": [
+              "status",
+              "turn"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "status": {
+                "enum": [
+                  "skippedBusy"
+                ],
+                "title": "SkippedBusyv2::TurnStartIfIdleResponseStatus",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "title": "SkippedBusyv2::TurnStartIfIdleResponse",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "notStarted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "status"
+            ],
+            "type": "object"
+          }
+        ],
+        "title": "TurnStartIfIdleResponse"
       },
       "TurnStartParams": {
         "$schema": "http://json-schema.org/draft-07/schema#",

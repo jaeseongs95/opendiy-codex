@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 // Aggregates all former standalone integration tests as modules.
 use codex_apply_patch::CODEX_CORE_APPLY_PATCH_ARG1;
 #[cfg(unix)]
@@ -43,6 +44,7 @@ mod additional_context;
 #[path = "agent_control_tests.rs"]
 mod agent_control;
 mod agent_execution;
+mod agent_message_wake;
 mod agent_websocket;
 mod agents_md;
 mod app_tool_exposure;
@@ -60,6 +62,8 @@ mod base_instructions;
 mod bedrock_multi_agent;
 #[path = "bedrock_service_tier_tests.rs"]
 mod bedrock_service_tier;
+mod capacity_retry;
+mod capacity_retry_boundaries;
 mod catalog_permission_messages;
 mod cli_stream;
 mod client;

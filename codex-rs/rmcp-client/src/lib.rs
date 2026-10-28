@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 mod auth_status;
 mod bounded_stdio_transport;
 mod elicitation_client_service;
@@ -24,6 +24,7 @@ mod oauth_client_credentials;
 mod oauth_client_registration;
 mod oauth_http_client;
 mod oauth_refresh_mode;
+mod ordered_byte_transport;
 mod perform_oauth_login;
 mod program_resolver;
 mod protocol_mode;
@@ -33,6 +34,7 @@ mod startup_error;
 mod stdio_server_launcher;
 mod tool_input;
 mod tool_list_changes;
+mod tool_request;
 mod trace_context;
 mod user_verification;
 mod utils;
@@ -52,6 +54,7 @@ pub use ema_auth::EmaAuthTokenExchangeRequest;
 pub use ema_auth::exchange_ema_auth_token;
 pub use ema_auth_policy::EmaAuthFailure;
 pub use ema_auth_policy::EmaCredentialKind;
+pub use ema_auth_policy::EmaErrorDetail;
 pub use ema_auth_policy::EmaInvalidGrantSource;
 pub use ema_auth_policy::EmaTokenSourceError;
 pub use ema_auth_policy::validate_ema_auth_resource;
@@ -114,3 +117,5 @@ pub use stdio_server_launcher::LocalStdioServerLauncher;
 pub use stdio_server_launcher::StdioServerLauncher;
 pub use tool_list_changes::ToolListRevision;
 pub use user_verification::UserVerificationReason;
+
+pub use stdio_server_launcher::is_termination_unconfirmed;

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use crate::WithTurnExtensionData;
 use crate::agent::AgentStatus;
 use crate::agent::api::AgentControl;
@@ -792,6 +793,18 @@ impl CodexThread {
         self.session.list_background_terminals().await
     }
 
+    pub async fn request_background_terminal_yield(
+        &self,
+        call_id: &str,
+        process_id: i32,
+    ) -> Result<(), String> {
+        self.session
+            .services
+            .unified_exec_manager
+            .request_initial_yield(self.session.thread_id(), call_id, process_id)
+            .await
+    }
+
     pub async fn terminate_background_terminal(&self, process_id: i32) -> bool {
         self.session.terminate_background_terminal(process_id).await
     }
@@ -1092,6 +1105,20 @@ impl CodexThread {
                 .refresh_runtime_config(expected_config, next_config),
         )
         .await
+    }
+
+    /// Publishes this thread's user-file configuration and hooks without interrupting a turn.
+    /// Plugin/skill discovery caches are shared and invalidated; later reads by other threads
+    /// may rediscover changed files. Their configuration and hooks are not republished here.
+    /// Only this thread requests MCP reconnection for the next capture; readiness is not awaited.
+    pub async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
+        anyhow::ensure!(self.is_running(), "thread runtime is shutting down");
+        let warnings = Box::pin(self.session.reload_plugins()).await?;
+        anyhow::ensure!(
+            self.is_running(),
+            "thread runtime shut down during plugin reload"
+        );
+        Ok(warnings)
     }
 
     /// Revokes enterprise MCP authority from the current owner after a failed reload.

@@ -1,1 +1,50 @@
 * -text
+# BEGIN OpenDIY pinned source attributes
+# Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+codex-rs/app-server-protocol/schema/** linguist-generated
+codex-rs/hooks/schema/generated/** linguist-generated
+third_party/voice/sources.json text eol=lf
+patches/v8_array_sort_elements_kind.patch text eol=lf
+codex-rs/tui/src/cron.rs text eol=lf
+codex-rs/tui/src/app/cron_jobs.rs text eol=lf
+codex-rs/tui/src/app/tests/plugin_reload_tests.rs text eol=lf
+# Embedded prompt inputs use native checkout EOL; do not force Linux CRLF.
+codex-rs/collaboration-mode-templates/templates/default.md text
+codex-rs/collaboration-mode-templates/templates/plan.md text
+codex-rs/ext/goal/templates/goals/budget_limit.md text
+codex-rs/ext/goal/templates/goals/continuation.md text
+codex-rs/ext/goal/templates/goals/objective_updated.md text
+codex-rs/ext/image-generation/imagegen_description.md text
+codex-rs/ext/memories/templates/memories/read_path.md text
+codex-rs/ext/memories/templates/memories/read_path_v2.md text
+codex-rs/ext/web-search/web_run_description.md text
+codex-rs/memories/write/templates/extensions/ad_hoc/instructions.md text
+codex-rs/memories/write/templates/memories/consolidation.md text
+codex-rs/memories/write/templates/memories/consolidation_v2.md text
+codex-rs/memories/write/templates/memories/stage_one_input.md text
+codex-rs/memories/write/templates/memories/stage_one_input_v2.md text
+codex-rs/memories/write/templates/memories/stage_one_system.md text
+codex-rs/memories/write/templates/memories/stage_one_system_v2.md text
+codex-rs/models-manager/prompt.md text
+codex-rs/prompts/templates/compact/prompt.md text
+codex-rs/prompts/templates/compact/summary_prefix.md text
+codex-rs/prompts/templates/guardian/classifier_instructions.md text
+codex-rs/prompts/templates/guardian/node_repl_policy.md text
+codex-rs/prompts/templates/guardian/policy.md text
+codex-rs/prompts/templates/guardian/policy_template.md text
+codex-rs/prompts/templates/permissions/approval_policy/never.md text
+codex-rs/prompts/templates/permissions/approval_policy/on_request.md text
+codex-rs/prompts/templates/permissions/approval_policy/on_request_rule_request_permission.md text
+codex-rs/prompts/templates/permissions/approval_policy/unless_trusted.md text
+codex-rs/prompts/templates/permissions/approved_prefixes.md text
+codex-rs/prompts/templates/permissions/sandbox_mode/danger_full_access.md text
+codex-rs/prompts/templates/permissions/sandbox_mode/read_only.md text
+codex-rs/prompts/templates/permissions/sandbox_mode/workspace_write.md text
+codex-rs/prompts/templates/persistent_mode.md text
+codex-rs/prompts/templates/realtime/backend_prompt.md text
+codex-rs/prompts/templates/realtime/realtime_end.md text
+codex-rs/prompts/templates/realtime/realtime_start.md text
+codex-rs/prompts/templates/review/rubric.md text
+codex-rs/protocol/src/prompts/base_instructions/default.md text
+codex-rs/tui/assets/prompt_for_init_command.md text
+# END OpenDIY pinned source attributes

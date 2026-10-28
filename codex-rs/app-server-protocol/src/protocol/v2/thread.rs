@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::ActivePermissionProfile;
 use super::ApprovalsReviewer;
 use super::AskForApproval;
@@ -296,7 +297,13 @@ pub struct ThreadSettingsUpdateParams {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ThreadSettingsUpdateResponse {}
+pub struct ThreadSettingsUpdateResponse {
+    /// True only after Core accepted the settings for subsequent turns. Older servers omit this
+    /// field and acknowledge only queue submission; absence is not confirmation of application.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub settings_applied: Option<bool>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS, ExperimentalApi)]
 #[serde(rename_all = "camelCase")]
@@ -623,6 +630,12 @@ pub struct ThreadForkParams {
     pub developer_instructions: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ephemeral: bool,
+    /// Persist the fork as an attached thread of its resolved source, hidden from ordinary
+    /// lists. The source cannot be deleted while attached threads exist. Requires local storage;
+    /// incompatible with ephemeral and deferGoalContinuation. Omitted or false creates an ordinary fork.
+    #[experimental("thread/fork.attachToSource")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub attach_to_source: bool,
     /// Optional client-supplied analytics source classification for this forked thread.
     #[ts(optional = nullable)]
     pub thread_source: Option<ThreadSource>,
@@ -1285,6 +1298,22 @@ pub struct ThreadBackgroundTerminalsTerminateResponse {
     pub terminated: bool,
 }
 
+/// Request an exact foreground unified-exec startup to yield without replacing its process.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadBackgroundTerminalsYieldParams {
+    pub thread_id: String,
+    pub item_id: String,
+    pub process_id: String,
+}
+
+/// Request accepted; the original tool response still resolves yield versus exit/cancellation.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadBackgroundTerminalsYieldResponse {}
+
 /// Replace a paginated thread's durable history with the prefix before one turn.
 ///
 /// This only changes persisted conversation history. It does not revert local file changes.
@@ -1483,6 +1512,12 @@ pub struct ThreadListParams {
     #[experimental("thread/list.ancestorThreadId")]
     #[ts(optional = nullable)]
     pub ancestor_thread_id: Option<String>,
+    /// Return only persistent threads attached to this thread, including empty threads.
+    /// Mutually exclusive with parentThreadId and ancestorThreadId.
+    /// Omitting this filter keeps attached threads hidden from ordinary listings.
+    #[experimental("thread/list.attachedToThreadId")]
+    #[ts(optional = nullable)]
+    pub attached_to_thread_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -1703,6 +1738,27 @@ pub enum ThreadStatus {
 pub enum ThreadActiveFlag {
     WaitingOnApproval,
     WaitingOnUserInput,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadPluginReloadParams {
+    pub thread_id: String,
+}
+
+/// The target's user-file configuration and hooks were refreshed. MCP readiness is asynchronous.
+/// Shared plugin/skill discovery caches are invalidated; other threads' later discovery may
+/// observe disk changes, although their configuration/hooks are not republished by this request.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadPluginReloadResponse {
+    pub thread_id: String,
+    /// Reconnection is requested for the next MCP capture, not confirmed ready.
+    pub mcp_reconnect_requested: bool,
+    /// Plugin or hook load diagnostics. A nonempty list means a partial refresh.
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

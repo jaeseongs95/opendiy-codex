@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
@@ -126,7 +126,7 @@ fn reject_obsolete_request_fields(request: &JSONRPCRequest) -> Result<(), JSONRP
 fn reject_removed_permission_profile(request: &JSONRPCRequest) -> Result<(), JSONRPCErrorError> {
     if matches!(
         request.method.as_str(),
-        "thread/start" | "thread/resume" | "thread/fork" | "turn/start"
+        "thread/start" | "thread/resume" | "thread/fork" | "turn/start" | "turn/startIfIdle"
     ) && request
         .params
         .as_ref()
@@ -1066,6 +1066,7 @@ impl MessageProcessor {
             | ClientRequest::ThreadArchive { .. } => (Some(self.turn_admission.admit()?), false),
             ClientRequest::ThreadSample { .. }
             | ClientRequest::TurnStart { .. }
+            | ClientRequest::TurnStartIfIdle { .. }
             | ClientRequest::TurnSteer { .. }
             | ClientRequest::ReviewStart { .. }
             | ClientRequest::ThreadCompactStart { .. }
@@ -1524,6 +1525,9 @@ impl MessageProcessor {
             ClientRequest::MemoryStatus { params, .. } => {
                 self.thread_processor.memory_status(params).await
             }
+            ClientRequest::ThreadMemoryRead { params, .. } => {
+                self.thread_processor.thread_memory_read(params).await
+            }
             ClientRequest::MemoryReset { .. } => self.thread_processor.memory_reset().await,
             ClientRequest::RolloutCompress { .. } => self.thread_processor.rollout_compress(),
             ClientRequest::ThreadUnarchive { params, .. } => {
@@ -1547,6 +1551,11 @@ impl MessageProcessor {
             ClientRequest::ThreadBackgroundTerminalsList { params, .. } => {
                 self.thread_processor
                     .thread_background_terminals_list(params)
+                    .await
+            }
+            ClientRequest::ThreadBackgroundTerminalsYield { params, .. } => {
+                self.thread_processor
+                    .thread_background_terminals_yield(params)
                     .await
             }
             ClientRequest::ThreadBackgroundTerminalsTerminate { params, .. } => {
@@ -1598,6 +1607,9 @@ impl MessageProcessor {
             }
             ClientRequest::ThreadLoadedList { params, .. } => {
                 self.thread_processor.thread_loaded_list(params).await
+            }
+            ClientRequest::ThreadPluginReload { params, .. } => {
+                self.mcp_processor.thread_plugin_reload(params).await
             }
             ClientRequest::ThreadRead { params, .. } => {
                 self.thread_processor.thread_read(&request_id, params).await
@@ -1722,6 +1734,16 @@ impl MessageProcessor {
             ClientRequest::MockExperimentalMethod { params, .. } => {
                 self.catalog_processor
                     .mock_experimental_method(params)
+                    .await
+            }
+            ClientRequest::TurnStartIfIdle { params, .. } => {
+                self.turn_processor
+                    .turn_start_if_idle(
+                        request_id.clone(),
+                        params,
+                        app_server_client_name.clone(),
+                        client_version.clone(),
+                    )
                     .await
             }
             ClientRequest::TurnStart { params, .. } => {

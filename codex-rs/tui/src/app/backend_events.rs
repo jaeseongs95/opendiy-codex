@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Checks incoming event ownership before consulting native-thread caches or UI state.
 //! Connection-wide lifecycle and account events may only update the displayed conversation's UI.
 
@@ -15,6 +16,15 @@ impl App {
         displayed_owner: BackendId,
         event: AppServerSessionEvent,
     ) {
+        if matches!(
+            &event.event,
+            AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. }
+        ) {
+            self.cron.invalidate_backend(
+                event.backend_id,
+                "backend 연결 또는 이벤트 수신 유실: 예약 실행 중지",
+            );
+        }
         if event.backend_id != displayed_owner
             && match &event.event {
                 AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. } => true,

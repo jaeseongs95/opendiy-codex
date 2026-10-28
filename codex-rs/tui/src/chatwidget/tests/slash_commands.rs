@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::helpers::drain_insert_history_transcript;
 use super::*;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
@@ -3473,70 +3474,64 @@ async fn slash_rollout_handles_missing_path() {
     );
 }
 
+fn assert_session_tier_request(
+    events: &[AppEvent],
+    thread: ThreadId,
+    generation: uuid::Uuid,
+    tier: &str,
+) {
+    assert!(events.iter().any(|event| matches!(event,
+        AppEvent::SubmitThreadOp { thread_id, op: Op::SelectServiceTier { owner_generation, service_tier: Some(value) } }
+            if *thread_id == thread && *owner_generation == generation && value == tier
+    )), "expected captured session tier request: {events:?}");
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            AppEvent::PersistServiceTierSelection { .. }
+                | AppEvent::CodexOp(Op::OverrideTurnContext { .. })
+        )),
+        "session selection must not persist defaults or optimistically override the turn"
+    );
+}
+
 #[tokio::test]
-async fn fast_slash_command_updates_and_persists_local_service_tier() {
+async fn fast_slash_command_requests_session_tier_without_optimistic_update() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    let thread_id = ThreadId::new();
+    chat.thread_id = Some(thread_id);
     set_fast_mode_test_catalog(&mut chat);
     chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
     chat.bottom_pane.set_task_running(/*running*/ true);
-
+    let before = chat.configured_service_tier();
     submit_composer_text(&mut chat, "/fast");
-
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::CodexOp(Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
-            }) if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected fast-mode override app event; events: {events:?}"
+    assert_session_tier_request(
+        &events,
+        thread_id,
+        chat.thread_runtime_generation,
+        ServiceTier::Fast.request_value(),
     );
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::PersistServiceTierSelection {
-                service_tier: Some(service_tier),
-            }
-            if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected fast-mode persistence app event; events: {events:?}"
-    );
-
+    assert_eq!(chat.configured_service_tier(), before);
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[tokio::test]
 async fn fast_keybinding_toggle_uses_same_events_as_fast_slash_command() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    let thread_id = ThreadId::new();
+    chat.thread_id = Some(thread_id);
     set_fast_mode_test_catalog(&mut chat);
     chat.set_feature_enabled(Feature::FastMode, /*enabled*/ true);
-
+    let before = chat.configured_service_tier();
     chat.toggle_fast_mode_from_ui();
-
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::CodexOp(Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
-            }) if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected fast-mode override app event; events: {events:?}"
+    assert_session_tier_request(
+        &events,
+        thread_id,
+        chat.thread_runtime_generation,
+        ServiceTier::Fast.request_value(),
     );
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::PersistServiceTierSelection {
-                service_tier: Some(service_tier),
-            }
-            if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected fast-mode persistence app event; events: {events:?}"
-    );
-
+    assert_eq!(chat.configured_service_tier(), before);
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
 }
 
@@ -3566,6 +3561,9 @@ async fn user_turn_carries_service_tier_after_fast_toggle() {
     chat.handle_service_tier_command_dispatch(fast_tier_command());
 
     let _events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    // The app-level test covers server acceptance; apply its confirmed widget update here.
+    chat.set_service_tier(Some(ServiceTier::Fast.request_value().into()));
+    chat.set_service_tier_selection_pending(false);
 
     chat.bottom_pane
         .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
@@ -3669,16 +3667,23 @@ async fn queued_fast_slash_applies_before_next_queued_message() {
     complete_turn_with_message(&mut chat, "turn-1", Some("done"));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::CodexOp(Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
-            }) if service_tier == ServiceTier::Fast.request_value()
-        )),
-        "expected queued /fast to update service tier before next turn; events: {events:?}"
+    assert_session_tier_request(
+        &events,
+        chat.thread_id.unwrap(),
+        chat.thread_runtime_generation,
+        ServiceTier::Fast.request_value(),
     );
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    assert!(chat.has_queued_follow_up_messages());
+    chat.set_queue_autosend_suppressed(false);
+    assert!(
+        !chat.maybe_send_next_queued_input(),
+        "generic settings settlement must not bypass tier acceptance"
+    );
+    // Queue progress resumes only after the app applies a confirmed settings ACK.
+    chat.set_service_tier(Some(ServiceTier::Fast.request_value().into()));
+    chat.set_service_tier_selection_pending(false);
+    assert!(chat.maybe_send_next_queued_input());
 
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -3697,6 +3702,35 @@ async fn queued_fast_slash_applies_before_next_queued_message() {
 }
 
 #[tokio::test]
+async fn fast_pending_selection_preserves_following_input_across_runtime_replacement() {
+    let (mut chat, _events, mut ops) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    chat.thread_id = Some(ThreadId::new());
+    set_fast_mode_test_catalog(&mut chat);
+    chat.set_feature_enabled(Feature::FastMode, true);
+    chat.handle_service_tier_command_dispatch(fast_tier_command());
+    queue_composer_text_with_tab(&mut chat, "preserved after unconfirmed tier");
+    let saved = chat.capture_thread_input_state().expect("input snapshot");
+    assert!(saved.recovered_queue);
+    chat.invalidate_background_terminal_owner();
+    assert!(!chat.input_queue.service_tier_selection_pending);
+    assert!(chat.input_queue.recovered_queue);
+    chat.restore_thread_input_state(
+        Some(saved),
+        ThreadInputStateRestoreMode {
+            preserve_in_flight_turn: true,
+        },
+    );
+    assert!(!chat.input_queue.service_tier_selection_pending);
+    assert!(chat.input_queue.recovered_queue);
+    assert_eq!(
+        chat.queued_user_message_texts(),
+        vec!["preserved after unconfirmed tier"]
+    );
+    assert!(!chat.maybe_send_next_queued_input());
+    assert_matches!(ops.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
 async fn user_turn_sends_standard_override_after_fast_is_turned_off() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
     chat.thread_id = Some(ThreadId::new());
@@ -3706,28 +3740,23 @@ async fn user_turn_sends_standard_override_after_fast_is_turned_off() {
 
     chat.handle_service_tier_command_dispatch(fast_tier_command());
     let _events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    chat.set_service_tier(Some(ServiceTier::Fast.request_value().into()));
+    chat.set_service_tier_selection_pending(false);
 
     chat.handle_service_tier_command_dispatch(fast_tier_command());
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::CodexOp(Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
-            }) if service_tier == SERVICE_TIER_DEFAULT_REQUEST_VALUE
-        )),
-        "expected fast-mode off default service tier app event; events: {events:?}"
+    assert_session_tier_request(
+        &events,
+        chat.thread_id.unwrap(),
+        chat.thread_runtime_generation,
+        SERVICE_TIER_DEFAULT_REQUEST_VALUE,
     );
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            AppEvent::PersistServiceTierSelection {
-                service_tier: Some(service_tier)
-            } if service_tier == SERVICE_TIER_DEFAULT_REQUEST_VALUE
-        )),
-        "expected default service tier persistence app event; events: {events:?}"
+    assert_eq!(
+        chat.current_service_tier(),
+        Some(ServiceTier::Fast.request_value())
     );
+    chat.set_service_tier(Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.into()));
+    chat.set_service_tier_selection_pending(false);
 
     chat.bottom_pane
         .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
@@ -3887,4 +3916,28 @@ async fn owned_copy_guard_defers_queued_input_until_released() {
         chat.maybe_send_next_queued_input();
         assert!(chat.input_queue.queued_user_messages.is_empty());
     }
+}
+
+#[tokio::test]
+async fn cron_registration_expands_its_own_large_paste_without_starting_a_turn() {
+    let (mut chat, mut events, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let thread = ThreadId::new();
+    chat.thread_id = Some(thread);
+    handle_turn_started(&mut chat, "manual-active-turn");
+    let paste = "saved-prompt-content ".repeat(200).trim_end().to_string();
+    chat.bottom_pane
+        .set_composer_text("/cron add --every 10m -- ".into(), Vec::new(), Vec::new());
+    chat.handle_paste(paste.clone());
+    submit_current_composer(&mut chat);
+    let (target, args) = loop {
+        match events.try_recv() {
+            Ok(AppEvent::CronCommand { thread_id, args }) => break (thread_id, args),
+            Ok(_) => {}
+            Err(error) => panic!("cron command did not dispatch: {error}"),
+        }
+    };
+    assert_eq!(target, Some(thread));
+    assert_eq!(args, format!("add --every 10m -- {paste}"));
+    assert_no_submit_op(&mut ops);
+    assert!(chat.input_queue.queued_user_messages.is_empty());
 }

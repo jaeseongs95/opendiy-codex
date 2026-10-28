@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use std::fmt;
 use std::path::PathBuf;
 
@@ -99,6 +100,12 @@ impl Serialize for RealtimeSpeechText {
 pub(crate) enum AppCommand {
     Interrupt,
     CleanBackgroundTerminals,
+    BackgroundTerminal {
+        thread_id: ThreadId,
+        owner_generation: uuid::Uuid,
+        item_id: String,
+        process_id: String,
+    },
     RealtimeConversationStart {
         thread_id: ThreadId,
         offer_sdp: RealtimeOfferSdp,
@@ -172,6 +179,13 @@ pub(crate) enum AppCommand {
         response: RequestPermissionsResponse,
     },
     ReloadUserConfig,
+    ReloadPlugins {
+        owner_generation: uuid::Uuid,
+    },
+    SelectServiceTier {
+        owner_generation: uuid::Uuid,
+        service_tier: Option<String>,
+    },
     ListSkills {
         cwds: Vec<PathBuf>,
         force_reload: bool,

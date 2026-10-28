@@ -1,9 +1,13 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use codex_agent_extension::AgentInvocation;
 use codex_agent_extension::AgentRun;
 use codex_agent_extension::AgentRunner;
 use codex_app_server_protocol::ImageReference as V2ImageReference;
+use codex_app_server_protocol::TurnStartIfIdleParams;
+use codex_app_server_protocol::TurnStartIfIdleResponse;
+use codex_core::StartIfIdleSubmission;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
@@ -182,11 +186,42 @@ impl TurnRequestProcessor {
         app_server_client_version: Option<String>,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         validate_user_input_image_urls(&params.input)?;
+        match self
+            .turn_start_inner(
+                request_id,
+                params,
+                app_server_client_name,
+                app_server_client_version,
+                false,
+            )
+            .await?
+        {
+            TurnStartIfIdleResponse::Started { turn } => {
+                Ok(Some(TurnStartResponse { turn }.into()))
+            }
+            _ => unreachable!("ordinary turn submission handles declined input as an error"),
+        }
+    }
+
+    pub(crate) async fn turn_start_if_idle(
+        &self,
+        request_id: ConnectionRequestId,
+        params: TurnStartIfIdleParams,
+        app_server_client_name: Option<String>,
+        app_server_client_version: Option<String>,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        validate_user_input_image_urls(&params.input)?;
         self.turn_start_inner(
             request_id,
-            params,
+            TurnStartParams {
+                thread_id: params.thread_id,
+                input: params.input,
+                turn_trigger: Some("cron".to_string()),
+                ..Default::default()
+            },
             app_server_client_name,
             app_server_client_version,
+            true,
         )
         .await
         .map(|response| Some(response.into()))
@@ -528,7 +563,8 @@ impl TurnRequestProcessor {
         params: TurnStartParams,
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
-    ) -> Result<TurnStartResponse, JSONRPCErrorError> {
+        only_if_idle: bool,
+    ) -> Result<TurnStartIfIdleResponse, JSONRPCErrorError> {
         let (thread_id, thread) =
             self.load_thread(&params.thread_id)
                 .await
@@ -658,30 +694,45 @@ impl TurnRequestProcessor {
             )
             .await?;
 
-        let submission = thread
-            .start_or_steer_turn(
-                TurnInputRequest::new(input)
-                    .with_thread_settings(thread_settings)
-                    .on_start(TurnStartOptions {
-                        turn_trigger: params.turn_trigger,
-                        parent_turn_id: params.parent_turn_id,
-                        initiating_agent_path: None,
-                        root_turn_id: params.root_turn_id,
-                        final_output_json_schema: params.output_schema,
-                        service_tier: params.service_tier_for_turn,
-                        cyber_access_program: params.cyber_access_program.map(Into::into),
-                    })
-                    .with_additional_context(additional_context)
-                    .with_responses_metadata(params.responsesapi_client_metadata)
-                    .with_responses_metadata_patch(params.responsesapi_client_metadata_patch)
-                    .with_trace(self.request_trace_context(&request_id).await),
-            )
-            .await
-            .map_err(|err| {
-                let error = internal_error(format!("failed to submit turn input: {err}"));
-                self.track_error_response(&request_id, &error, /*error_type*/ None);
-                error
-            })?;
+        let input_request = TurnInputRequest::new(input)
+            .with_thread_settings(thread_settings)
+            .on_start(TurnStartOptions {
+                turn_trigger: params.turn_trigger,
+                parent_turn_id: params.parent_turn_id,
+                initiating_agent_path: None,
+                root_turn_id: params.root_turn_id,
+                final_output_json_schema: params.output_schema,
+                service_tier: params.service_tier_for_turn,
+                cyber_access_program: params.cyber_access_program.map(Into::into),
+            })
+            .with_additional_context(additional_context)
+            .with_responses_metadata(params.responsesapi_client_metadata)
+            .with_responses_metadata_patch(params.responsesapi_client_metadata_patch)
+            .with_trace(self.request_trace_context(&request_id).await);
+        let submission = if only_if_idle {
+            thread
+                .start_turn_if_idle(input_request)
+                .await
+                .map(|submission| match submission {
+                    StartIfIdleSubmission::Started {
+                        turn_id,
+                        root_turn_id,
+                    } => TurnInputSubmission::Started {
+                        turn_id,
+                        root_turn_id,
+                    },
+                    StartIfIdleSubmission::NotSubmitted { reason } => {
+                        TurnInputSubmission::NotSubmitted { reason }
+                    }
+                })
+        } else {
+            thread.start_or_steer_turn(input_request).await
+        }
+        .map_err(|err| {
+            let error = internal_error(format!("failed to submit turn input: {err}"));
+            self.track_error_response(&request_id, &error, /*error_type*/ None);
+            error
+        })?;
         let (turn_id, root_turn_id, started) = match submission {
             TurnInputSubmission::Started {
                 turn_id,
@@ -692,6 +743,16 @@ impl TurnRequestProcessor {
                 root_turn_id,
             } => (turn_id, root_turn_id, false),
             TurnInputSubmission::NotSubmitted { reason } => {
+                if only_if_idle {
+                    return Ok(match reason {
+                        NotSubmittedReason::NotIdle | NotSubmittedReason::PendingTriggerTurn => {
+                            TurnStartIfIdleResponse::SkippedBusy
+                        }
+                        reason => TurnStartIfIdleResponse::NotStarted {
+                            reason: format!("{reason:?}"),
+                        },
+                    });
+                }
                 let error = if reason == NotSubmittedReason::ServerDraining {
                     crate::error_code::server_draining_error()
                 } else {
@@ -732,7 +793,7 @@ impl TurnRequestProcessor {
             duration_ms: None,
         };
 
-        Ok(TurnStartResponse { turn })
+        Ok(TurnStartIfIdleResponse::Started { turn })
     }
 
     async fn build_environment_override(
@@ -977,19 +1038,25 @@ impl TurnRequestProcessor {
             .await?;
 
         if thread_settings != codex_protocol::protocol::ThreadSettingsOverrides::default() {
+            let (reply, accepted) = tokio::sync::oneshot::channel();
             self.submit_core_op(
                 request_id,
                 thread.as_ref(),
                 Op::ThreadSettings {
                     thread_settings,
-                    reply: None,
+                    reply: Some(reply),
                 },
             )
             .await
             .map_err(|err| internal_error(format!("failed to update thread settings: {err}")))?;
+            // Core replies before emitting the settings notification, so no event-consumer
+            // progress is required while the serialized request waits for acceptance.
+            await_thread_settings_acceptance(accepted).await?;
         }
 
-        Ok(ThreadSettingsUpdateResponse {})
+        Ok(ThreadSettingsUpdateResponse {
+            settings_applied: Some(true),
+        })
     }
 
     async fn thread_inject_items_response_inner(
@@ -1721,4 +1788,57 @@ fn xcode_26_4_mcp_elicitations_auto_deny(
     // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
     client_name == Some("Xcode")
         && client_version.is_some_and(|version| version.starts_with("26.4"))
+}
+
+async fn await_thread_settings_acceptance(
+    accepted: tokio::sync::oneshot::Receiver<CodexResult<()>>,
+) -> Result<(), JSONRPCErrorError> {
+    accepted
+        .await
+        .map_err(|_| internal_error("thread settings acceptance was not confirmed"))?
+        .map_err(|err| internal_error(format!("failed to apply thread settings: {err}")))
+}
+
+#[cfg(test)]
+mod service_tier_acceptance_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn service_tier_settings_ack_waits_for_core_and_preserves_rejection() {
+        for accepted_by_core in [true, false] {
+            let (reply, accepted) = tokio::sync::oneshot::channel();
+            let mut acceptance = Box::pin(await_thread_settings_acceptance(accepted));
+            assert!(
+                futures::poll!(acceptance.as_mut()).is_pending(),
+                "queue submission is not acceptance"
+            );
+            let result = if accepted_by_core {
+                Ok(())
+            } else {
+                Err(codex_protocol::error::CodexErr::InvalidRequest(
+                    "core rejected settings".into(),
+                ))
+            };
+            reply
+                .send(result)
+                .expect("acceptance receiver remains open");
+            match acceptance.await {
+                Ok(()) => assert!(accepted_by_core),
+                Err(error) => {
+                    assert!(!accepted_by_core);
+                    assert!(error.message.contains("core rejected settings"));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn service_tier_settings_ack_closed_reply_is_not_success() {
+        let (reply, accepted) = tokio::sync::oneshot::channel();
+        drop(reply);
+        let error = await_thread_settings_acceptance(accepted)
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("not confirmed"));
+    }
 }

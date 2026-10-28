@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Regression coverage for conflict diagnostics and validation pass ordering.
 
 use super::RuntimeKeymap;
@@ -164,5 +165,38 @@ fn agents_search_keeps_unshadowed_fallbacks() {
             serde_json::from_value(json!({"list": {"move_up": configured}})).unwrap();
         let runtime = RuntimeKeymap::from_config(&keymap).unwrap();
         assert_eq!(runtime.agents.search, vec![key_hint::plain(remaining)]);
+    }
+}
+
+#[test]
+fn background_default_preserves_existing_keys_and_chord_prefixes() {
+    for (context, action) in [
+        ("global", "open_transcript"),
+        ("editor", "move_left"),
+        ("vim_normal", "move_left"),
+        ("list", "move_up"),
+    ] {
+        for binding in ["f6", "f6 f12"] {
+            let keymap: TuiKeymap =
+                serde_json::from_value(json!({context: {action: binding}})).unwrap();
+            let original = keymap.clone();
+            let runtime = RuntimeKeymap::from_config(&keymap)
+                .expect("new background default must preserve existing configuration");
+            assert!(runtime.chat.background_terminal.is_empty());
+            assert!(
+                runtime
+                    .primary_hint(super::KeymapContext::Chat, "background_terminal")
+                    .is_none()
+            );
+            assert!(
+                runtime
+                    .primary_hint(
+                        super::keymap_action_id(context, action).unwrap().context,
+                        action
+                    )
+                    .is_some()
+            );
+            assert_eq!(keymap, original);
+        }
     }
 }

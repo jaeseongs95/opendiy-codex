@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Exercises origin-bound approval replies through real WebSocket workers.
 
 use super::*;
@@ -22,7 +23,7 @@ use tokio::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 
-async fn connection() -> color_eyre::Result<(
+pub(in crate::app) async fn connection() -> color_eyre::Result<(
     AppServerSession,
     mpsc::UnboundedReceiver<JSONRPCMessage>,
     JoinHandle<color_eyre::Result<()>>,
@@ -49,6 +50,20 @@ async fn connection() -> color_eyre::Result<(
                             }})
                             .to_string()
                             .into(),
+                        ))
+                        .await?;
+                }
+                JSONRPCMessage::Request(request)
+                    if matches!(
+                        request.method.as_str(),
+                        "thread/unsubscribe" | "turn/interrupt"
+                    ) =>
+                {
+                    let id = request.id.clone();
+                    observed.send(JSONRPCMessage::Request(request))?;
+                    socket
+                        .send(Message::Text(
+                            json!({"id":id,"result":{}}).to_string().into(),
                         ))
                         .await?;
                 }
@@ -210,5 +225,88 @@ async fn closed_origin_consumes_reply_without_falling_through() -> color_eyre::R
             .pending_replay_requests()
             .is_empty()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn cron_plain_inactive_thread_approval_keeps_origin_and_store() -> color_eyre::Result<()> {
+    let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+    let (mut origin, mut origin_replies, origin_task) = connection().await?;
+    let (mut other_backend, mut other_replies, other_task) = connection().await?;
+    let registered = ThreadId::new();
+    let displayed = ThreadId::new();
+    app.primary_thread_id = Some(registered);
+    app.active_thread_id = Some(registered);
+    app.ensure_thread_channel(registered);
+    app.ensure_thread_channel(displayed);
+    app.handle_cron_command(
+        &origin,
+        Some(registered),
+        "add --every 10m -- saved prompt".into(),
+    )
+    .await;
+    // A plain conversation, with no side-parent or subagent navigation entry.
+    app.primary_thread_id = Some(displayed);
+    app.active_thread_id = Some(displayed);
+    app.detach_current_thread_for_navigation(&mut origin, Some(displayed))
+        .await;
+    assert!(
+        origin_replies.try_recv().is_err(),
+        "cron-owned A must stay subscribed after selecting B"
+    );
+    assert!(!app.side_threads.contains_key(&registered));
+    assert!(app.agent_navigation.get(&registered).is_none());
+
+    app.handle_app_server_event(
+        &origin,
+        AppServerEvent::ServerRequest(Box::new(command_request(registered))),
+    )
+    .await;
+    assert!(
+        app.chat_widget.has_active_view(),
+        "inactive ordinary A must surface approval in B"
+    );
+    assert_eq!(
+        app.chat_widget.pending_thread_approvals(),
+        &[app.thread_label(registered)]
+    );
+    assert_eq!(app.pending_inactive_thread_requests().await.len(), 1);
+    assert!(
+        origin_replies.try_recv().is_err(),
+        "showing approval cannot approve it automatically"
+    );
+    app.submit_thread_op(
+        &mut other_backend,
+        registered,
+        AppCommand::ExecApproval {
+            id: "command".into(),
+            turn_id: None,
+            decision: CommandExecutionApprovalDecision::Decline,
+        },
+    )
+    .await?;
+    assert_eq!(
+        timeout(Duration::from_secs(5), origin_replies.recv()).await?,
+        Some(JSONRPCMessage::Response(JSONRPCResponse {
+            id: AppServerRequestId::Integer(7),
+            result: json!({"decision":"decline"}),
+        }))
+    );
+    assert!(
+        other_replies.try_recv().is_err(),
+        "approval must return to A's original backend"
+    );
+    assert!(
+        app.thread_event_channels[&registered]
+            .store
+            .lock()
+            .await
+            .pending_replay_requests()
+            .is_empty()
+    );
+    origin.shutdown().await?;
+    other_backend.shutdown().await?;
+    origin_task.await??;
+    other_task.await??;
     Ok(())
 }

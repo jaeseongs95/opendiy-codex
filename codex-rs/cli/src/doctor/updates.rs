@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Diagnoses whether Codex update paths target the running installation.
 //!
 //! Update diagnostics combine cached version metadata, install-channel hints,
@@ -478,7 +479,9 @@ fn is_newer(latest: &str, current: &str) -> Option<bool> {
 }
 
 fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = value.trim().split('.');
+    let value = value.trim();
+    let value = value.split_once('+').map_or(value, |(version, _)| version);
+    let mut parts = value.split('.');
     let major = parts.next()?.parse::<u64>().ok()?;
     let minor = parts.next()?.parse::<u64>().ok()?;
     let patch = parts.next()?.parse::<u64>().ok()?;
@@ -564,6 +567,21 @@ mod tests {
                 assert!(result.is_err(), "{endpoint} must not be accepted");
             }
         }
+    }
+
+    #[test]
+    fn build_metadata_preserves_stable_update_comparisons() {
+        assert_eq!(
+            is_newer("0.166.0", "0.165.0+native-r26.20261028"),
+            Some(true)
+        );
+        assert_eq!(
+            is_newer("0.165.0", "0.165.0+native-r26.20261028"),
+            Some(false)
+        );
+        assert_eq!(is_newer("0.166.0+build.1", "0.165.0"), Some(true));
+        assert_eq!(is_newer("0.166.0-alpha.1+build.1", "0.165.0"), None);
+        assert_eq!(is_newer("0.166.0", "0.165.0-alpha.1+build.1"), None);
     }
 
     #[cfg(target_os = "macos")]

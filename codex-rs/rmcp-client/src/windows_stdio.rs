@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! IOCP-backed MCP output pipes. Quiet servers must not occupy Tokio's filesystem pool.
 
 use std::fs::File;
@@ -10,19 +10,12 @@ use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::net::windows::named_pipe::ServerOptions;
 
 pub(super) fn output_pipe() -> io::Result<(NamedPipeServer, File)> {
-    // Reserve a private unpredictable name before creating the single-instance pipe.
-    // Only the parent's read end is overlapped; ordinary child stdio stays synchronous.
-    let unique = tempfile::Builder::new()
-        .prefix("codex-mcp-stdio-")
-        .rand_bytes(24)
-        .tempdir()?;
+    // Reuse the existing OS-seeded OAuth randomness without creating any filesystem entry.
+    // Keep this unpredictable pipe name private until the first-instance server owns it.
+    // Only the parent's read end is overlapped; child stdio stays synchronous.
     let name = format!(
-        r"\\.\pipe\{}",
-        unique
-            .path()
-            .file_name()
-            .ok_or_else(|| io::Error::other("missing pipe name"))?
-            .to_string_lossy()
+        r"\\.\pipe\codex-mcp-stdio-{}",
+        oauth2::CsrfToken::new_random_len(/*num_bytes*/ 24).secret(),
     );
     let reader = ServerOptions::new()
         .access_inbound(true)

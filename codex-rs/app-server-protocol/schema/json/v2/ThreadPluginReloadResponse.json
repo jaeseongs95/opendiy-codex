@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "The target's user-file configuration and hooks were refreshed. MCP readiness is asynchronous. Shared plugin/skill discovery caches are invalidated; other threads' later discovery may observe disk changes, although their configuration/hooks are not republished by this request.",
+  "properties": {
+    "mcpReconnectRequested": {
+      "description": "Reconnection is requested for the next MCP capture, not confirmed ready.",
+      "type": "boolean"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "warnings": {
+      "description": "Plugin or hook load diagnostics. A nonempty list means a partial refresh.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "mcpReconnectRequested",
+    "threadId",
+    "warnings"
+  ],
+  "title": "ThreadPluginReloadResponse",
+  "type": "object"
+}

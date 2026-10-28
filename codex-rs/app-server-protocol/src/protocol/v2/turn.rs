@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::ApprovalsReviewer;
 use super::AskForApproval;
 use super::SandboxPolicy;
@@ -300,6 +301,25 @@ pub struct TurnStartParams {
     #[experimental("turn/start.cyberAccessProgram")]
     #[ts(optional = nullable)]
     pub cyber_access_program: Option<CyberAccessProgram>,
+}
+
+/// Starts user input only if core atomically admits a new turn. Never steers or queues.
+/// Thread model, environment, and permission settings are inherited and validated by the server.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export_to = "v2/")]
+pub struct TurnStartIfIdleParams {
+    pub thread_id: String,
+    pub input: Vec<UserInput>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(tag = "status", rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub enum TurnStartIfIdleResponse {
+    Started { turn: Turn },
+    SkippedBusy,
+    NotStarted { reason: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::*;
 
 use codex_connectors::ConnectorRuntimeTool;
@@ -98,6 +99,7 @@ impl AppsRequestProcessor {
                         host_owned_codex_apps_enabled(&mcp_config, auth.as_ref())
                             .then(|| Arc::clone(&self.auth_manager));
                     let runtime = McpRuntime::new(McpRuntimeInput {
+                        network_policy_metadata: None,
                         startup_policy: McpStartupPolicy::Eager,
                         config: Arc::clone(&mcp_config),
                         plugins_available: false,
@@ -139,7 +141,12 @@ impl AppsRequestProcessor {
                         ))
                     };
                     cancellation_token.cancel();
-                    runtime.shutdown().await;
+                    runtime.shutdown().await.map_err(|cleanup_error| match &result {
+                        Err(refresh_error) => cleanup_error.context(format!(
+                            "connector refresh also failed: {refresh_error:#}"
+                        )),
+                        Ok(_) => cleanup_error,
+                    })?;
                     result.map(|snapshot| {
                         snapshot_age = Some(snapshot.age());
                         snapshot.tools().to_vec()

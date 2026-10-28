@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::ConnectionSessionState;
 use super::MessageProcessor;
 use super::MessageProcessorArgs;
@@ -743,4 +744,101 @@ async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
     harness.shutdown().await;
 
     Ok(())
+}
+
+#[test]
+#[serial(app_server_tracing)]
+fn queued_mcp_read_accepts_cancel_before_handler_dispatch() -> Result<()> {
+    run_current_thread_test_with_stack("queued-mcp-cancel", async {
+        let mut harness = TracingHarness::new().await?;
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, blocked) = tokio::sync::oneshot::channel();
+        harness
+            .processor
+            .request_serialization_queues
+            .enqueue_background(
+                crate::request_serialization::RequestSerializationQueueKey::Global("mcp-registry"),
+                crate::request_serialization::RequestSerializationAccess::Exclusive,
+                async move {
+                    let _ = entered.send(());
+                    let _ = blocked.await;
+                },
+            )
+            .await;
+        tokio::time::timeout(Duration::from_secs(5), started).await??;
+        let status: JSONRPCRequest = serde_json::from_value(serde_json::json!({
+            "id": 991,
+            "method": "mcpServerStatus/list",
+            "params": {"detail": "full"}
+        }))?;
+        harness
+            .processor
+            .process_request(
+                TEST_CONNECTION_ID,
+                status,
+                &AppServerTransport::Stdio,
+                Arc::clone(&harness.session),
+            )
+            .await;
+        let cancel: JSONRPCRequest = serde_json::from_value(serde_json::json!({
+            "id": 992,
+            "method": "hotfix/mcpRead/cancel",
+            "params": {"requestId": 991}
+        }))?;
+        harness
+            .processor
+            .process_request(
+                TEST_CONNECTION_ID,
+                cancel,
+                &AppServerTransport::Stdio,
+                Arc::clone(&harness.session),
+            )
+            .await;
+        let ack: serde_json::Value = read_response(&mut harness.outgoing_rx, 992).await;
+        assert_eq!(ack, serde_json::json!({}));
+        release.send(()).expect("release queue blocker");
+        loop {
+            let envelope = tokio::time::timeout(Duration::from_secs(5), harness.outgoing_rx.recv())
+                .await?
+                .expect("outgoing channel");
+            let crate::outgoing_message::OutgoingEnvelope::ToConnection {
+                connection_id,
+                message,
+                ..
+            } = envelope
+            else {
+                continue;
+            };
+            if connection_id != TEST_CONNECTION_ID {
+                continue;
+            }
+            match message {
+                crate::outgoing_message::OutgoingMessage::Error(error)
+                    if error.id == RequestId::Integer(991) =>
+                {
+                    assert_eq!(error.error, crate::mcp_read_lifetime::cancelled_error());
+                    break;
+                }
+                crate::outgoing_message::OutgoingMessage::Response(response)
+                    if response.id == RequestId::Integer(991) =>
+                {
+                    panic!("queued cancelled read returned a successful result");
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            !harness
+                .processor
+                .outgoing
+                .cancel_mcp_read(&crate::outgoing_message::ConnectionRequestId {
+                    connection_id: TEST_CONNECTION_ID,
+                    request_id: RequestId::Integer(991),
+                },)
+                .await,
+            "terminal response must release the original cancellation context"
+        );
+        harness.shutdown().await;
+        Ok(())
+    })
 }

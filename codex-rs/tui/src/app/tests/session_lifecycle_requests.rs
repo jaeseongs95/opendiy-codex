@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::*;
 use crate::app_event::TranscriptExportDestination;
 use crate::bottom_pane::BottomPaneView;
@@ -378,6 +379,13 @@ pub(super) enum HistoryCapabilities {
     ThreadStartWhileShuttingDown,
     ThreadStartDuringLegacyShutdown,
     ConfigReadUnsupported(i64),
+    PluginReloadUnsupported,
+    ThreadSettingsUpdateUnsupported,
+    ThreadSettingsUpdateFails,
+    ThreadSettingsUpdateQueueOnly,
+    ThreadSettingsUpdateUnconfirmed,
+    ThreadSettingsUpdateMalformed,
+    ThreadSettingsUpdateReplyLost,
     ConfigReadFails,
     SuperBindingsUnsupported,
     ConfigReadUnknownVoice,
@@ -568,6 +576,12 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                     {
                         continue;
                     }
+                    if history_capabilities == HistoryCapabilities::ThreadSettingsUpdateReplyLost
+                        && request.method == "thread/settings/update"
+                    {
+                        websocket.close(None).await?;
+                        break;
+                    }
                     let request_id = request.id.clone();
                     let params = request.params.as_ref();
                     let requires_pagination = match request.method.as_str() {
@@ -646,6 +660,68 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                                 data: None,
                                 message: "unknown variant `config/read`".to_string(),
                             },
+                        })
+                    } else if history_capabilities == HistoryCapabilities::PluginReloadUnsupported
+                        && request.method == "thread/plugin/reload"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32601,
+                                data: None,
+                                message: "method not found".into(),
+                            },
+                        })
+                    } else if request.method == "thread/settings/update"
+                        && matches!(
+                            history_capabilities,
+                            HistoryCapabilities::ThreadSettingsUpdateUnsupported
+                                | HistoryCapabilities::ThreadSettingsUpdateFails
+                        )
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: if history_capabilities
+                                    == HistoryCapabilities::ThreadSettingsUpdateUnsupported
+                                {
+                                    -32601
+                                } else {
+                                    -32603
+                                },
+                                data: None,
+                                message: if history_capabilities
+                                    == HistoryCapabilities::ThreadSettingsUpdateUnsupported
+                                {
+                                    "method not found".into()
+                                } else {
+                                    "failed to apply thread settings: rejected".into()
+                                },
+                            },
+                        })
+                    } else if request.method == "thread/settings/update"
+                        && history_capabilities
+                            == HistoryCapabilities::ThreadSettingsUpdateQueueOnly
+                    {
+                        JSONRPCMessage::Response(JSONRPCResponse {
+                            id: request_id,
+                            result: serde_json::json!({}),
+                        })
+                    } else if request.method == "thread/settings/update"
+                        && history_capabilities
+                            == HistoryCapabilities::ThreadSettingsUpdateUnconfirmed
+                    {
+                        JSONRPCMessage::Response(JSONRPCResponse {
+                            id: request_id,
+                            result: serde_json::json!({"settingsApplied": false}),
+                        })
+                    } else if request.method == "thread/settings/update"
+                        && history_capabilities
+                            == HistoryCapabilities::ThreadSettingsUpdateMalformed
+                    {
+                        JSONRPCMessage::Response(JSONRPCResponse {
+                            id: request_id,
+                            result: serde_json::json!({"settingsApplied": "unknown"}),
                         })
                     } else if history_capabilities == HistoryCapabilities::ConfigReadFails
                         && request.method == "config/read"

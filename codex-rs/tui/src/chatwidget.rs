@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! The main Codex TUI chat surface.
 //!
 //! `ChatWidget` consumes protocol events, builds and updates history cells, and drives rendering
@@ -625,6 +626,8 @@ pub(crate) struct ChatWidget {
     safety_buffering: SafetyBufferingState,
     task_complete_pending: bool,
     unified_exec_processes: Vec<UnifiedExecProcessSummary>,
+    /// Fences queued thread-runtime commands across widget replacement and backend reconnect.
+    pub(crate) thread_runtime_generation: uuid::Uuid,
     /// Tracks per-server MCP startup state while startup is in progress.
     ///
     /// The map is `Some(_)` from the first startup status update until the
@@ -1511,6 +1514,34 @@ impl ChatWidget {
             })
             .collect();
         self.add_to_history(history_cell::new_unified_exec_processes_output(processes));
+    }
+
+    pub(crate) fn invalidate_background_terminal_owner(&mut self) {
+        if self.input_queue.service_tier_selection_pending {
+            self.retain_input_after_failed_permission_selection();
+            self.set_service_tier_selection_pending(false);
+        }
+        self.thread_runtime_generation = uuid::Uuid::new_v4();
+        self.unified_exec_processes.clear();
+        self.sync_unified_exec_footer();
+    }
+
+    fn background_terminal(&mut self) {
+        let Some(thread_id) = self.thread_id else {
+            self.add_error_message("No active thread; background request was not sent.".into());
+            return;
+        };
+        match self.unified_exec_processes.as_slice() {
+            [process] => {
+                let item_id = process.call_id.clone();
+                let process_id = process.key.clone();
+                if self.submit_op(AppCommand::BackgroundTerminal { thread_id, owner_generation: self.thread_runtime_generation, item_id, process_id }) {
+                    self.add_info_message("Background yield requested; the process and turn remain owned until their normal completion.".into(), None);
+                }
+            }
+            [] => self.add_error_message("No spawned unified-exec terminal in this thread. Approval-pending and unsupported commands cannot be backgrounded.".into()),
+            _ => self.add_error_message("Multiple terminals are present; background target selection is required. No terminal was changed.".into()),
+        }
     }
 
     fn clean_background_terminals(&mut self) {

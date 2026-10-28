@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use codex_utils_absolute_path::test_support::PathExt;
 use pretty_assertions::assert_eq;
 use tracing_subscriber::layer::SubscriberExt;
@@ -5,6 +6,56 @@ use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 use super::*;
+
+#[test]
+fn cache_diagnostic_targets_follow_independent_filter_switches() {
+    for usage_enabled in [false, true] {
+        for wire_enabled in [false, true] {
+            let subscriber = tracing_subscriber::registry().with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::sink)
+                    .with_filter(default_filter_with_cache_diagnostics(
+                        usage_enabled,
+                        wire_enabled,
+                    )),
+            );
+            tracing::subscriber::with_default(subscriber, || {
+                assert_eq!(
+                    tracing::enabled!(target: "codex_api::prompt_cache", tracing::Level::DEBUG),
+                    usage_enabled,
+                );
+                assert_eq!(
+                    tracing::enabled!(target: "codex_api::prompt_cache_wire", tracing::Level::DEBUG),
+                    wire_enabled,
+                );
+                assert!(
+                    !tracing::enabled!(target: "codex_api::prompt_cache_wire", tracing::Level::TRACE)
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn explicit_subscriber_can_enable_wire_diagnostics_when_sqlite_filter_is_off() {
+    let subscriber = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::sink)
+                .with_filter(default_filter_with_cache_diagnostics(false, false)),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::sink)
+                .with_filter(
+                    Targets::new().with_target("codex_api::prompt_cache_wire", LevelFilter::DEBUG),
+                ),
+        );
+    tracing::subscriber::with_default(subscriber, || {
+        assert!(tracing::enabled!(target: "codex_api::prompt_cache_wire", tracing::Level::DEBUG));
+        assert!(!tracing::enabled!(target: "codex_api::prompt_cache", tracing::Level::DEBUG));
+    });
+}
 
 #[tokio::test]
 async fn sqlite_sink_filters_noisy_targets_without_dropping_useful_diagnostics() {

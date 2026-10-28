@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Construction and initial wiring for `ChatWidget`.
 
 use super::*;
@@ -198,6 +199,7 @@ impl ChatWidget {
             safety_buffering: SafetyBufferingState::default(),
             task_complete_pending: false,
             unified_exec_processes: Vec::new(),
+            thread_runtime_generation: uuid::Uuid::new_v4(),
             mcp_startup_status: None,
             mcp_startup_expected_servers: None,
             mcp_startup_ignore_updates_until_next_start: false,

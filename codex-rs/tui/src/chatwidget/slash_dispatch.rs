@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Slash-command dispatch and local-recall handoff for `ChatWidget`.
 //!
 //! `ChatComposer` parses slash input and stages recognized command text for local
@@ -384,6 +385,12 @@ impl ChatWidget {
             SlashCommand::Plan => {
                 self.apply_plan_slash_command();
             }
+            SlashCommand::Cron => {
+                self.app_event_tx.send(AppEvent::CronCommand {
+                    thread_id: self.thread_id(),
+                    args: String::new(),
+                });
+            }
             SlashCommand::Goal => {
                 if !self.config.features.enabled(Feature::Goals) {
                     return;
@@ -591,6 +598,7 @@ impl ChatWidget {
             SlashCommand::Pets => {
                 self.open_pets_picker();
             }
+            SlashCommand::Background => self.background_terminal(),
             SlashCommand::Ps => {
                 self.add_ps_output();
             }
@@ -608,6 +616,18 @@ impl ChatWidget {
             }
             SlashCommand::Apps => {
                 self.add_connectors_output();
+            }
+            SlashCommand::ReloadPlugin => {
+                if let Some(thread_id) = self.thread_id {
+                    self.app_event_tx.send(AppEvent::SubmitThreadOp {
+                        thread_id,
+                        op: AppCommand::ReloadPlugins {
+                            owner_generation: self.thread_runtime_generation,
+                        },
+                    });
+                } else {
+                    self.add_error_message("Plugin reload requires a loaded conversation.".into());
+                }
             }
             SlashCommand::Plugins => {
                 self.add_plugins_output();
@@ -988,6 +1008,12 @@ impl ChatWidget {
                     );
                 }
             }
+            SlashCommand::Cron => {
+                self.app_event_tx.send(AppEvent::CronCommand {
+                    thread_id: self.thread_id(),
+                    args,
+                });
+            }
             SlashCommand::Goal if !trimmed.is_empty() => {
                 if !self.config.features.enabled(Feature::Goals) {
                     if source == SlashCommandDispatchSource::Live {
@@ -1198,7 +1224,11 @@ impl ChatWidget {
                 }
                 SlashCommandItem::ServiceTier(command) => {
                     self.handle_service_tier_command_dispatch(command);
-                    QueueDrain::Continue
+                    if self.input_queue.submissions_paused() {
+                        QueueDrain::Stop
+                    } else {
+                        QueueDrain::Continue
+                    }
                 }
             };
         }
@@ -1295,13 +1325,16 @@ impl ChatWidget {
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig
+            | SlashCommand::Background
             | SlashCommand::Ps
             | SlashCommand::Stop
+            | SlashCommand::Cron
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
+            | SlashCommand::ReloadPlugin
             | SlashCommand::Rollout
             | SlashCommand::Copy
             | SlashCommand::Raw

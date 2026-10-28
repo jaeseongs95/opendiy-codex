@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 // GENERATED CODE! DO NOT MODIFY BY HAND!
 
 export type { Account } from "./Account";
@@ -300,6 +301,7 @@ export type { McpServerOauthClientRegistration } from "./McpServerOauthClientReg
 export type { McpServerOauthLoginCompletedNotification } from "./McpServerOauthLoginCompletedNotification";
 export type { McpServerOauthLoginParams } from "./McpServerOauthLoginParams";
 export type { McpServerOauthLoginResponse } from "./McpServerOauthLoginResponse";
+export type { McpServerRefreshParams } from "./McpServerRefreshParams";
 export type { McpServerRefreshResponse } from "./McpServerRefreshResponse";
 export type { McpServerStartupFailureReason } from "./McpServerStartupFailureReason";
 export type { McpServerStartupState } from "./McpServerStartupState";
@@ -536,6 +538,8 @@ export type { ThreadMetadataGitInfoUpdateParams } from "./ThreadMetadataGitInfoU
 export type { ThreadMetadataUpdateParams } from "./ThreadMetadataUpdateParams";
 export type { ThreadMetadataUpdateResponse } from "./ThreadMetadataUpdateResponse";
 export type { ThreadNameUpdatedNotification } from "./ThreadNameUpdatedNotification";
+export type { ThreadPluginReloadParams } from "./ThreadPluginReloadParams";
+export type { ThreadPluginReloadResponse } from "./ThreadPluginReloadResponse";
 export type { ThreadPredictionResult } from "./ThreadPredictionResult";
 export type { ThreadPredictionUpdatedNotification } from "./ThreadPredictionUpdatedNotification";
 export type { ThreadProjectUpdatedNotification } from "./ThreadProjectUpdatedNotification";
@@ -631,6 +635,8 @@ export type { TurnModerationMetadataNotification } from "./TurnModerationMetadat
 export type { TurnPlanStep } from "./TurnPlanStep";
 export type { TurnPlanStepStatus } from "./TurnPlanStepStatus";
 export type { TurnPlanUpdatedNotification } from "./TurnPlanUpdatedNotification";
+export type { TurnStartIfIdleParams } from "./TurnStartIfIdleParams";
+export type { TurnStartIfIdleResponse } from "./TurnStartIfIdleResponse";
 export type { TurnStartParams } from "./TurnStartParams";
 export type { TurnStartResponse } from "./TurnStartResponse";
 export type { TurnStartedNotification } from "./TurnStartedNotification";

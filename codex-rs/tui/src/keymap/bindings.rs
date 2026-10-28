@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Shared inventory of resolved runtime bindings.
 //!
 //! `/keymap` lookup and chord-prefix conflict detection must inspect the same
@@ -295,6 +296,7 @@ define_runtime_action_bindings! {
         open_presets,
         toggle_voice,
         interrupt_turn,
+        background_terminal,
         decrease_reasoning_effort,
         increase_reasoning_effort,
         previous_permission_mode,

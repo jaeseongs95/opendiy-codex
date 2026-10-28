@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 pub(crate) mod startup;
 
 use crate::PromptCacheKey;
@@ -104,6 +105,7 @@ use codex_otel::auth_storage::AuthStorageOriginator;
 use codex_otel::current_span_trace_id;
 use codex_otel::current_span_w3c_trace_context;
 use codex_otel::set_parent_from_w3c_trace_context;
+use codex_prompts::ResolvedModelMessages;
 use codex_prompts::render_model_instructions;
 use codex_protocol::ResponseUsageMetadata;
 use codex_protocol::SessionId;
@@ -149,10 +151,13 @@ use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::ItemStartedEvent;
 use codex_protocol::protocol::MULTI_AGENT_MODE_OPEN_TAG;
 use codex_protocol::protocol::MultiAgentVersion;
+use codex_protocol::protocol::PrivateSessionEvent;
+use codex_protocol::protocol::PrivateSessionEventPayload;
 use codex_protocol::protocol::RawResponseItemEvent;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::ThreadHistoryMode;
+use codex_protocol::protocol::ThreadSettingsAppliedEvent;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::ThreadSettingsSnapshot;
 use codex_protocol::protocol::ThreadSource;
@@ -481,6 +486,7 @@ impl From<CompactedHistoryMetadata> for CompactedHistoryInstallation<'_> {
 }
 
 pub(crate) struct SessionSpawnArgs {
+    pub(crate) attached_thread: bool,
     pub(crate) startup: Option<Arc<startup::SessionStartup>>,
     pub(crate) config: Config,
     pub(crate) prompt_cache_key: PromptCacheKey,
@@ -601,6 +607,7 @@ impl Session {
             .ensure_config_server_applied()?;
         args.config.validate_windows_mxc_requirement()?;
         let SessionSpawnArgs {
+            attached_thread,
             startup,
             config,
             prompt_cache_key,
@@ -968,6 +975,7 @@ impl Session {
         let session = Box::pin(Session::new(
             startup.clone(),
             session_configuration,
+            attached_thread,
             prompt_cache_key,
             &environment_selections,
             config.clone(),
@@ -1726,11 +1734,26 @@ impl Session {
                 self.state.lock().await.latest_token_usage_record =
                     Self::last_token_usage_record_from_rollout(&rollout_items);
 
-                // Checkpoint effective settings even when no turn follows the resume.
-                self.persist_rollout_items(&[RolloutItem::EventMsg(
-                    thread_settings::applied_event(self).await,
-                )])
-                .await;
+                let thread_id = self.thread_id();
+                let current_settings = self.thread_settings_snapshot().await;
+                let persisted_settings = rollout_items.iter().rev().find_map(|item| match item {
+                    RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event))
+                        if event.thread_id == Some(thread_id) =>
+                    {
+                        Some(&event.thread_settings)
+                    }
+                    _ => None,
+                });
+                // Persist changed effective settings even when no turn follows the resume.
+                if persisted_settings != Some(&current_settings) {
+                    self.persist_rollout_items(&[RolloutItem::EventMsg(
+                        EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
+                            thread_id: Some(thread_id),
+                            thread_settings: current_settings,
+                        }),
+                    )])
+                    .await;
+                }
 
                 // Defer seeding the session's initial context until the first turn starts so
                 // turn/start overrides can be merged before we write model-visible context.
@@ -1781,6 +1804,18 @@ impl Session {
                     }
                 }
                 self.persist_rollout_items(&rollout_items).await;
+                if self.preserve_parent_tool_declarations() {
+                    let notice = DeveloperInstructions::new(
+                        "<mcp_tools>\nMCP tools are unavailable for this request.\n</mcp_tools>",
+                    )
+                    .with_metadata(ContentItemMetadata::tool(/*namespace*/ None));
+                    self.record_conversation_items(
+                        &turn_context,
+                        turn_context.model_info(),
+                        &[ContextualUserFragment::into(notice)],
+                    )
+                    .await;
+                }
 
                 // Agent spawn owns its final durability barrier so it can overlap the edge write.
                 let persist_context = match self.fork_persistence {
@@ -2338,7 +2373,38 @@ impl Session {
         }
     }
 
+    /// Thread-local configuration/hook publication and MCP reconnect request. User-file reload
+    /// also invalidates shared plugin/skill discovery caches, so other threads' later discovery
+    /// may observe disk changes. Existing step captures and in-flight hooks retain their bindings.
+    pub(crate) async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
+        // Await file read/validation and hook rebuild, not MCP connection readiness.
+        self.try_reload_user_config_layer().await?;
+        self.services.mcp_runtime.reconnect_on_next_refresh();
+        self.request_mcp_runtime_refresh();
+        let mut warnings = self.hooks().startup_warnings().to_vec();
+        let config = self.get_config().await;
+        // Plugin discovery/load diagnostics do not establish MCP server readiness.
+        let plugins = self
+            .services
+            .plugins_manager
+            .plugins_for_config(&config.plugins_config_input())
+            .await;
+        warnings.extend(plugins.plugins().iter().filter_map(|plugin| {
+            plugin
+                .error
+                .as_ref()
+                .map(|error| format!("{}: {error}", plugin.config_name))
+        }));
+        Ok(warnings)
+    }
+
     pub(crate) async fn reload_user_config_layer(&self) {
+        if let Err(err) = self.try_reload_user_config_layer().await {
+            warn!(%err, "failed to reload user config layer");
+        }
+    }
+
+    pub(crate) async fn try_reload_user_config_layer(&self) -> anyhow::Result<()> {
         // Refresh layer-backed runtime state for an existing session, including enabled plugin,
         // skill, hook, and MCP feature state. Other feature gates and legacy notify settings
         // remain session-static.
@@ -2377,21 +2443,22 @@ impl Session {
                     Ok(contents) => match toml::from_str::<toml::Value>(&contents) {
                         Ok(config) => config,
                         Err(err) => {
-                            warn!("failed to parse user config while reloading layer: {err}");
-                            return;
+                            return Err(anyhow::anyhow!(
+                                "failed to parse user config while reloading layer: {err}"
+                            ));
                         }
                     },
                     Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                         toml::Value::Table(Default::default())
                     }
                     Err(err) => {
-                        warn!("failed to read user config while reloading layer: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to read user config while reloading layer: {err}"
+                        ));
                     }
                 };
                 let Some(config_dir) = config_toml_path.parent() else {
-                    warn!("user config path has no parent directory");
-                    return;
+                    anyhow::bail!("user config path has no parent directory");
                 };
                 let user_config = match codex_config::loader::resolve_relative_paths_in_config_toml(
                     user_config,
@@ -2399,8 +2466,9 @@ impl Session {
                 ) {
                     Ok(config) => config,
                     Err(err) => {
-                        warn!("failed to resolve paths while reloading user config: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to resolve paths while reloading user config: {err}"
+                        ));
                     }
                 };
                 reloaded_user_configs.push((config_toml_path, user_config));
@@ -2414,8 +2482,9 @@ impl Session {
                 {
                     Ok(config_layer_stack) => config_layer_stack,
                     Err(err) => {
-                        warn!("failed to validate user config while reloading layer: {err}");
-                        return;
+                        return Err(anyhow::anyhow!(
+                            "failed to validate user config while reloading layer: {err}"
+                        ));
                     }
                 };
                 next_config.config_layer_stack = config_layer_stack;
@@ -2429,8 +2498,11 @@ impl Session {
                 .await
             {
                 crate::ConfigRefreshOutcome::Stale => continue,
-                crate::ConfigRefreshOutcome::Published | crate::ConfigRefreshOutcome::Rejected => {
-                    return;
+                crate::ConfigRefreshOutcome::Published => return Ok(()),
+                crate::ConfigRefreshOutcome::Rejected => {
+                    anyhow::bail!(
+                        "user config refresh was rejected; safe MCP restrictions remain applied"
+                    );
                 }
             }
         }
@@ -2741,6 +2813,30 @@ impl Session {
     }
 
     async fn deliver_event_raw(&self, event: Event) {
+        if let Some(parent_tx) = self.parent_observer_event_tx.get() {
+            let forwarded = match &event.msg {
+                EventMsg::RawResponseItem(item) => {
+                    Some(PrivateSessionEventPayload::RecordedItem(item.clone()))
+                }
+                EventMsg::TurnAborted(aborted) => {
+                    Some(PrivateSessionEventPayload::TurnAborted(aborted.clone()))
+                }
+                _ => None,
+            };
+            if let Some(forwarded) = forwarded {
+                // Queue observer events before the private consumer can finish the review.
+                // They bypass the parent's history and retain the reviewer's identity.
+                let _ = parent_tx
+                    .send(Event {
+                        id: event.id.clone(),
+                        msg: EventMsg::PrivateSessionEvent(PrivateSessionEvent {
+                            thread_id: self.thread_id,
+                            event: forwarded,
+                        }),
+                    })
+                    .await;
+            }
+        }
         // Record the last known agent status.
         if let Some(status) = agent_status_from_event(&event.msg) {
             self.agent_status.send_replace(status);
@@ -4022,6 +4118,13 @@ impl Session {
             {
                 extension_data.insert(messages.clone());
             }
+            let model_messages = ResolvedModelMessages::from_model(&settings.model_info);
+            if let Some(messages) = model_messages.history() {
+                extension_data.insert(messages.clone());
+            }
+            if let Some(messages) = model_messages.notes() {
+                extension_data.insert(messages.clone());
+            }
             let (mcp, prepared_recommendations) = tokio::join!(
                 // MCP refresh can be large; keep it off the sampling request's stack.
                 Box::pin(self.mcp_runtime_for_step(
@@ -4462,6 +4565,16 @@ impl Session {
             state.queue_pending_session_start_source(codex_hooks::SessionStartSource::Compact);
         }
         true
+    }
+
+    fn preserve_parent_tool_declarations(&self) -> bool {
+        // Only prediction forks and thread/sample set this marker when they disable MCP.
+        self.enabled(Feature::PredictionPreserveParentTools)
+            && self
+                .services
+                .thread_extension_data
+                .get::<crate::McpServersDisabled>()
+                .is_some()
     }
 
     pub fn enabled(&self, feature: Feature) -> bool {

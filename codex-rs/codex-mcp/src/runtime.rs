@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Runtime support for Model Context Protocol (MCP) servers.
 //!
 //! This module contains the thread-owned MCP runtime and data that describes the
@@ -84,6 +84,8 @@ pub struct McpToolCallResult {
 
 /// Configuration and owning-thread state needed to materialize an MCP runtime.
 pub struct McpRuntimeInput {
+    /// Policy source captured with the configuration and connections in this publication.
+    pub network_policy_metadata: Option<Arc<dyn crate::NetworkPolicyMetadataProvider>>,
     pub startup_policy: McpStartupPolicy,
     pub config: Arc<McpConfig>,
     pub plugins_available: bool,
@@ -886,9 +888,9 @@ impl McpRuntime {
         cancellation.retained_subscription_cancellation = Some(retained);
     }
 
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> anyhow::Result<()> {
         self.elicitation_router.close().await;
-        self.latest_connections().shutdown().await;
+        self.latest_connections().shutdown().await
     }
 }
 
@@ -918,7 +920,10 @@ pub fn apply_http_headers_helper(
 ) -> Result<Arc<dyn HttpClient>, String> {
     if matches!(
         config.disabled_reason,
-        Some(McpServerDisabledReason::Requirements { .. })
+        Some(
+            McpServerDisabledReason::Requirements { .. }
+                | McpServerDisabledReason::ExplicitAndRequirements { .. }
+        )
     ) {
         return Err("the MCP server is disabled by managed requirements".to_string());
     }

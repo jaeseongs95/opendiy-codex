@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! TUI-only out-of-process reconnection. Each attempt initializes a fresh client and rejoins existing
 //! threads using ordinary resume/history semantics. Confirmed submissions are reconciled before
 //! unsent queues resume; uncertain submissions and old async completions remain quarantined.
@@ -213,6 +214,7 @@ impl App {
             return false;
         }
         if !self.reconnect.offline {
+            self.cron.stop();
             #[cfg(target_os = "windows")]
             if self.windows_sandbox_setup_is_local()
                 && let Some(message) = self.chat_widget.initial_user_message.take()
@@ -353,6 +355,8 @@ impl App {
         self.rate_limit_refresh_state.invalidate_recovery();
         session.worktree_source_config_builder = app_server.worktree_source_config_builder.clone();
         session.inherit_task_tool_capabilities(app_server);
+        // A queued foreground request must never bind to the recovered backend epoch.
+        self.chat_widget.invalidate_background_terminal_owner();
         *app_server = session;
         #[cfg(any(target_os = "windows", test))]
         let interrupted_windows_setup = self.windows_sandbox.pending_setup.take().is_some();
