@@ -1740,7 +1740,9 @@ pub struct ThreadPluginReloadParams {
     pub thread_id: String,
 }
 
-/// User-file configuration and hook refresh completed successfully. MCP readiness is asynchronous.
+/// The target's user-file configuration and hooks were refreshed. MCP readiness is asynchronous.
+/// Shared plugin/skill discovery caches are invalidated; other threads' later discovery may
+/// observe disk changes, although their configuration/hooks are not republished by this request.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]

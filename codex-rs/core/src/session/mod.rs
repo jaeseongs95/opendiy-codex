@@ -2372,13 +2372,17 @@ impl Session {
         }
     }
 
-    /// Target-only refresh. Existing step captures and in-flight hooks retain their bindings.
+    /// Thread-local configuration/hook publication and MCP reconnect request. User-file reload
+    /// also invalidates shared plugin/skill discovery caches, so other threads' later discovery
+    /// may observe disk changes. Existing step captures and in-flight hooks retain their bindings.
     pub(crate) async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
+        // Await file read/validation and hook rebuild, not MCP connection readiness.
         self.try_reload_user_config_layer().await?;
         self.services.mcp_runtime.reconnect_on_next_refresh();
         self.request_mcp_runtime_refresh();
         let mut warnings = self.hooks().startup_warnings().to_vec();
         let config = self.get_config().await;
+        // Plugin discovery/load diagnostics do not establish MCP server readiness.
         let plugins = self
             .services
             .plugins_manager

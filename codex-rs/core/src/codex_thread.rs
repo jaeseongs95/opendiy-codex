@@ -1106,8 +1106,10 @@ impl CodexThread {
         .await
     }
 
-    /// Reloads this thread's user-file plugin, skill and hook state without interrupting a turn.
-    /// MCP reconnection is requested for the next capture; this does not await server readiness.
+    /// Publishes this thread's user-file configuration and hooks without interrupting a turn.
+    /// Plugin/skill discovery caches are shared and invalidated; later reads by other threads
+    /// may rediscover changed files. Their configuration and hooks are not republished here.
+    /// Only this thread requests MCP reconnection for the next capture; readiness is not awaited.
     pub async fn reload_plugins(&self) -> anyhow::Result<Vec<String>> {
         anyhow::ensure!(self.is_running(), "thread runtime is shutting down");
         let warnings = Box::pin(self.session.reload_plugins()).await?;

@@ -347,7 +347,8 @@ fn plugin_target(id: ThreadId) -> codex_app_server_protocol::ThreadPluginReloadP
 }
 
 #[tokio::test]
-async fn plugin_reload_changes_only_target_runtime_without_writing_config() -> anyhow::Result<()> {
+async fn plugin_reload_publishes_only_target_configuration_without_writing_config()
+-> anyhow::Result<()> {
     let fixture = Fixture::new().await?;
     let (id, thread) = fixture.thread().await?;
     let (_, other) = fixture.thread().await?;
@@ -369,6 +370,8 @@ async fn plugin_reload_changes_only_target_runtime_without_writing_config() -> a
             .as_bool(),
         Some(false)
     );
+    // This proves no configuration publication on B. Plugin/skill discovery caches are shared:
+    // B's later discovery may see changed files; complete future-capture isolation is not promised.
     assert!(Arc::ptr_eq(&other_before, &other.config().await));
     assert_eq!(std::fs::read_to_string(file)?, contents);
     Ok(())
