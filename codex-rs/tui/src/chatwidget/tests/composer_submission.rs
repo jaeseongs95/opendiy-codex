@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::*;
 use crate::app_event::ConnectorsSnapshot;
 use crate::bottom_pane::RestrictedInputMode;
@@ -2905,4 +2906,29 @@ fn image_preparation_keeps_input_responsive_and_preserves_pending_input() {
                 assert!(chat.pending_image_submission.is_none());
             });
     }
+}
+
+#[tokio::test]
+async fn reload_plugin_captures_thread_preserves_draft_and_runs_while_busy() {
+    let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
+    let original = ThreadId::new();
+    chat.thread_id = Some(original);
+    chat.turn_lifecycle.agent_turn_running = true;
+    chat.bottom_pane
+        .set_composer_text("keep this draft".into(), Vec::new(), Vec::new());
+    while events.try_recv().is_ok() {}
+    chat.handle_slash_command_dispatch(SlashCommand::ReloadPlugin);
+    chat.thread_id = Some(ThreadId::new());
+    let (thread_id, op) = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            AppEvent::SubmitThreadOp { thread_id, op } => Some((thread_id, op)),
+            _ => None,
+        })
+        .expect("thread-scoped reload");
+    assert_eq!(thread_id, original);
+    assert!(matches!(op, AppCommand::ReloadPlugins { owner_generation }
+        if owner_generation == chat.thread_runtime_generation));
+    assert_eq!(chat.bottom_pane.composer_text(), "keep this draft");
+    assert!(chat.turn_lifecycle.agent_turn_running);
+    assert!(operations.try_recv().is_err());
 }

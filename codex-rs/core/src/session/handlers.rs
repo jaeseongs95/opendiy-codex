@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::Submission;
 use crate::WithTurnExtensionData;
 use crate::realtime_conversation::handle_audio as handle_realtime_conversation_audio;
@@ -330,7 +331,17 @@ pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
     {
         let _refresh = sess.mcp_refresh.acquire().await;
         sess.mcp_refresh.close();
-        sess.services.mcp_runtime.shutdown().await;
+        if let Err(error) = sess.services.mcp_runtime.shutdown().await {
+            sess.services.local_agent_runtime.record_shutdown_failure(
+                AgentTreeShutdownFailure::operation_failed(
+                    "session_shutdown",
+                    "mcp",
+                    Some(sess.thread_id),
+                    "mcp_cleanup_unconfirmed",
+                ),
+            );
+            warn!(%error, "MCP session cleanup remains unconfirmed");
+        }
     }
 
     sess.drain_code_mode_messages().await;

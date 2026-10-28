@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Thread routing, buffering, and app-server operation submission for the TUI app.
 //!
 //! This module manages active thread channels, routes server requests and notifications into those
@@ -505,6 +506,16 @@ impl App {
         op: AppCommand,
     ) -> Result<()> {
         if self.thread_unavailable(thread_id) {
+            if let AppCommand::SelectServiceTier {
+                owner_generation, ..
+            } = &op
+                && self.chat_widget.thread_id() == Some(thread_id)
+                && *owner_generation == self.chat_widget.thread_runtime_generation
+            {
+                self.chat_widget
+                    .retain_input_after_failed_permission_selection();
+                self.chat_widget.set_service_tier_selection_pending(false);
+            }
             if let AppCommand::RealtimeConversationSpeech { delivery_id, .. } = &op {
                 self.chat_widget
                     .restore_undelivered_realtime_speech(*delivery_id);
@@ -523,6 +534,16 @@ impl App {
             return Ok(());
         }
         if self.chat_widget.rejects_misalignment_policy_op(&op) {
+            if let AppCommand::SelectServiceTier {
+                owner_generation, ..
+            } = &op
+                && self.chat_widget.thread_id() == Some(thread_id)
+                && *owner_generation == self.chat_widget.thread_runtime_generation
+            {
+                self.chat_widget
+                    .retain_input_after_failed_permission_selection();
+                self.chat_widget.set_service_tier_selection_pending(false);
+            }
             if let AppCommand::RealtimeConversationSpeech { delivery_id, .. } = &op {
                 self.chat_widget
                     .restore_undelivered_realtime_speech(*delivery_id);
@@ -775,6 +796,31 @@ impl App {
                 self.chat_widget.on_review_started();
                 Ok(true)
             }
+            AppCommand::BackgroundTerminal {
+                thread_id: owner_thread,
+                owner_generation,
+                item_id,
+                process_id,
+            } => {
+                if *owner_thread != thread_id
+                    || self.chat_widget.thread_id() != Some(*owner_thread)
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale background target after thread/backend change; no request was sent."
+                            .into(),
+                    );
+                    return Ok(true);
+                }
+                app_server
+                    .thread_background_terminal_yield(
+                        thread_id,
+                        item_id.clone(),
+                        process_id.clone(),
+                    )
+                    .await?;
+                Ok(true)
+            }
             AppCommand::CleanBackgroundTerminals => {
                 app_server
                     .thread_background_terminals_clean(thread_id)
@@ -842,6 +888,107 @@ impl App {
                 app_server
                     .thread_shell_command(thread_id, command.to_string())
                     .await?;
+                Ok(true)
+            }
+            AppCommand::SelectServiceTier {
+                owner_generation,
+                service_tier,
+            } => {
+                if self.chat_widget.thread_id() != Some(thread_id)
+                    || self.current_displayed_thread_id() != Some(thread_id)
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale service tier selection after conversation/backend change or reconnect; no request was sent. Select the tier again in the displayed conversation.".into(),
+                    );
+                    return Ok(true);
+                }
+                if !self
+                    .chat_widget
+                    .can_select_service_tier(service_tier.as_deref())
+                {
+                    self.chat_widget
+                        .retain_input_after_failed_permission_selection();
+                    self.chat_widget.set_service_tier_selection_pending(false);
+                    self.chat_widget.add_error_message(
+                        "Service tier selection is no longer available for this model; queued input was retained.".into(),
+                    );
+                    return Ok(true);
+                }
+                let params = codex_app_server_protocol::ThreadSettingsUpdateParams {
+                    thread_id: thread_id.to_string(),
+                    service_tier: Some(service_tier.clone()),
+                    ..Default::default()
+                };
+                match app_server.thread_settings_update_confirmed(params).await {
+                    Ok(true) => {
+                        self.chat_widget.set_service_tier(service_tier.clone());
+                        self.sync_active_thread_service_tier_to_cached_session()
+                            .await;
+                        self.chat_widget.add_info_message(
+                            format!(
+                                "Service tier set to {} for this conversation only",
+                                service_tier.as_deref().unwrap_or("model default")
+                            ),
+                            None,
+                        );
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.maybe_send_next_queued_input();
+                    }
+                    Ok(false) => {
+                        self.chat_widget
+                            .retain_input_after_failed_permission_selection();
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.add_error_message(
+                            "Service tier selection requires a backend that confirms thread/settings/update application. The current selection and queued input were retained.".into(),
+                        );
+                    }
+                    Err(err) => {
+                        self.chat_widget
+                            .retain_input_after_failed_permission_selection();
+                        self.chat_widget.set_service_tier_selection_pending(false);
+                        self.chat_widget.add_error_message(format!(
+                            "Service tier selection was not confirmed: {err:#}. The current selection and queued input were retained."
+                        ));
+                    }
+                }
+                Ok(true)
+            }
+            AppCommand::ReloadPlugins { owner_generation } => {
+                // Fail closed after any screen replacement, including another conversation on
+                // the same backend. A thread UUID alone cannot identify a backend runtime.
+                if self.chat_widget.thread_id() != Some(thread_id)
+                    || *owner_generation != self.chat_widget.thread_runtime_generation
+                {
+                    self.chat_widget.add_error_message(
+                        "Stale plugin reload after conversation/backend change or reconnect; no request was sent. Run /reload_plugin again in the displayed conversation.".into(),
+                    );
+                    return Ok(true);
+                }
+                match app_server.reload_plugins(thread_id).await {
+                    Ok(response)
+                        if response.thread_id == thread_id.to_string()
+                            && response.mcp_reconnect_requested =>
+                    {
+                        let message = format!(
+                            "Reloaded plugin configuration for {thread_id}. MCP reconnect requested for the next capture; server readiness is not yet confirmed."
+                        );
+                        if response.warnings.is_empty() {
+                            self.chat_widget.add_info_message(message, None);
+                        } else {
+                            self.chat_widget.add_error_message(format!(
+                                "{message} Partial refresh warnings:\n{}",
+                                response.warnings.join("\n")
+                            ));
+                        }
+                    }
+                    Ok(_) => self.chat_widget.add_error_message(format!(
+                        "Plugin reload returned an invalid acknowledgement for {thread_id}."
+                    )),
+                    Err(err) => self.chat_widget.add_error_message(format!(
+                        "Plugin reload failed for {thread_id}: {err:#}"
+                    )),
+                }
                 Ok(true)
             }
             AppCommand::ReloadUserConfig => {

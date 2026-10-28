@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -720,6 +721,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadMemoryModeSetResponse,
     },
+    #[experimental("thread/memory/read")]
+    ThreadMemoryRead => "thread/memory/read" {
+        params: v2::ThreadMemoryReadParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadMemoryReadResponse,
+    },
     #[experimental("memory/status")]
     MemoryStatus => "memory/status" {
         params: v2::MemoryStatusParams,
@@ -770,6 +777,12 @@ client_request_definitions! {
         params: v2::ThreadBackgroundTerminalsListParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadBackgroundTerminalsListResponse,
+    },
+    #[experimental("thread/backgroundTerminals/yield")]
+    ThreadBackgroundTerminalsYield => "thread/backgroundTerminals/yield" {
+        params: v2::ThreadBackgroundTerminalsYieldParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadBackgroundTerminalsYieldResponse,
     },
     #[experimental("thread/backgroundTerminals/terminate")]
     ThreadBackgroundTerminalsTerminate => "thread/backgroundTerminals/terminate" {
@@ -867,6 +880,12 @@ client_request_definitions! {
         params: v2::ThreadLoadedListParams,
         serialization: None,
         response: v2::ThreadLoadedListResponse,
+    },
+    /// Reload plugin runtime configuration for one already-loaded thread.
+    ThreadPluginReload => "thread/plugin/reload" {
+        params: v2::ThreadPluginReloadParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadPluginReloadResponse,
     },
     ThreadRead => "thread/read" {
         params: v2::ThreadReadParams,
@@ -1067,6 +1086,11 @@ client_request_definitions! {
         serialization: global("config"),
         response: v2::PluginUninstallResponse,
     },
+    TurnStartIfIdle => "turn/startIfIdle" {
+        params: v2::TurnStartIfIdleParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::TurnStartIfIdleResponse,
+    },
     TurnStart => "turn/start" {
         params: v2::TurnStartParams,
         inspect_params: true,
@@ -1263,7 +1287,7 @@ client_request_definitions! {
     },
 
     McpServerRefresh => "config/mcpServer/reload" {
-        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        params: #[ts(optional = nullable, as = "Option<v2::McpServerRefreshParams>")] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableMcpServerRefreshParams,
         serialization: global("mcp-registry"),
         response: v2::McpServerRefreshResponse,
     },
@@ -4037,6 +4061,26 @@ mod tests {
                 }
             }),
             serde_json::to_value(&request)?,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_thread_background_terminals_yield_exact_target() -> Result<()> {
+        let request = ClientRequest::ThreadBackgroundTerminalsYield {
+            request_id: RequestId::Integer(8),
+            params: v2::ThreadBackgroundTerminalsYieldParams {
+                thread_id: "thr_owned".into(),
+                item_id: "call_owned".into(),
+                process_id: "42".into(),
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&request)?,
+            json!({
+                "method": "thread/backgroundTerminals/yield", "id": 8,
+                "params": { "threadId": "thr_owned", "itemId": "call_owned", "processId": "42" }
+            })
         );
         Ok(())
     }

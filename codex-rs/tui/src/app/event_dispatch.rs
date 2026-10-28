@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain
@@ -91,6 +92,9 @@ impl App {
                     | AppEvent::BeginThreadSwitchHistoryReplayBuffer
                     | AppEvent::EndInitialHistoryReplayBuffer
                     | AppEvent::FatalExitRequest(_)
+                    | AppEvent::CronCommand { .. }
+                    | AppEvent::CronReply(_)
+                    | AppEvent::CronCancelReply(_)
             )
         {
             return Ok(AppRunControl::Continue);
@@ -163,6 +167,9 @@ impl App {
             event => (event, None),
         };
         match event {
+            AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
+            AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,
+            AppEvent::CronCancelReply(reply) => self.handle_cron_cancel_reply(*reply),
             AppEvent::OpenDaemonMenu => self.open_daemon_menu(),
             AppEvent::ConfirmDaemonRestart => self.confirm_daemon_restart(),
             AppEvent::RunDaemonRestart => {

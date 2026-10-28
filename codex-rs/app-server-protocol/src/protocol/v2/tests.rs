@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::*;
 use crate::ServerNotification;
 use codex_protocol::approvals::ElicitationRequest as CoreElicitationRequest;
@@ -3054,6 +3055,7 @@ fn network_requirements_deserializes_legacy_fields() {
             dangerously_allow_non_loopback_proxy: None,
             dangerously_allow_all_unix_sockets: None,
             domains: None,
+            review_domains: None,
             managed_allowed_domains_only: None,
             allowed_domains: Some(vec!["api.openai.com".to_string()]),
             denied_domains: Some(vec!["blocked.example.com".to_string()]),
@@ -3080,6 +3082,7 @@ fn network_requirements_serializes_canonical_and_legacy_fields() {
                 NetworkDomainPermission::Deny,
             ),
         ])),
+        review_domains: Some(vec!["api.openai.com".to_string()]),
         managed_allowed_domains_only: Some(true),
         allowed_domains: Some(vec!["api.openai.com".to_string()]),
         denied_domains: Some(vec!["blocked.example.com".to_string()]),
@@ -3110,6 +3113,7 @@ fn network_requirements_serializes_canonical_and_legacy_fields() {
                 "api.openai.com": "allow",
                 "blocked.example.com": "deny"
             },
+            "reviewDomains": ["api.openai.com"],
             "managedAllowedDomainsOnly": true,
             "allowedDomains": ["api.openai.com"],
             "deniedDomains": ["blocked.example.com"],
@@ -3890,6 +3894,67 @@ fn hook_handler_metadata_only_exposes_async_for_commands() {
             "server": "security",
             "tool": "scan",
         }),
+    );
+}
+
+#[test]
+fn mcp_server_reload_preserves_legacy_and_targeted_wire_formats() {
+    for params in [None, Some(json!(null))] {
+        let mut value = json!({"method": "config/mcpServer/reload", "id": 1});
+        if let Some(params) = params {
+            value["params"] = params;
+        }
+        let request: crate::ClientRequest = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            request,
+            crate::ClientRequest::McpServerRefresh { params: None, .. }
+        ));
+    }
+    for params in [json!({}), json!({"threadId": null})] {
+        let request: crate::ClientRequest = serde_json::from_value(json!({
+            "method": "config/mcpServer/reload",
+            "id": 1,
+            "params": params,
+        }))
+        .unwrap();
+        assert!(matches!(
+            request,
+            crate::ClientRequest::McpServerRefresh {
+                params: Some(McpServerRefreshParams { thread_id: None }),
+                ..
+            }
+        ));
+    }
+    let request = crate::ClientRequest::McpServerRefresh {
+        request_id: crate::RequestId::Integer(1),
+        params: Some(McpServerRefreshParams {
+            thread_id: Some("thread-1".to_string()),
+        }),
+    };
+    let value = json!({
+        "method": "config/mcpServer/reload",
+        "id": 1,
+        "params": {"threadId": "thread-1"},
+    });
+    assert_eq!(serde_json::to_value(&request).unwrap(), value);
+    assert_eq!(
+        serde_json::from_value::<crate::ClientRequest>(value).unwrap(),
+        request
+    );
+    assert_eq!(
+        serde_json::from_value::<McpServerRefreshParams>(json!({})).unwrap(),
+        McpServerRefreshParams::default()
+    );
+    assert_eq!(
+        serde_json::to_value(McpServerRefreshResponse::default()).unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        serde_json::to_value(McpServerRefreshResponse {
+            reconnect_queued_for_thread_id: Some("thread-1".to_string()),
+        })
+        .unwrap(),
+        json!({"reconnectQueuedForThreadId": "thread-1"})
     );
 }
 
@@ -5479,6 +5544,36 @@ fn feedback_paths_preserve_native_wire_spelling_before_host_validation() {
         assert_eq!(
             serde_json::to_value(response).expect("serialize response")["savedPath"],
             path
+        );
+    }
+}
+
+#[test]
+fn start_if_idle_wire_has_explicit_outcomes_and_no_screen_setting_overrides() {
+    use super::{TurnStartIfIdleParams, TurnStartIfIdleResponse};
+    assert_eq!(
+        serde_json::to_value(TurnStartIfIdleResponse::SkippedBusy).unwrap(),
+        json!({"status":"skippedBusy"})
+    );
+    assert_eq!(
+        serde_json::to_value(TurnStartIfIdleResponse::NotStarted {
+            reason: "ServerDraining".into()
+        })
+        .unwrap(),
+        json!({"status":"notStarted","reason":"ServerDraining"})
+    );
+    let valid = json!({"threadId":"registered-thread","input":[{"type":"text","text":"saved prompt","text_elements":[]}]});
+    assert!(serde_json::from_value::<TurnStartIfIdleParams>(valid.clone()).is_ok());
+    for (field, value) in [
+        ("model", json!("screen-model")),
+        ("approvalPolicy", json!("never")),
+        ("cwd", json!("screen-cwd")),
+    ] {
+        let mut invalid = valid.clone();
+        invalid[field] = value;
+        assert!(
+            serde_json::from_value::<TurnStartIfIdleParams>(invalid).is_err(),
+            "{field} must not override target-thread settings"
         );
     }
 }

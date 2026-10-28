@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 [workspace]
 members = [
     "aws-auth",
@@ -69,6 +70,7 @@ members = [
     "ext/git-attribution",
     "ext/guardian-reviewer",
     "ext/guardian-v2",
+    "ext/guardian-v3",
     "ext/history-notes",
     "ext/image-generation",
     "ext/items",
@@ -165,7 +167,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.164.0-alpha.11.1"
+version = "0.165.0+native-r26.20261028"
 # Track the edition for all workspace crates in one place. Individual
 # crates can still override this value, but keeping it here means new
 # crates created with `cargo new -w ...` automatically inherit the 2024

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Runtime keymap resolution for the TUI.
 //!
 //! This module converts deserialized config (`TuiKeymap`) into a concrete
@@ -139,6 +140,7 @@ pub(crate) struct ChatKeymap {
     pub(crate) chord_hints: Arc<RuntimeChordKeymap>,
     /// Interrupt the active turn.
     pub(crate) interrupt_turn: Vec<KeyBinding>,
+    pub(crate) background_terminal: Vec<KeyBinding>,
     /// Decrease the active reasoning effort.
     pub(crate) decrease_reasoning_effort: Vec<KeyBinding>,
     /// Increase the active reasoning effort.
@@ -779,6 +781,20 @@ impl RuntimeKeymap {
                         && binding.chord.prefix.parts() == key_hint::plain(KeyCode::F(8)).parts()
                 }));
 
+        // New background shortcuts yield to existing custom keys and chord prefixes.
+        let background_terminal_defaults: Vec<_> = defaults
+            .chat
+            .background_terminal
+            .iter()
+            .copied()
+            .filter(|binding| {
+                !configured_context_binding_is_used(keymap, *binding)
+                    && !chords.bindings.iter().any(|chord| {
+                        chord.chord.prefix.normalized_parts() == binding.normalized_parts()
+                    })
+            })
+            .collect();
+
         let mut chat = ChatKeymap {
             open_presets: resolve_local!(keymap, defaults, chat, open_presets),
             toggle_voice: if voice_toggle_default_is_shadowed {
@@ -800,6 +816,11 @@ impl RuntimeKeymap {
                 )?
             },
             chord_hints: Arc::clone(&chords),
+            background_terminal: resolve_bindings(
+                keymap.chat.background_terminal.as_ref(),
+                &background_terminal_defaults,
+                "tui.keymap.chat.background_terminal",
+            )?,
             interrupt_turn: resolve_bindings(
                 keymap.chat.interrupt_turn.as_ref(),
                 &defaults.chat.interrupt_turn,
@@ -1693,6 +1714,7 @@ impl RuntimeKeymap {
                 toggle_voice_mute: default_bindings![plain(KeyCode::F(9))],
                 chord_hints: Arc::default(),
                 interrupt_turn: default_bindings![plain(KeyCode::Esc)],
+                background_terminal: default_bindings![plain(KeyCode::F(6))],
                 decrease_reasoning_effort: default_bindings![
                     alt(KeyCode::Char(',')),
                     shift(KeyCode::Down)
@@ -2000,6 +2022,7 @@ impl RuntimeKeymap {
         for (action, bindings) in [
             ("open_presets", &self.chat.open_presets),
             ("toggle_voice", &self.chat.toggle_voice),
+            ("background_terminal", &self.chat.background_terminal),
             (
                 "previous_permission_mode",
                 &self.chat.previous_permission_mode,
@@ -2023,6 +2046,7 @@ impl RuntimeKeymap {
             ("global.open_agents", &self.app.open_agents),
             ("chat.open_presets", &self.chat.open_presets),
             ("chat.toggle_voice", &self.chat.toggle_voice),
+            ("chat.background_terminal", &self.chat.background_terminal),
         ] {
             if bindings.contains(&key_hint::ctrl(KeyCode::Char('z'))) {
                 return Err(format!(
@@ -2071,6 +2095,10 @@ impl RuntimeKeymap {
                 self.chat.toggle_voice_mute.as_slice(),
             ),
             ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
+            (
+                "chat.background_terminal",
+                self.chat.background_terminal.as_slice(),
+            ),
             (
                 "chat.decrease_reasoning_effort",
                 self.chat.decrease_reasoning_effort.as_slice(),
@@ -2234,6 +2262,10 @@ impl RuntimeKeymap {
                 ),
                 ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
                 (
+                    "chat.background_terminal",
+                    self.chat.background_terminal.as_slice(),
+                ),
+                (
                     "chat.decrease_reasoning_effort",
                     self.chat.decrease_reasoning_effort.as_slice(),
                 ),
@@ -2330,8 +2362,15 @@ impl RuntimeKeymap {
             KeymapContext::VimNormal,
             KeymapContext::VimOperator,
             KeymapContext::VimTextObject,
+            KeymapContext::VimSearch,
         ] {
-            validate_unique(context.config_name(), context_bindings(context))?;
+            validate_unique(
+                context.config_name(),
+                context_bindings(context).chain([(
+                    "chat.background_terminal",
+                    self.chat.background_terminal.as_slice(),
+                )]),
+            )?;
         }
 
         validate_unique("pager", context_bindings(KeymapContext::Pager))?;
@@ -3857,6 +3896,84 @@ mod tests {
         keymap.composer.submit = Some(one("ctrl-v"));
 
         expect_conflict(&keymap, "composer.submit", "fixed.paste_image");
+    }
+
+    #[test]
+    fn background_terminal_default_remap_and_conflict_preserve_custom_config() {
+        let mut keymap = TuiKeymap::default();
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("default keymap");
+        assert_eq!(
+            runtime.chat.background_terminal,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        assert!(
+            runtime
+                .editor
+                .move_left
+                .contains(&key_hint::ctrl(KeyCode::Char('b')))
+        );
+        keymap.global.open_transcript = Some(one("f6"));
+        let custom = keymap.clone();
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("existing shortcut survives");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.app.open_transcript,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        assert_eq!(keymap, custom);
+        keymap.chat.background_terminal = Some(one("f6"));
+        expect_conflict(&keymap, "open_transcript", "chat.background_terminal");
+        keymap.chat.background_terminal = None;
+        let mut editor_custom = TuiKeymap::default();
+        editor_custom.editor.move_left = Some(one("f6"));
+        let runtime = RuntimeKeymap::from_config(&editor_custom).expect("existing editor shortcut");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.editor.move_left,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        editor_custom.chat.background_terminal = Some(one("f6"));
+        expect_conflict(
+            &editor_custom,
+            "chat.background_terminal",
+            "editor.move_left",
+        );
+
+        let mut vim_custom = TuiKeymap::default();
+        vim_custom.vim_normal.move_left = Some(one("f6"));
+        let runtime = RuntimeKeymap::from_config(&vim_custom).expect("existing Vim shortcut");
+        assert!(runtime.chat.background_terminal.is_empty());
+        assert_eq!(
+            runtime.vim_normal.move_left,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        vim_custom.chat.background_terminal = Some(one("f6"));
+        expect_conflict(&vim_custom, "move_left", "chat.background_terminal");
+        let mut text_custom = TuiKeymap::default();
+        text_custom.chat.background_terminal = Some(one("b"));
+        assert!(
+            RuntimeKeymap::from_config(&text_custom)
+                .unwrap_err()
+                .contains("printable")
+        );
+        keymap.chat.background_terminal = Some(one("f12"));
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("explicit custom binding");
+        assert_eq!(
+            runtime.chat.background_terminal,
+            vec![key_hint::plain(KeyCode::F(12))]
+        );
+        assert_eq!(
+            runtime.app.open_transcript,
+            vec![key_hint::plain(KeyCode::F(6))]
+        );
+        keymap.chat.background_terminal = Some(KeybindingsSpec::Many(vec![]));
+        assert!(
+            RuntimeKeymap::from_config(&keymap)
+                .expect("unbound")
+                .chat
+                .background_terminal
+                .is_empty()
+        );
     }
 
     #[test]

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Session- and turn-scoped helpers for talking to model provider APIs.
 //!
 //! `ModelClient` is intended to live for the lifetime of a Codex session and holds the stable
@@ -297,6 +298,7 @@ pub struct ModelClient {
 pub struct ModelClientSession {
     client: ModelClient,
     websocket_session: WebsocketSession,
+    capacity_retry_owner: Option<Option<u64>>,
     /// Turn state for sticky routing.
     ///
     /// This is an `OnceLock` that stores the turn state value received from the server
@@ -702,6 +704,7 @@ impl ModelClient {
         ModelClientSession {
             client: self.clone(),
             websocket_session,
+            capacity_retry_owner: None,
             turn_state: Arc::new(OnceLock::new()),
         }
     }
@@ -1464,6 +1467,20 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn bind_capacity_retry_owner(&mut self, owner: Option<u64>) {
+        self.capacity_retry_owner = Some(owner);
+    }
+
+    pub(crate) fn capacity_retry_owner(&self) -> Option<Option<u64>> {
+        self.capacity_retry_owner
+    }
+
+    /// A dropped request setup has no response to drain. Discard its socket and
+    /// continuation before yielding to new input, without changing transport policy.
+    pub(crate) fn discard_interrupted_stream(&mut self) {
+        self.websocket_session.reset(Some("other"));
+    }
+
     pub(crate) fn inference_tools_changed(&self, tools: &Arc<[ToolSpec]>) -> bool {
         let previous = self
             .client
@@ -1917,6 +1934,17 @@ impl ResponsesHttpExecutor<'_> {
                 request.input = input;
             }
             inference_trace_attempt.record_started(&request);
+            if expected_auth_owner.is_some_and(|owner| {
+                Some(owner) != client_setup.auth_owner_generation
+                    || Some(owner) != self.client.auth_owner_generation()
+            }) {
+                inference_trace_attempt.record_cancelled(
+                    "capacity retry auth owner changed before dispatch",
+                    None,
+                    &[],
+                );
+                return Err(CodexErr::TurnAborted);
+            }
             let client = ApiResponsesClient::new(
                 transport,
                 client_setup.api_provider,
@@ -2023,6 +2051,12 @@ impl ModelClientSession {
                 .client
                 .current_client_setup(ClientRouting::Workspace)
                 .await?;
+            if self.capacity_retry_owner.is_some_and(|owner| {
+                owner != client_setup.auth_owner_generation
+                    || owner != self.client.auth_owner_generation()
+            }) {
+                return Err(CodexErr::TurnAborted);
+            }
             let include_internal = self
                 .client
                 .state
@@ -2244,6 +2278,17 @@ impl ModelClientSession {
                     ),
                 ],
             );
+            if self
+                .capacity_retry_owner
+                .is_some_and(|owner| owner != self.client.auth_owner_generation())
+            {
+                inference_trace_attempt.record_cancelled(
+                    "capacity retry auth owner changed before dispatch",
+                    None,
+                    &[],
+                );
+                return Err(CodexErr::TurnAborted);
+            }
             let stream_result = websocket_connection
                 .stream_request(
                     ws_request,
@@ -2430,7 +2475,7 @@ impl ModelClientSession {
                 ResponsesHttpExecutor::new(&self.client)
                     .stream_responses_http(
                         &self.turn_state,
-                        /*expected_auth_owner*/ None,
+                        self.capacity_retry_owner.flatten(),
                         self.client.event_sender.as_ref(),
                         prompt,
                         model_info,
@@ -2567,6 +2612,7 @@ where
         let mut logged_error = false;
         let mut tx_last_response = Some(tx_last_response);
         let mut items_added: Vec<ResponseItem> = Vec::new();
+        let mut active_item_id: Option<ResponseItemId> = None;
         let (request_start, mut ttft_ms) = (Instant::now(), None);
         let mut api_stream = api_stream;
         let upstream_request_id = upstream_request_id.as_deref();
@@ -2589,7 +2635,17 @@ where
                 break;
             };
             match event {
-                Ok(ResponseEvent::OutputItemDone(item)) => {
+                Ok(ResponseEvent::OutputItemDone(mut item)) => {
+                    // Assign IDs after interceptors, which may replace provider items.
+                    // Reuse the added event's ID so tracing and the harness agree.
+                    if item.id().is_none_or(|id| id.is_empty()) {
+                        item.set_id(
+                            active_item_id
+                                .take()
+                                .or_else(|| item.id_prefix().map(ResponseItemId::new)),
+                        );
+                    }
+                    active_item_id = None;
                     items_added.push(item.clone());
                     if tx_event
                         .send(Ok(ResponseEvent::OutputItemDone(item)))
@@ -2639,7 +2695,13 @@ where
                         return;
                     }
                 }
-                Ok(event) => {
+                Ok(mut event) => {
+                    if let ResponseEvent::OutputItemAdded(item) = &mut event {
+                        if item.id().is_none_or(|id| id.is_empty()) {
+                            item.set_id(item.id_prefix().map(ResponseItemId::new));
+                        }
+                        active_item_id = item.id().cloned();
+                    }
                     if matches!(&event, ResponseEvent::OutputItemAdded(_)) && ttft_ms.is_none() {
                         ttft_ms = Some(
                             i64::try_from(request_start.elapsed().as_millis()).unwrap_or(i64::MAX),

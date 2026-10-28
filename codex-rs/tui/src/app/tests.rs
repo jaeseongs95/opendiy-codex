@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! App-level orchestration tests for the TUI.
 
 #[path = "tests/terminal_size_telemetry_tests.rs"]
@@ -64,10 +65,14 @@ mod pagination_completion_tests;
 mod patch_approval_tests;
 #[path = "tests/permission_selection_tests.rs"]
 mod permission_selection_tests;
+#[path = "tests/plugin_reload_tests.rs"]
+mod plugin_reload_tests;
 #[path = "tests/projectless_tests.rs"]
 mod projectless_tests;
 #[path = "tests/quick_dials_tests.rs"]
 mod quick_dials_tests;
+#[path = "tests/service_tier_session_tests.rs"]
+mod service_tier_session_tests;
 #[path = "tests/unavailable_commands_tests.rs"]
 mod unavailable_commands;
 
@@ -6500,6 +6505,7 @@ async fn make_test_app() -> Box<App> {
         pending_plugin_enabled_writes: HashMap::new(),
         pending_hook_enabled_writes: HashMap::new(),
         recap: recap::RecapState::default(),
+        cron: cron_jobs::CronState::default(),
         _test_codex_home: test_codex_home,
     })
 }
@@ -6626,6 +6632,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
             recap: recap::RecapState::default(),
+            cron: cron_jobs::CronState::default(),
             _test_codex_home: test_codex_home,
         }),
         rx,

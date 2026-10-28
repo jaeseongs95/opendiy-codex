@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Shared App fixtures for app submodule unit tests.
 //!
 //! This module keeps heavyweight `App` construction and config-inspection helpers available to
@@ -128,6 +129,7 @@ pub(crate) async fn make_test_app() -> Box<App> {
         pending_plugin_enabled_writes: HashMap::new(),
         pending_hook_enabled_writes: HashMap::new(),
         recap: recap::RecapState::default(),
+        cron: cron_jobs::CronState::default(),
         _test_codex_home: test_codex_home,
     })
 }

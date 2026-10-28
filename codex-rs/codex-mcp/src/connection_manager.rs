@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Aggregates MCP server connections for Codex.
 //!
 //! [`McpConnectionSet`] is the private connection set behind
@@ -8,8 +8,12 @@
 
 #[path = "connection_manager/catalog_telemetry.rs"]
 mod catalog_telemetry;
+#[path = "connection_manager/network_policy.rs"]
+mod network_policy;
 #[path = "connection_manager/required.rs"]
 mod required;
+pub use network_policy::NetworkPolicyMetadata;
+pub use network_policy::NetworkPolicyMetadataProvider;
 #[path = "connection_manager/resources.rs"]
 mod resources;
 #[path = "connection_manager/startup.rs"]
@@ -82,6 +86,7 @@ use codex_protocol::protocol::McpStartupFailureReason;
 use codex_protocol::protocol::McpStartupStatus;
 use codex_protocol::protocol::McpStartupUpdateEvent;
 use codex_rmcp_client::determine_streamable_http_auth_status_from_credentials;
+use futures::FutureExt;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::warn;
@@ -157,8 +162,8 @@ impl McpServerConnection {
         result
     }
 
-    async fn shutdown(&self) {
-        self.client.shutdown().await;
+    async fn shutdown(&self) -> Result<()> {
+        self.client.shutdown().await
     }
 
     fn cancel_startup(&self) {
@@ -267,6 +272,13 @@ impl McpServerView {
 
 /// A published view over a set of running MCP server connections.
 pub(crate) struct McpConnectionSet {
+    config: Option<Arc<crate::McpConfig>>,
+    shutdown: OnceLock<
+        futures::future::Shared<
+            futures::future::BoxFuture<'static, std::result::Result<(), Arc<str>>>,
+        >,
+    >,
+    network_policy_metadata: Option<Arc<dyn NetworkPolicyMetadataProvider>>,
     servers: HashMap<String, McpServerView>,
     pub(crate) event_stream_connection: Option<Arc<EventStreamConnectionSettings>>,
     disabled_servers: Vec<String>,
@@ -294,6 +306,7 @@ impl McpConnectionSet {
         let McpRuntimeInput {
             startup_policy,
             config,
+            network_policy_metadata,
             plugins_available: _,
             ready_selected_capability_roots: _,
             mcp_servers,
@@ -392,6 +405,8 @@ impl McpConnectionSet {
                 &client_mcp_extensions,
                 &server_name,
                 registration,
+                network_policy_metadata.is_some(),
+                &config.chatgpt_base_url,
             );
             let is_host_owned_codex_apps = registration.is_some_and(|server| {
                 server
@@ -952,11 +967,14 @@ impl McpConnectionSet {
             }
         }
         let manager = Self {
+            config: Some(config),
+            network_policy_metadata,
             servers,
             event_stream_connection,
             disabled_servers,
             required_servers,
             optional_startup_deadline: OnceLock::new(),
+            shutdown: OnceLock::new(),
             tool_plugin_context,
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers,
@@ -1010,11 +1028,14 @@ impl McpConnectionSet {
 
     pub fn empty(prefix_mcp_tool_names: bool) -> Self {
         Self {
+            config: None,
+            network_policy_metadata: None,
             servers: HashMap::new(),
             event_stream_connection: None,
             disabled_servers: Vec::new(),
             required_servers: Vec::new(),
             optional_startup_deadline: OnceLock::new(),
+            shutdown: OnceLock::new(),
             tool_plugin_context: Arc::new(ToolPluginContext::default()),
             prefix_mcp_tool_names,
             non_prefixed_mcp_tool_servers: Vec::new(),
@@ -1097,20 +1118,35 @@ impl McpConnectionSet {
     }
 
     /// Stop all MCP clients owned by this manager and terminate stdio server processes.
-    pub async fn shutdown(&self) {
-        let connections = self
-            .servers
-            .values()
-            .map(|view| Arc::clone(&view.connection))
-            .collect::<Vec<_>>();
-        // Keep cleanup alive if an interrupt cancels the refresh that requested it.
-        let shutdown_task = tokio::spawn(async move {
-            futures::future::join_all(connections.iter().map(|connection| connection.shutdown()))
-                .await;
-        });
-        if let Err(error) = shutdown_task.await {
-            warn!("MCP client shutdown task failed: {error}");
-        }
+    pub async fn shutdown(&self) -> Result<()> {
+        self.shutdown
+            .get_or_init(|| {
+                let connections = self
+                    .servers
+                    .values()
+                    .map(|view| Arc::clone(&view.connection))
+                    .collect::<Vec<_>>();
+                // Exactly one owned shutdown survives cancellation of any waiter.
+                let task = tokio::spawn(async move {
+                    let results = futures::future::join_all(
+                        connections.iter().map(|connection| connection.shutdown()),
+                    )
+                    .await;
+                    for result in results {
+                        result.map_err(|error| Arc::<str>::from(error.to_string()))?;
+                    }
+                    Ok(())
+                });
+                async move {
+                    task.await
+                        .unwrap_or_else(|error| Err(Arc::from(error.to_string())))
+                }
+                .boxed()
+                .shared()
+            })
+            .clone()
+            .await
+            .map_err(|error| anyhow!(error.to_string()))
     }
 
     pub(crate) fn cancel_startup(&self) {
@@ -1210,7 +1246,19 @@ impl McpConnectionSet {
         }
         let result: rmcp::model::CallToolResult = client
             .client
-            .call_tool(tool.to_string(), arguments, meta, effective_timeout)
+            .call_tool(
+                tool.to_string(),
+                arguments,
+                self.network_policy_meta_for_call(
+                    &client,
+                    self.config
+                        .as_ref()
+                        .and_then(|config| config.permission_profile_for_server(server)),
+                    &view.metadata.environment_id,
+                    meta,
+                ),
+                effective_timeout,
+            )
             .await
             .with_context(|| format!("tool call failed for `{server}/{tool}`"))?;
 

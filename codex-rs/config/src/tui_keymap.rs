@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! TUI keymap config schema and canonical key-spec normalization.
 //!
 //! This module defines the on-disk `[tui.keymap]` contract used by
@@ -177,6 +178,8 @@ pub struct TuiChatKeymap {
     pub toggle_voice_mute: Option<KeybindingsSpec>,
     /// Interrupt the active turn.
     pub interrupt_turn: Option<KeybindingsSpec>,
+    /// Return the current unified-exec startup response early, preserving its process.
+    pub background_terminal: Option<KeybindingsSpec>,
     /// Decrease the active reasoning effort.
     pub decrease_reasoning_effort: Option<KeybindingsSpec>,
     /// Increase the active reasoning effort.

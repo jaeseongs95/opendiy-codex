@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::output_pipe;
 use std::io::Write;
 use std::time::Duration;
@@ -70,4 +70,44 @@ async fn canceling_an_output_read_does_not_pin_a_background_reader() -> anyhow::
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     anyhow::bail!("dropped output reader did not release its peer within one second")
+}
+
+#[test]
+fn output_pipe_works_without_a_temporary_directory() -> anyhow::Result<()> {
+    const CHILD: &str = "CODEX_TEST_PIPE_WITHOUT_TEMP_DIRECTORY";
+    if std::env::var_os(CHILD).is_some() {
+        let runtime = tokio::runtime::Runtime::new()?;
+        return runtime.block_on(async {
+            let (mut reader, mut writer) = output_pipe()?;
+            writer.write_all(b"x")?;
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), reader.read_u8()).await??,
+                b'x'
+            );
+            Ok(())
+        });
+    }
+    let fixture = tempfile::tempdir()?;
+    let blocked_temp = fixture.path().join("temp-path-is-a-file");
+    std::fs::write(&blocked_temp, b"not a directory")?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "windows_stdio::tests::output_pipe_works_without_a_temporary_directory",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .env("TEMP", &blocked_temp)
+        .env("TMP", &blocked_temp)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    assert_eq!(std::fs::read(&blocked_temp)?, b"not a directory");
+    assert_eq!(std::fs::read_dir(fixture.path())?.count(), 1);
+    Ok(())
 }

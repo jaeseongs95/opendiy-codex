@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! The chat composer is the bottom-pane text input state machine.
 //!
 //! It edits [`TextArea`] and attachments, routes popup keys, makes completed slash commands atomic,
@@ -537,6 +538,7 @@ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
                 | SlashCommand::DebugConfig
                 | SlashCommand::Theme
                 | SlashCommand::Pets
+                | SlashCommand::Background
                 | SlashCommand::Ps
                 | SlashCommand::Stop
                 | SlashCommand::MemoryDrop

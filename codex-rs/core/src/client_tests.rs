@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::NonIncrementalReason;
@@ -142,6 +143,297 @@ fn test_model_client_with_thread_id(
 
 fn test_model_provider() -> SharedModelProvider {
     test_model_client(SessionSource::Cli).state.provider.clone()
+}
+
+#[tokio::test]
+async fn capacity_bound_owner_rejects_new_http_and_websocket_setup() {
+    for websockets in [false, true] {
+        let server = MockServer::start().await;
+        let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+        let mut info =
+            create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+        info.supports_websockets = websockets;
+        info.request_max_retries = Some(0);
+        let mut client = test_model_client(SessionSource::Cli);
+        Arc::get_mut(&mut client.state).unwrap().provider =
+            create_model_provider(info, Some(manager.clone()));
+        let mut session = client.new_session();
+        session.bind_capacity_retry_owner(client.auth_owner_generation());
+        assert!(manager.reload().await);
+        let metadata = test_responses_metadata_for_client(
+            &client,
+            None,
+            "capacity-window".into(),
+            None,
+            TestCodexResponsesRequestKind::Turn,
+        );
+        let error = match session
+            .stream(
+                &Prompt::default(),
+                &test_model_info(),
+                &test_session_telemetry(),
+                None,
+                codex_protocol::config_types::ReasoningSummary::None,
+                None,
+                &metadata,
+                &InferenceTraceContext::disabled(),
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("a new account must not inherit the old capacity request"),
+        };
+        assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "transport={websockets}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn capacity_bound_owner_is_checked_after_async_http_preparation() {
+    #[derive(Debug)]
+    struct Gate {
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+    impl AttestationProvider for Gate {
+        fn header_for_request(
+            &self,
+            _context: AttestationContext,
+        ) -> GenerateAttestationFuture<'_> {
+            Box::pin(async move {
+                self.entered.notify_one();
+                self.release.notified().await;
+                None
+            })
+        }
+    }
+    let server = MockServer::start().await;
+    let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+    let info =
+        create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let mut client = test_model_client(SessionSource::Cli);
+    let state = Arc::get_mut(&mut client.state).unwrap();
+    state.provider = create_model_provider(info, Some(manager.clone()));
+    state.include_attestation = true;
+    state.attestation_provider = Some(Arc::new(Gate {
+        entered: entered.clone(),
+        release: release.clone(),
+    }));
+    let mut session = client.new_session();
+    session.bind_capacity_retry_owner(client.auth_owner_generation());
+    let metadata = test_responses_metadata_for_client(
+        &client,
+        None,
+        "capacity-window".into(),
+        None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let prompt = Prompt::default();
+    let model = test_model_info();
+    let telemetry = test_session_telemetry();
+    let trace = InferenceTraceContext::disabled();
+    let request = session.stream(
+        &prompt,
+        &model,
+        &telemetry,
+        None,
+        codex_protocol::config_types::ReasoningSummary::None,
+        None,
+        &metadata,
+        &trace,
+    );
+    tokio::pin!(request);
+    tokio::select! {
+        _ = entered.notified() => {},
+        _ = &mut request => panic!("request must stop at the preparation barrier"),
+    }
+    assert!(manager.reload().await);
+    release.notify_one();
+    let error = match request.await {
+        Err(error) => error,
+        Ok(_) => panic!("ownership changed after setup and before HTTP send"),
+    };
+    assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn capacity_owner_change_cancels_websocket_trace_after_untraced_warmup() -> anyhow::Result<()>
+{
+    struct FixtureOwner;
+    impl codex_login::auth::ExternalAuth for FixtureOwner {
+        fn resolve(&self) -> codex_login::auth::ExternalAuthFuture<'_, CodexAuth> {
+            Box::pin(async { Ok(CodexAuth::from_api_key("fixture-owner")) })
+        }
+        fn refresh(
+            &self,
+            _context: codex_login::auth::ExternalAuthRefreshContext,
+        ) -> codex_login::auth::ExternalAuthFuture<'_, CodexAuth> {
+            self.resolve()
+        }
+    }
+    #[derive(Debug)]
+    struct ClearOwnerBeforeDispatch(Arc<AuthManager>);
+    impl codex_extension_api::ModelRequestContributor for ClearOwnerBeforeDispatch {
+        fn request(
+            &self,
+            input: codex_extension_api::ModelRequestInput<'_>,
+        ) -> Option<Box<dyn codex_extension_api::ModelResponseInterceptor>> {
+            if input.kind == codex_extension_api::ModelRequestKind::Generation {
+                // This existing extension boundary runs after logical warmup tracing,
+                // and before the final owner check and websocket dispatch.
+                self.0.clear_external_auth();
+            }
+            None
+        }
+    }
+    for warmup in [false, true] {
+        let mut batches = Vec::new();
+        if warmup {
+            batches.push(vec![
+                core_test_support::responses::ev_response_created("warmup"),
+                core_test_support::responses::ev_completed("warmup"),
+            ]);
+        }
+        // Keep the connection open awaiting the generation that must never be sent.
+        batches.push(Vec::new());
+        let server = core_test_support::responses::start_websocket_server(vec![batches]).await;
+        let manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("fixture-owner"));
+        manager.set_external_auth(Arc::new(FixtureOwner)).await?;
+        let mut info =
+            create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+        info.supports_websockets = true;
+        info.request_max_retries = Some(0);
+        let mut client = test_model_client(SessionSource::Cli);
+        Arc::get_mut(&mut client.state).unwrap().provider =
+            create_model_provider(info, Some(manager.clone()));
+        client.request_contributors = vec![Arc::new(ClearOwnerBeforeDispatch(manager.clone()))];
+        let metadata = test_responses_metadata_for_client(
+            &client,
+            None,
+            "capacity-window".into(),
+            None,
+            TestCodexResponsesRequestKind::Turn,
+        );
+        let prompt = Prompt {
+            input: vec![output_message("fixture", "logical prompt")],
+            ..Default::default()
+        };
+        let model = test_model_info();
+        let telemetry = test_session_telemetry();
+        let mut session = client.new_session();
+        if warmup {
+            session
+                .prewarm_websocket(
+                    &prompt,
+                    &model,
+                    &telemetry,
+                    None,
+                    codex_protocol::config_types::ReasoningSummary::None,
+                    None,
+                    &metadata,
+                )
+                .await?;
+            assert!(session.websocket_session.last_response_from_untraced_warmup);
+        }
+        session.bind_capacity_retry_owner(client.auth_owner_generation());
+        let temp = TempDir::new()?;
+        let writer = Arc::new(TraceWriter::create(
+            temp.path(),
+            "trace-1".into(),
+            "rollout-1".into(),
+            "thread-root".into(),
+        )?);
+        writer.append(RawTraceEventPayload::ThreadStarted {
+            thread_id: "thread-root".into(),
+            agent_path: "/root".into(),
+            metadata_payload: None,
+        })?;
+        writer.append(RawTraceEventPayload::CodexTurnStarted {
+            codex_turn_id: "turn-1".into(),
+            thread_id: "thread-root".into(),
+        })?;
+        let trace = InferenceTraceContext::enabled(
+            writer,
+            "thread-root".into(),
+            "turn-1".into(),
+            "gpt-test".into(),
+            "test-provider".into(),
+        );
+        let error = match session
+            .stream(
+                &prompt,
+                &model,
+                &telemetry,
+                None,
+                codex_protocol::config_types::ReasoningSummary::None,
+                None,
+                &metadata,
+                &trace,
+            )
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("changed owner must abort before generation dispatch"),
+        };
+        assert!(matches!(error.details(), CodexErrorDetails::TurnAborted));
+        assert_ne!(
+            session.capacity_retry_owner(),
+            Some(client.auth_owner_generation())
+        );
+        assert_eq!(server.single_connection().len(), usize::from(warmup));
+        let events = std::fs::read_to_string(temp.path().join("trace.jsonl"))?
+            .lines()
+            .map(serde_json::from_str::<codex_rollout_trace::RawTraceEvent>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let starts = events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                RawTraceEventPayload::InferenceStarted {
+                    inference_call_id, ..
+                } => Some(inference_call_id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let cancelled = events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                RawTraceEventPayload::InferenceCancelled {
+                    inference_call_id,
+                    reason,
+                    ..
+                } => {
+                    assert_eq!(reason, "capacity retry auth owner changed before dispatch");
+                    Some(inference_call_id)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(starts.len(), 1, "warmup={warmup}");
+        assert_eq!(
+            cancelled, starts,
+            "each started attempt needs its own terminal event"
+        );
+        let rollout = replay_bundle(temp.path())?;
+        assert_eq!(rollout.inference_calls.len(), 1);
+        assert_eq!(
+            rollout
+                .inference_calls
+                .values()
+                .next()
+                .unwrap()
+                .execution
+                .status,
+            ExecutionStatus::Cancelled
+        );
+        server.shutdown().await;
+    }
+    Ok(())
 }
 
 #[tokio::test]
@@ -1662,6 +1954,11 @@ async fn dropped_response_stream_traces_cancelled_partial_output() -> anyhow::Re
 
     assert_eq!(inference.execution.status, ExecutionStatus::Cancelled);
     assert_eq!(inference.response_item_ids.len(), 1);
+    // Receiving an item from the transport does not establish history acceptance.
+    assert_eq!(
+        rollout.threads["thread-root"].conversation_item_ids,
+        inference.request_item_ids
+    );
     assert_eq!(rollout.raw_payloads.len(), 2);
 
     Ok(())

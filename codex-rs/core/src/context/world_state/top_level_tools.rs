@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Diffs the one-level Responses Lite catalog: namespaces of callable tools and built-ins.
 //! Missing state starts a fresh catalog; this section does not migrate legacy history.
 //! One developer notice precedes each incremental namespace batch; catalog hashes are unchanged.
@@ -60,16 +61,12 @@ impl TopLevelToolsState {
         };
         for definition in &definitions {
             let name = definition_name(definition);
-            let mut header = definition.clone();
-            if let Some(tools) = header
-                .as_object_mut()
-                .expect("serialized tool object")
-                .remove("tools")
-            {
+            if let Some(tools) = definition.get("tools") {
                 for tool in tools.as_array().expect("serialized namespace members") {
                     insert_hash(format!("{name}.{}", definition_name(tool)), tool)?;
                 }
             }
+            let header = clone_definition_with_tools(definition, None);
             insert_hash(name.to_string(), &header)?;
         }
         Ok(Self {
@@ -79,6 +76,29 @@ impl TopLevelToolsState {
             metrics,
         })
     }
+}
+
+// Preserve property order without cloning members that will be removed or replaced.
+#[expect(
+    clippy::expect_used,
+    reason = "the Responses Lite serializer emits objects"
+)]
+fn clone_definition_with_tools(definition: &Value, mut tools: Option<Vec<Value>>) -> Value {
+    Value::Object(
+        definition
+            .as_object()
+            .expect("serialized tool object")
+            .iter()
+            .filter_map(|(key, value)| {
+                let value = if key == "tools" {
+                    Value::Array(tools.take()?)
+                } else {
+                    value.clone()
+                };
+                Some((key.clone(), value))
+            })
+            .collect(),
+    )
 }
 
 // Input comes from create_tools_json_for_responses_lite: namespaces and their members have
@@ -171,8 +191,7 @@ impl WorldStateSection for TopLevelToolsState {
                 }
             }
             if !changed_members.is_empty() {
-                let mut namespace = definition.clone();
-                namespace["tools"] = Value::Array(changed_members);
+                let namespace = clone_definition_with_tools(definition, Some(changed_members));
                 tools.push(namespace);
             } else if changed(name) {
                 // Namespace declarations require a member. Update metadata as text without

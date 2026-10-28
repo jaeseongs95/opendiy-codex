@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Catalog diffs preserve unchanged definitions, including tools inside namespaces.
 
 use super::*;
@@ -31,6 +32,70 @@ fn item(tools: Vec<Value>) -> ResponseItem {
 
 fn namespace(name: &str, tools: Vec<Value>) -> Value {
     json!({"type": "namespace", "name": name, "description": "Tools.", "tools": tools})
+}
+
+#[test]
+fn namespace_copy_preserves_legacy_hashes_and_serialized_order() {
+    for member_count in [0, 1, 8] {
+        let members = (0..member_count)
+            .map(|index| declaration(&format!("member_{index}")))
+            .collect::<Vec<_>>();
+        let mut definition = namespace("functions", members.clone());
+        definition["metadata"] = json!({"z": [1, 2], "a": {"description": "Keep me."}});
+        definition["extra_header"] = json!({"retained": true});
+        let builtin = json!({"type": "web_search", "external_web_access": true});
+        let definitions = vec![builtin.clone(), definition.clone()];
+        let state = TopLevelToolsState::new(Default::default(), definitions.clone(), None).unwrap();
+        let mut legacy_header = definition.clone();
+        legacy_header.as_object_mut().unwrap().remove("tools");
+        let mut expected_hashes = BTreeMap::from([
+            (
+                "web_search".to_string(),
+                WorldStateHash::from_json(&builtin),
+            ),
+            (
+                "functions".to_string(),
+                WorldStateHash::from_json(&legacy_header),
+            ),
+        ]);
+        for member in &members {
+            expected_hashes.insert(
+                format!("functions.{}", definition_name(member)),
+                WorldStateHash::from_json(member),
+            );
+        }
+        assert_eq!(state.hashes, expected_hashes);
+        assert_eq!(state.definitions, definitions);
+        assert_eq!(
+            WorldStateHash::from_json(&clone_definition_with_tools(&definition, None)),
+            WorldStateHash::from_json(&legacy_header),
+        );
+        for replacement in [Vec::new(), vec![declaration("new_member")], members] {
+            let mut legacy_replacement = definition.clone();
+            legacy_replacement["tools"] = Value::Array(replacement.clone());
+            assert_eq!(
+                clone_definition_with_tools(&definition, Some(replacement)).to_string(),
+                legacy_replacement.to_string(),
+            );
+        }
+    }
+}
+
+#[test]
+fn namespace_copy_preserves_collision_rejection() {
+    for definitions in [
+        vec![namespace("same", vec![]), namespace("same", vec![])],
+        vec![namespace(
+            "functions",
+            vec![declaration("same"), declaration("same")],
+        )],
+        vec![
+            json!({"type": "web_search"}),
+            namespace("web_search", vec![]),
+        ],
+    ] {
+        assert!(TopLevelToolsState::new(Default::default(), definitions, None).is_err());
+    }
 }
 
 #[test]

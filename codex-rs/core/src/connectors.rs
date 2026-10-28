@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -252,6 +253,7 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_mcp_manager(
         codex_mcp::host_owned_codex_apps_enabled(&mcp_config, auth.as_ref())
             .then(|| Arc::clone(&auth_manager));
     let mcp_runtime = McpRuntime::new(McpRuntimeInput {
+        network_policy_metadata: None,
         startup_policy: McpStartupPolicy::Eager,
         config: Arc::clone(&mcp_config),
         plugins_available: false,
@@ -335,7 +337,7 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_mcp_manager(
     }
     let accessible_connectors =
         with_app_plugin_sources(accessible_connectors, &tool_plugin_context);
-    mcp_runtime.shutdown().await;
+    mcp_runtime.shutdown().await?;
     Ok(AccessibleConnectorsStatus {
         connectors: accessible_connectors,
         codex_apps_ready,

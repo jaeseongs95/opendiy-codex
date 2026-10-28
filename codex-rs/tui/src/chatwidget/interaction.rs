@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Key routing and composer-adjacent UI interaction for `ChatWidget`.
 
 use super::clipboard::PendingCopy;
@@ -136,6 +137,14 @@ impl ChatWidget {
         if self.shortcut_overlay_visible() && key_hint::plain(KeyCode::Esc).is_press(key_event) {
             self.bottom_pane
                 .handle_key_event_with_activation_key(key_event, activation_key);
+            return KeyEventAction::None;
+        }
+
+        if key_event.kind == KeyEventKind::Press
+            && self.chat_keymap.background_terminal.is_pressed(key_event)
+            && self.bottom_pane.no_modal_or_popup_active()
+        {
+            self.background_terminal();
             return KeyEventAction::None;
         }
 

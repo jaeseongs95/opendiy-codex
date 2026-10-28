@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/McpServerRefreshParams"
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "definitions": {
+    "McpServerRefreshParams": {
+      "description": "Reloads MCP configuration without restarting the app.",
+      "properties": {
+        "threadId": {
+          "description": "Also queue an MCP reconnect on the runtime captured for this loaded thread. The registry is rechecked after reload, but may change before enqueue. Existing calls retain their bound clients; reconnect completion is asynchronous.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "Nullable_McpServerRefreshParams"
+}

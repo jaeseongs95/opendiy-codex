@@ -10,6 +10,7 @@ use codex_config::ConfigLayerEntry;
 use codex_config::ConfigLayerSource;
 use codex_config::ConfigLayerStack;
 use codex_config::McpServerCommandMatcher;
+use codex_config::McpServerDisabledReason;
 use codex_config::McpServerIdentity;
 use codex_config::McpServerRequirement;
 use codex_config::McpServerValueMatcher;
@@ -395,6 +396,34 @@ consolidation_model = "gpt-5.2"
         )
         .disable_on_external_context
     );
+}
+
+#[tokio::test]
+async fn fresh_memory_profiles_preserve_explicit_version_and_transition_opt_out() {
+    for (settings, expected) in [
+        ("", codex_protocol::MemoryVersion::V2),
+        ("version = 'v1'", codex_protocol::MemoryVersion::V1),
+        ("dual_write = false", codex_protocol::MemoryVersion::V1),
+        (
+            "version = 'v2'\ndual_write = false",
+            codex_protocol::MemoryVersion::V2,
+        ),
+    ] {
+        let home = tempdir().expect("tempdir");
+        let cfg = toml::from_str::<ConfigToml>(&format!(
+            "[features]\nmemories = true\n[memories]\n{settings}"
+        ))
+        .expect("memory config");
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides::default(),
+            home.abs(),
+        )
+        .await
+        .expect("load config");
+        assert_eq!(config.memories.version, expected, "{settings}");
+        assert!(!home.path().join("memories").exists());
+    }
 }
 
 #[tokio::test]
@@ -5402,8 +5431,10 @@ fn filter_mcp_servers_by_allowlist_blocks_all_when_empty() {
         ("server-b".to_string(), http_mcp("https://example.com/b")),
     ]);
 
+    servers.get_mut("server-b").expect("server-b").enabled = false;
     let source = RequirementSource::LegacyManagedConfigTomlFromMdm;
     let requirements = Sourced::new(BTreeMap::new(), source.clone());
+    filter_mcp_servers_by_requirements(&mut servers, Some(&requirements));
     filter_mcp_servers_by_requirements(&mut servers, Some(&requirements));
 
     let reason = Some(McpServerDisabledReason::Requirements { source });
@@ -5416,8 +5447,16 @@ fn filter_mcp_servers_by_allowlist_blocks_all_when_empty() {
             ))
             .collect::<HashMap<String, (bool, Option<McpServerDisabledReason>)>>(),
         HashMap::from([
-            ("server-a".to_string(), (false, reason.clone())),
-            ("server-b".to_string(), (false, reason)),
+            ("server-a".to_string(), (false, reason)),
+            (
+                "server-b".to_string(),
+                (
+                    false,
+                    Some(McpServerDisabledReason::ExplicitAndRequirements {
+                        source: requirements.source.clone(),
+                    })
+                ),
+            ),
         ])
     );
 }
@@ -6403,7 +6442,7 @@ async fn memory_tool_makes_memories_root_readable_without_creating_or_widening_w
 -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cwd = TempDir::new()?;
-    let memories_root = codex_home.path().join("memories");
+    let memories_root = codex_home.path().join("memories_v2");
     let memories_root_abs = memories_root.abs();
 
     let config = Config::load_from_base_config_with_overrides(
@@ -8703,6 +8742,7 @@ async fn load_config_uses_auto_review_guardian_policy_config_and_template(
     let cfg = ConfigToml {
         features: Some(toml::from_str(features).unwrap()),
         auto_review: Some(AutoReviewToml {
+            timeout_ms: None,
             circuit_break_action: None,
             policy: Some("  Use the user-configured guardian policy.  ".to_string()),
             extra_policy: Some("  Use the user-configured additional policy.  ".to_string()),
@@ -8766,6 +8806,7 @@ async fn requirements_guardian_policy_beats_auto_review() -> std::io::Result<()>
         .map_err(std::io::Error::other)?;
         let cfg = ConfigToml {
             auto_review: Some(AutoReviewToml {
+                timeout_ms: None,
                 circuit_break_action: None,
                 policy: Some("Use the user-configured guardian policy.".to_string()),
                 extra_policy: Some("Use the user-configured additional policy.".to_string()),
@@ -8807,6 +8848,7 @@ async fn load_config_ignores_empty_auto_review_guardian_policy_config() -> std::
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         auto_review: Some(AutoReviewToml {
+            timeout_ms: None,
             circuit_break_action: None,
             policy: Some("   ".to_string()),
             extra_policy: Some("   ".to_string()),

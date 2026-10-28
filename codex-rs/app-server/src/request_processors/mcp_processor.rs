@@ -1,8 +1,9 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use super::account_processor::EnterpriseLoginCompletion;
 use super::account_processor::EnterpriseLoginTarget;
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
+use codex_app_server_protocol::McpServerRefreshParams;
 use codex_config::types::McpServerAuth;
 use codex_mcp::McpServerSource;
 use codex_mcp::ReadResourceRequestParams;
@@ -17,6 +18,10 @@ use crate::thread_state::ThreadStateManager;
 
 const MCP_TOOL_THREAD_ID_META_KEY: &str = "threadId";
 
+#[cfg(test)]
+#[path = "mcp_reload_tests.rs"]
+mod mcp_reload_tests;
+
 #[derive(Clone)]
 pub(crate) struct McpRequestProcessor {
     pub(super) auth_manager: Arc<AuthManager>,
@@ -25,6 +30,10 @@ pub(crate) struct McpRequestProcessor {
     config_manager: ConfigManager,
     account_processor: Arc<AccountRequestProcessor>,
     pub(super) thread_state_manager: ThreadStateManager,
+    #[cfg(test)]
+    before_refresh_enqueue: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>>,
+    #[cfg(test)]
+    before_plugin_reload: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
 impl McpRequestProcessor {
@@ -43,6 +52,10 @@ impl McpRequestProcessor {
             config_manager,
             account_processor,
             thread_state_manager,
+            #[cfg(test)]
+            before_refresh_enqueue: Default::default(),
+            #[cfg(test)]
+            before_plugin_reload: Default::default(),
         }
     }
 
@@ -57,7 +70,7 @@ impl McpRequestProcessor {
 
     pub(crate) fn mcp_server_refresh(
         &self,
-        params: Option<()>,
+        params: Option<McpServerRefreshParams>,
     ) -> impl Future<Output = Result<Option<ClientResponsePayload>, JSONRPCErrorError>> + Send + '_
     {
         // Keep refresh state behind a pointer before returning to the shared request handler.
@@ -65,6 +78,52 @@ impl McpRequestProcessor {
             self.mcp_server_refresh_response(params)
                 .await
                 .map(|response| Some(response.into()))
+        })
+    }
+
+    pub(crate) fn thread_plugin_reload(
+        &self,
+        params: codex_app_server_protocol::ThreadPluginReloadParams,
+    ) -> impl Future<Output = Result<Option<ClientResponsePayload>, JSONRPCErrorError>> + Send + '_
+    {
+        Box::pin(async move {
+            self.thread_plugin_reload_response(params)
+                .await
+                .map(|response| Some(response.into()))
+        })
+    }
+
+    async fn thread_plugin_reload_response(
+        &self,
+        params: codex_app_server_protocol::ThreadPluginReloadParams,
+    ) -> Result<codex_app_server_protocol::ThreadPluginReloadResponse, JSONRPCErrorError> {
+        // Capture the loaded runtime once. Never resolve a replacement or perform a global reload.
+        let (thread_id, thread) = self.load_thread(&params.thread_id).await?;
+        #[cfg(test)]
+        {
+            let barrier = self.before_plugin_reload.lock().unwrap().take();
+            if let Some(barrier) = barrier {
+                barrier.wait().await;
+                barrier.wait().await;
+            }
+        }
+        let warnings = thread.reload_plugins().await.map_err(|err| {
+            internal_error(format!("failed to reload plugins for {thread_id}: {err}"))
+        })?;
+        let current = self
+            .thread_manager
+            .get_thread(thread_id)
+            .await
+            .map_err(|_| invalid_request(format!("thread is no longer loaded: {thread_id}")))?;
+        if !Arc::ptr_eq(&current, &thread) {
+            return Err(invalid_request(format!(
+                "thread runtime changed during plugin reload: {thread_id}"
+            )));
+        }
+        Ok(codex_app_server_protocol::ThreadPluginReloadResponse {
+            thread_id: thread_id.to_string(),
+            mcp_reconnect_requested: true,
+            warnings,
         })
     }
 
@@ -114,12 +173,47 @@ impl McpRequestProcessor {
 
     async fn mcp_server_refresh_response(
         &self,
-        _params: Option<()>,
+        params: Option<McpServerRefreshParams>,
     ) -> Result<McpServerRefreshResponse, JSONRPCErrorError> {
+        // Resolve only an already-loaded runtime before the policy reload mutates anything.
+        let target = match params.and_then(|params| params.thread_id) {
+            Some(thread_id) => Some(self.load_thread(&thread_id).await?),
+            None => None,
+        };
         crate::mcp_refresh::reload_mcp_config(&self.thread_manager, &self.config_manager)
             .await
             .map_err(|err| internal_error(format!("failed to refresh MCP servers: {err}")))?;
-        Ok(McpServerRefreshResponse {})
+        let reconnect_queued_for_thread_id = if let Some((thread_id, thread)) = target {
+            let current = self
+                .thread_manager
+                .get_thread(thread_id)
+                .await
+                .map_err(|_| invalid_request(format!("thread is no longer loaded: {thread_id}")))?;
+            if !Arc::ptr_eq(&current, &thread) {
+                return Err(invalid_request(format!(
+                    "thread runtime changed during MCP reload: {thread_id}"
+                )));
+            }
+            #[cfg(test)]
+            {
+                let barrier = self.before_refresh_enqueue.lock().unwrap().take();
+                if let Some(barrier) = barrier {
+                    barrier.wait().await;
+                    barrier.wait().await;
+                }
+            }
+            thread.submit(Op::RefreshMcpServers).await.map_err(|err| {
+                internal_error(format!(
+                    "failed to queue MCP reconnect for {thread_id}: {err}"
+                ))
+            })?;
+            Some(thread_id.to_string())
+        } else {
+            None
+        };
+        Ok(McpServerRefreshResponse {
+            reconnect_queued_for_thread_id,
+        })
     }
 
     async fn load_global_config(&self) -> Result<Config, JSONRPCErrorError> {
@@ -269,7 +363,13 @@ impl McpRequestProcessor {
                 login.login_id,
                 Box::pin(async move {
                     match completion.wait_for(|state| state.is_complete()).await {
-                        Ok(result) if *result == EnterpriseLoginCompletion::Succeeded => Ok(()),
+                        Ok(result) => match *result {
+                            EnterpriseLoginCompletion::Succeeded => Ok(()),
+                            EnterpriseLoginCompletion::Failed(detail) => Err(detail.into()),
+                            EnterpriseLoginCompletion::Pending => {
+                                Err(anyhow::anyhow!("Enterprise sign-in failed."))
+                            }
+                        },
                         _ => Err(anyhow::anyhow!("Enterprise sign-in failed.")),
                     }
                 }),
@@ -448,6 +548,7 @@ impl McpRequestProcessor {
                 cancellation.clone(),
             )
             .await
+            .map_err(|error| internal_error(format!("MCP read cleanup failed: {error:#}")))?
             .ok_or_else(crate::mcp_read_lifetime::cancelled_error)?;
             if mcp_config.xaa_enabled
                 && let Some(thread) = thread.as_ref()
@@ -705,7 +806,11 @@ impl McpRequestProcessor {
             )
             .await
             .and_then(|result| serde_json::to_value(result).map_err(anyhow::Error::from));
-            if cancellation.is_cancelled() {
+            if cancellation.is_cancelled()
+                && !result
+                    .as_ref()
+                    .is_err_and(|error| error.is::<codex_mcp::McpReadCleanupError>())
+            {
                 outgoing
                     .send_error(request_id, crate::mcp_read_lifetime::cancelled_error())
                     .await;

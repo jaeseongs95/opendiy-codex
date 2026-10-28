@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! App-server session facade used by the TUI event loop.
 //!
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps
@@ -1397,8 +1398,26 @@ impl AppServerSession {
         &mut self,
         params: ThreadSettingsUpdateParams,
     ) -> Result<bool> {
+        Ok(self.request_thread_settings_update(params).await?.is_some())
+    }
+
+    /// Require Core acceptance, preserving fail-closed behavior with older queue-only servers.
+    pub(crate) async fn thread_settings_update_confirmed(
+        &mut self,
+        params: ThreadSettingsUpdateParams,
+    ) -> Result<bool> {
+        Ok(self
+            .request_thread_settings_update(params)
+            .await?
+            .is_some_and(|response| response.settings_applied == Some(true)))
+    }
+
+    async fn request_thread_settings_update(
+        &mut self,
+        params: ThreadSettingsUpdateParams,
+    ) -> Result<Option<ThreadSettingsUpdateResponse>> {
         if !self.thread_settings_update_supported {
-            return Ok(false);
+            return Ok(None);
         }
         let request_id = self.next_request_id();
         match self
@@ -1409,7 +1428,7 @@ impl AppServerSession {
             })
             .await
         {
-            Ok(_) => Ok(true),
+            Ok(response) => Ok(Some(response)),
             Err(TypedRequestError::Server { source, .. })
                 if is_thread_settings_update_unsupported(&source) =>
             {
@@ -1419,7 +1438,7 @@ impl AppServerSession {
                 // downgrade so local TUI setting changes stay best-effort instead
                 // of showing an error every time the user changes model, effort, or mode.
                 self.thread_settings_update_supported = false;
-                Ok(false)
+                Ok(None)
             }
             Err(err) => Err(err).wrap_err("thread/settings/update failed in TUI"),
         }
@@ -1752,6 +1771,28 @@ impl AppServerSession {
         Ok(())
     }
 
+    pub(crate) async fn thread_background_terminal_yield(
+        &mut self,
+        thread_id: ThreadId,
+        item_id: String,
+        process_id: String,
+    ) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: codex_app_server_protocol::ThreadBackgroundTerminalsYieldResponse = self
+            .client
+            .request_typed(ClientRequest::ThreadBackgroundTerminalsYield {
+                request_id,
+                params: codex_app_server_protocol::ThreadBackgroundTerminalsYieldParams {
+                    thread_id: thread_id.to_string(),
+                    item_id,
+                    process_id,
+                },
+            })
+            .await
+            .wrap_err("Background yield unavailable or refused by backend")?;
+        Ok(())
+    }
+
     pub(crate) async fn thread_background_terminals_clean(
         &mut self,
         thread_id: ThreadId,
@@ -1798,6 +1839,24 @@ impl AppServerSession {
             .request_typed(ClientRequest::SkillsList { request_id, params })
             .await
             .wrap_err("skills/list failed in TUI")
+    }
+
+    pub(crate) async fn reload_plugins(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<codex_app_server_protocol::ThreadPluginReloadResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ThreadPluginReload {
+                request_id,
+                params: codex_app_server_protocol::ThreadPluginReloadParams {
+                    thread_id: thread_id.to_string(),
+                },
+            })
+            .await
+            .wrap_err(
+                "thread/plugin/reload failed; this backend must support targeted plugin reload",
+            )
     }
 
     pub(crate) async fn reload_user_config(&mut self) -> Result<()> {
@@ -1851,11 +1910,12 @@ pub(crate) async fn start_thread_with_request_handle(
     launch_choices: StartupLaunchChoices,
 ) -> Result<AppServerStartedThread> {
     let request_id = RequestId::String(format!("startup-thread-start-{}", Uuid::new_v4()));
-    let mut params = thread_start_params_from_config(
+    let mut params = thread_start_params_with_reviewer(
         &config,
         thread_params_mode,
         remote_cwd_override.as_deref(),
         /*session_start_source*/ None,
+        launch_choices.approvals_reviewer,
     );
     thread_tool_transport.validate_config(&config)?;
     launch_choices.configure(&mut params);
@@ -2177,6 +2237,22 @@ pub(crate) fn thread_start_params_from_config(
     remote_cwd_override: Option<&std::path::Path>,
     session_start_source: Option<ThreadStartSource>,
 ) -> ThreadStartParams {
+    thread_start_params_with_reviewer(
+        config,
+        thread_params_mode,
+        remote_cwd_override,
+        session_start_source,
+        startup_launch::StartupApprovalsReviewer::Config,
+    )
+}
+
+fn thread_start_params_with_reviewer(
+    config: &Config,
+    thread_params_mode: ThreadParamsMode,
+    remote_cwd_override: Option<&std::path::Path>,
+    session_start_source: Option<ThreadStartSource>,
+    reviewer_source: startup_launch::StartupApprovalsReviewer,
+) -> ThreadStartParams {
     let permissions = permissions_selection_from_config(config, thread_params_mode);
     let sandbox = permissions
         .is_none()
@@ -2194,7 +2270,12 @@ pub(crate) fn thread_start_params_from_config(
         cwd: thread_cwd_from_config(config, thread_params_mode, remote_cwd_override),
         runtime_workspace_roots: thread_params_mode.workspace_roots_from_config(config),
         approval_policy: Some(config.permissions.approval_policy.value().into()),
-        approvals_reviewer: approvals_reviewer_override_from_config(config),
+        approvals_reviewer: match reviewer_source {
+            startup_launch::StartupApprovalsReviewer::Config => {
+                approvals_reviewer_override_from_config(config)
+            }
+            startup_launch::StartupApprovalsReviewer::Invocation(reviewer) => reviewer,
+        },
         sandbox,
         permissions,
         config: config_request_overrides_from_config(config, thread_params_mode),

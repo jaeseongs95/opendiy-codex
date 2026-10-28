@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Top-level TUI application state and runtime wiring.
 //!
 //! This module owns the `App` struct, shared imports, and the high-level run loop that coordinates
@@ -216,12 +217,13 @@ pub(crate) mod app_server_requests;
 mod app_server_thread_ownership;
 mod backend_banner_fallback;
 mod backend_events;
-mod backend_sessions;
+pub(crate) mod backend_sessions;
 mod background_requests;
 mod composer_hints;
 mod config_panel;
 mod config_persistence;
 mod connector_mentions;
+pub(crate) mod cron_jobs;
 mod daemon_menu;
 mod daybreak;
 mod empty_state_policy;
@@ -686,6 +688,7 @@ pub(crate) struct App {
     // persist an older toggle after a newer one.
     pending_hook_enabled_writes: HashMap<String, Option<bool>>,
     recap: recap::RecapState,
+    cron: cron_jobs::CronState,
     // App fixtures keep their home alive across widget replacement; drop it last.
     #[cfg(test)]
     _test_codex_home: Option<tempfile::TempDir>,

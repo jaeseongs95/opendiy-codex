@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use codex_app_server_protocol::ApplicationStorageRequirements;
 use std::sync::Arc;
 
@@ -871,6 +871,7 @@ fn map_network_requirements_to_api(
                 })
                 .collect()
         }),
+        review_domains: network.review_domains,
         managed_allowed_domains_only: network.managed_allowed_domains_only,
         allowed_domains,
         denied_domains,

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use rand::Rng;
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -52,6 +53,7 @@ use crate::unified_exec::MIN_EMPTY_YIELD_TIME_MS;
 use crate::unified_exec::MIN_YIELD_TIME_MS;
 use crate::unified_exec::ProcessEntry;
 use crate::unified_exec::ProcessStore;
+use crate::unified_exec::TerminalSession;
 use crate::unified_exec::UnifiedExecContext;
 use crate::unified_exec::UnifiedExecError;
 use crate::unified_exec::UnifiedExecProcessManager;
@@ -134,7 +136,7 @@ pub(super) fn apply_unified_exec_env(mut env: HashMap<String, String>) -> HashMa
     env
 }
 
-pub(super) fn exec_env_policy_from_shell_policy(
+pub(crate) fn exec_env_policy_from_shell_policy(
     policy: &ShellEnvironmentPolicy,
 ) -> codex_exec_server::ExecEnvPolicy {
     let mut exclude = policy
@@ -449,6 +451,37 @@ fn terminate_process_on_network_denial(
 }
 
 impl UnifiedExecProcessManager {
+    /// Request only this session/call/process startup to return its existing response early.
+    /// Acceptance is not process exit, turn completion, or resource release.
+    pub(crate) async fn request_initial_yield(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+        call_id: &str,
+        process_id: i32,
+    ) -> Result<(), String> {
+        let store = self.process_store.lock().await;
+        let entry = store.processes.get(&process_id).ok_or_else(|| {
+            "No matching spawned terminal; it may have exited or still await approval.".to_string()
+        })?;
+        let session = entry
+            .session
+            .upgrade()
+            .ok_or("Terminal session is no longer active.")?;
+        if session.thread_id() != thread_id || entry.call_id != call_id {
+            return Err("Stale terminal ownership; background request refused.".into());
+        }
+        if *session.subscribe_elicitation_pause_state().borrow() {
+            return Err("Terminal is awaiting approval; background request refused.".into());
+        }
+        if !entry.initial_exec_command_active.load(Ordering::Acquire) || entry.process.has_exited()
+        {
+            return Err("Terminal has already yielded or exited.".into());
+        }
+        let token = entry.initial_yield.as_ref().ok_or("Terminal is no longer awaiting startup output or this execution path does not support early yield.")?;
+        token.cancel();
+        Ok(())
+    }
+
     pub(crate) async fn allocate_process_id(&self) -> i32 {
         loop {
             let mut store = self.process_store.lock().await;
@@ -477,13 +510,26 @@ impl UnifiedExecProcessManager {
     }
 
     pub(crate) async fn release_process_id(&self, process_id: i32) {
+        self.release_process(process_id, /*expected_process*/ None)
+            .await;
+    }
+
+    async fn release_process(
+        &self,
+        process_id: i32,
+        expected_process: Option<&Arc<UnifiedExecProcess>>,
+    ) {
         let removed = {
             let mut store = self.process_store.lock().await;
-            let entry = store.processes.remove(&process_id);
-            if !should_use_deterministic_process_ids() {
-                store.reserved_process_ids.remove(&process_id);
+            if let Some(expected) = expected_process
+                && !store
+                    .processes
+                    .get(&process_id)
+                    .is_some_and(|entry| Arc::ptr_eq(&entry.process, expected))
+            {
+                return;
             }
-            entry
+            store.remove(process_id)
         };
         if let Some(entry) = removed {
             unregister_network_approval_for_entry(&entry).await;
@@ -615,6 +661,8 @@ impl UnifiedExecProcessManager {
             metrics_sidecar,
             collection_finished: process.output_handles().collection_finished.clone(),
         };
+        // Only the normal tool startup may yield; one-shot/hook completion owns its timeout.
+        let initial_yield = completion.is_none().then(CancellationToken::new);
         if process_stored {
             let initial_exec_command_active = Arc::new(AtomicBool::new(true));
             initial_exec_command_guard.active = Some(Arc::clone(&initial_exec_command_active));
@@ -635,6 +683,7 @@ impl UnifiedExecProcessManager {
                 initial_exec_command_guard.metrics_sidecar.take(),
                 Arc::clone(&output_buffer),
                 Arc::clone(&initial_exec_command_active),
+                initial_yield.clone(),
             )
             .await;
         }
@@ -650,12 +699,21 @@ impl UnifiedExecProcessManager {
         let deadline = start
             .checked_add(wait)
             .ok_or_else(|| UnifiedExecError::process_failed("timeout_ms is too large".into()))?;
-        let collected_output = Self::collect_output_until_deadline(
+        let collected_output = Self::collect_output_until_deadline_or_yield(
             process.output_handles(),
             Some(context.session.subscribe_elicitation_pause_state()),
             deadline,
+            initial_yield.as_ref(),
         )
         .await;
+        {
+            let mut store = self.process_store.lock().await;
+            if let Some(entry) = store.processes.get_mut(&request.process_id)
+                && Arc::ptr_eq(&entry.process, &process)
+            {
+                entry.initial_yield = None;
+            }
+        }
         if let Some(completion) = completion.as_mut()
             && !process.has_exited()
         {
@@ -732,7 +790,10 @@ impl UnifiedExecProcessManager {
             } else {
                 OutputRetention::UntilCollected
             };
-            match self.refresh_process_state(process_id, retention).await {
+            match self
+                .refresh_process_state(process_id, &process, retention)
+                .await
+            {
                 ProcessStatus::Alive {
                     exit_code,
                     process_id,
@@ -871,7 +932,7 @@ impl UnifiedExecProcessManager {
             turn_id = trace_id(&context.step_context.turn.sub_id),
             call_id = trace_id(&context.call_id),
             original_exec_call_id = tracing::field::Empty,
-            unified_exec_process_id = request.process_id,
+            unified_exec_process_id = request.terminal.process_id,
             interaction = if request.input.is_empty() { "poll" } else { "write" },
             outcome = tracing::field::Empty,
         )
@@ -897,23 +958,12 @@ impl UnifiedExecProcessManager {
         context: &UnifiedExecContext,
         request: WriteStdinRequest<'_>,
     ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
-        let process_id = request.process_id;
-
-        // Different terminal sessions can be polled concurrently, but reads and
-        // writes against one terminal must not overlap because they share a
-        // draining output buffer and process lifecycle.
-        let locked_process = {
-            let store = self.process_store.lock().await;
-            let entry = store
-                .processes
-                .get(&process_id)
-                .ok_or(UnifiedExecError::UnknownProcessId { process_id })?;
-            // Capture the original call even if this interaction is cancelled while queued.
-            if let Some(call_id) = trace_id(&entry.call_id) {
-                tracing::Span::current().record("original_exec_call_id", call_id);
-            }
-            Arc::clone(&entry.process)
-        };
+        let process_id = request.terminal.process_id;
+        let locked_process = &request.terminal.process;
+        if let Some(call_id) = trace_id(&request.terminal.call_id) {
+            tracing::Span::current().record("original_exec_call_id", call_id);
+        }
+        // Serialize writes and polls on the original terminal.
         let _interaction_guard = locked_process.interaction_lock().lock_owned().await;
         // A queued write must observe strict review enabled while it was waiting.
         let strict_auto_review = context.step_context.turn.strict_auto_review_enabled();
@@ -922,7 +972,7 @@ impl UnifiedExecProcessManager {
             let entry = store
                 .processes
                 .get(&process_id)
-                .filter(|entry| Arc::ptr_eq(&entry.process, &locked_process))
+                .filter(|entry| Arc::ptr_eq(&entry.process, locked_process))
                 .ok_or(UnifiedExecError::UnknownProcessId { process_id })?;
             entry.stdin_approval(context, request.input, strict_auto_review)?
         };
@@ -994,7 +1044,7 @@ impl UnifiedExecProcessManager {
             tty,
             ..
         } = self
-            .prepare_process_handles(process_id, &locked_process)
+            .prepare_process_handles(process_id, locked_process)
             .await?;
         context
             .session
@@ -1026,7 +1076,7 @@ impl UnifiedExecProcessManager {
                         if !process.has_exited() {
                             if matches!(err, UnifiedExecError::ProcessFailed { .. }) {
                                 process.terminate();
-                                self.release_process_id(process_id).await;
+                                self.release_process(process_id, Some(locked_process)).await;
                             }
                             return Err(err);
                         }
@@ -1065,7 +1115,7 @@ impl UnifiedExecProcessManager {
             let message =
                 network_denial_message_for_session(session.as_ref(), network_approval.clone())
                     .await;
-            self.release_process_id(process_id).await;
+            self.release_process(process_id, Some(locked_process)).await;
             return Err(fail_process_with_message(process.as_ref(), message));
         }
         if let Some(message) = process.failure_message() {
@@ -1074,7 +1124,7 @@ impl UnifiedExecProcessManager {
                 network_approval.clone(),
             )
             .await;
-            self.release_process_id(process_id).await;
+            self.release_process(process_id, Some(locked_process)).await;
             if let Err(message) = finish_result {
                 return Err(fail_process_with_message(process.as_ref(), message));
             }
@@ -1083,7 +1133,7 @@ impl UnifiedExecProcessManager {
 
         // Only finalize remote sessions after both process exit and output collection.
         let status = self
-            .refresh_process_state(process_id, OutputRetention::UntilCollected)
+            .refresh_process_state(process_id, locked_process, OutputRetention::UntilCollected)
             .await;
         let (process_id, exit_code, event_call_id) = match status {
             ProcessStatus::Alive {
@@ -1105,9 +1155,7 @@ impl UnifiedExecProcessManager {
                 if process.has_exited() {
                     (None, process.exit_code(), call_id)
                 } else {
-                    return Err(UnifiedExecError::UnknownProcessId {
-                        process_id: request.process_id,
-                    });
+                    return Err(UnifiedExecError::UnknownProcessId { process_id });
                 }
             }
         };
@@ -1134,7 +1182,7 @@ impl UnifiedExecProcessManager {
                 call_id: response.event_call_id.clone(),
                 process_id: response
                     .process_id
-                    .unwrap_or(request.process_id)
+                    .unwrap_or(request.terminal.process_id)
                     .to_string(),
                 stdin: request.input.to_string(),
             };
@@ -1149,10 +1197,15 @@ impl UnifiedExecProcessManager {
     async fn refresh_process_state(
         &self,
         process_id: i32,
+        expected_process: &Arc<UnifiedExecProcess>,
         retention: OutputRetention,
     ) -> ProcessStatus {
         let mut store = self.process_store.lock().await;
-        let Some(entry) = store.processes.get_mut(&process_id) else {
+        let Some(entry) = store
+            .processes
+            .get_mut(&process_id)
+            .filter(|entry| Arc::ptr_eq(&entry.process, expected_process))
+        else {
             return ProcessStatus::Unknown;
         };
 
@@ -1247,6 +1300,7 @@ impl UnifiedExecProcessManager {
         metrics_sidecar: Option<PluginMetricsSidecar>,
         output_buffer: Arc<tokio::sync::Mutex<OutputBuffers>>,
         initial_exec_command_active: Arc<AtomicBool>,
+        initial_yield: Option<CancellationToken>,
     ) {
         let plugin_metrics_sidecar =
             metrics_sidecar.map(|sidecar| Arc::new(std::sync::Mutex::new(Some(sidecar))));
@@ -1257,6 +1311,7 @@ impl UnifiedExecProcessManager {
             process_id,
             cwd: cwd.clone(),
             initial_exec_command_active,
+            initial_yield,
             hook_command,
             tty,
             environment_id,
@@ -1595,6 +1650,14 @@ impl UnifiedExecProcessManager {
         result
     }
 
+    pub(super) async fn collect_output_until_deadline<const MAX_BYTES: usize>(
+        output: &OutputHandles<MAX_BYTES>,
+        pause_state: Option<watch::Receiver<bool>>,
+        deadline: Instant,
+    ) -> HeadTailBuffer<MAX_BYTES> {
+        Self::collect_output_until_deadline_or_yield(output, pause_state, deadline, None).await
+    }
+
     #[tracing::instrument(
         name = "unified_exec.collect_output",
         level = "info",
@@ -1606,10 +1669,11 @@ impl UnifiedExecProcessManager {
             output_closed = tracing::field::Empty,
         )
     )]
-    pub(super) async fn collect_output_until_deadline<const MAX_BYTES: usize>(
+    async fn collect_output_until_deadline_or_yield<const MAX_BYTES: usize>(
         output: &OutputHandles<MAX_BYTES>,
         mut pause_state: Option<watch::Receiver<bool>>,
         mut deadline: Instant,
+        early_yield: Option<&CancellationToken>,
     ) -> HeadTailBuffer<MAX_BYTES> {
         const POST_EXIT_CLOSE_WAIT_CAP: Duration = Duration::from_millis(50);
 
@@ -1617,6 +1681,7 @@ impl UnifiedExecProcessManager {
             OutputClosed,
             Deadline,
             PostExitDeadline,
+            EarlyYield,
         }
 
         let OutputHandles {
@@ -1648,6 +1713,13 @@ impl UnifiedExecProcessManager {
                 if !has_drained_output {
                     wait_for_output = Some(output_notify.notified());
                 }
+            }
+
+            // Drain into the same response buffer before honoring the request. Never drop
+            // an in-flight collector future: it may already own output removed from pending.
+            if early_yield.is_some_and(CancellationToken::is_cancelled) {
+                collected.push_buffer(drained_output);
+                break StopReason::EarlyYield;
             }
 
             if !has_drained_output {
@@ -1688,6 +1760,12 @@ impl UnifiedExecProcessManager {
                 tokio::select! {
                     _ = &mut notified => {}
                     _ = &mut exit_notified => exit_signal_received = true,
+                    _ = async {
+                        match early_yield {
+                            Some(token) => token.cancelled().await,
+                            None => std::future::pending().await,
+                        }
+                    } => {},
                     _ = tokio::time::sleep(remaining) => break StopReason::Deadline,
                     _ = Self::wait_for_pause_change(pause_state.as_ref()) => {}
                 }
@@ -1709,6 +1787,7 @@ impl UnifiedExecProcessManager {
                 StopReason::OutputClosed => "output_closed",
                 StopReason::Deadline => "deadline",
                 StopReason::PostExitDeadline => "post_exit_deadline",
+                StopReason::EarlyYield => "early_yield",
             },
         );
         span.record(
@@ -1847,14 +1926,21 @@ impl UnifiedExecProcessManager {
         }
     }
 
-    /// Resolves stdin's target from the host-owned terminal, not model-supplied metadata.
-    pub(crate) async fn environment_id_for_process(&self, process_id: i32) -> Option<String> {
-        self.process_store
-            .lock()
-            .await
+    pub(crate) async fn resolve_terminal(
+        &self,
+        process_id: i32,
+    ) -> Result<TerminalSession, UnifiedExecError> {
+        let store = self.process_store.lock().await;
+        let entry = store
             .processes
             .get(&process_id)
-            .map(|entry| entry.environment_id.clone())
+            .ok_or(UnifiedExecError::UnknownProcessId { process_id })?;
+        Ok(TerminalSession {
+            process_id,
+            process: Arc::clone(&entry.process),
+            call_id: entry.call_id.clone(),
+            environment_id: entry.environment_id.clone(),
+        })
     }
 
     pub(crate) async fn list_processes(&self) -> Vec<BackgroundTerminalInfo> {

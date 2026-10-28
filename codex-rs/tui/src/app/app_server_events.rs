@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! App-server event stream handling for the TUI app.
 //! Hidden structured threads reject requests instead of entering interactive routing.
 
@@ -252,6 +253,8 @@ impl App {
 
             return;
         }
+        self.note_cron_notification(app_server_client, &notification)
+            .await;
         self.handle_agent_picker_visibility_notification(app_server_client, &notification);
 
         if let ServerNotification::ThreadStarted(started) = &notification

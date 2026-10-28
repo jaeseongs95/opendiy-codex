@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Session, resume, fork, and subagent selection lifecycle for the TUI app.
 //!
 //! This module owns the high-level transitions between app-server threads: starting fresh sessions,
@@ -810,7 +811,10 @@ impl App {
         }
         if voice_owner.is_some() {
             for (thread_id, channel) in &self.thread_event_channels {
-                if Some(*thread_id) != voice_owner && !self.side_threads.contains_key(thread_id) {
+                if Some(*thread_id) != voice_owner
+                    && !self.side_threads.contains_key(thread_id)
+                    && !self.cron.holds_thread(*thread_id)
+                {
                     for request in channel.store.lock().await.pending_replay_requests() {
                         previous_pending.resolve_notification(&thread_id.to_string(), request.id());
                     }
@@ -820,6 +824,7 @@ impl App {
         self.thread_event_listener_tasks.retain(|id, task| {
             if Some(*id) == voice_owner
                 || self.side_threads.contains_key(id)
+                || self.cron.holds_thread(*id)
                 || self.agents_overview.dispatched_requests.contains_key(id)
             {
                 true
@@ -828,12 +833,16 @@ impl App {
                 false
             }
         });
-        self.thread_event_channels
-            .retain(|id, _| Some(*id) == voice_owner || self.side_threads.contains_key(id));
+        self.thread_event_channels.retain(|id, _| {
+            Some(*id) == voice_owner
+                || self.side_threads.contains_key(id)
+                || self.cron.holds_thread(*id)
+        });
         self.pending_realtime_speech_replay.clear();
         self.pending_realtime_transcript_replay.clear();
         self.realtime_replay_order.clear();
-        self.pending_server_profiles.clear();
+        self.pending_server_profiles
+            .retain(|id, _| self.cron.holds_thread(*id));
         self.agents_overview.activity.clear();
         self.agent_navigation.clear();
         self.active_thread_id = None;
@@ -843,8 +852,13 @@ impl App {
         self.primary_session_configured = None;
         self.pending_primary_events.clear();
         if voice_owner.is_none() {
-            let side_thread_ids: Vec<_> = self.side_threads.keys().copied().collect();
-            for thread_id in side_thread_ids {
+            let retained_thread_ids: Vec<_> = self
+                .thread_event_channels
+                .keys()
+                .copied()
+                .filter(|id| self.side_threads.contains_key(id) || self.cron.holds_thread(*id))
+                .collect();
+            for thread_id in retained_thread_ids {
                 if let Some(channel) = self.thread_event_channels.get(&thread_id) {
                     for request in channel.store.lock().await.pending_replay_requests() {
                         if let Some(request) = previous_pending.buffered_request(request) {

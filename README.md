@@ -2,6 +2,8 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
+Current source: [official 0.165.0 + native CLI patch](docs/source-import.md) · [testing scope and remaining limits](docs/TESTING.md). The r22 overview below is retained as project history.
+
 A fork of Codex CLI and Rust App Server that addresses stalled requests and child-process cleanup on Windows.
 
 The published r22 patches cover MCP request cancellation, server shutdown and waits, and configuration reads.

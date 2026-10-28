@@ -1,3 +1,57 @@
+# Current 0.165.0 testing methods
+
+For the later final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.
+
+This source snapshot is pinned to official `360319d8dee62d87e2d59fc0c21805d79519cfed` plus local `f665ccc64aaf6baee8fd137d8054f1daaae4a398`. The public export's offline file/provenance verifier and its synthetic safety checks are distinct from actual Rust component tests and live-app validation. No runtime/build receipt or operational log is published. At the earlier source-export handoff, a new build and Rust test run from the public checkout had **NOT_RUN**; the later public protocol schema run is recorded in the linked 2026-10-29 checkpoint.
+
+## Separate local candidate results and exclusions
+
+For the pinned local source candidate, 45 targeted test groups returned exit 0 and reported 353 passed test executions. This sum includes overlapping filters and is not a count of 353 unique tests. It is not a complete workspace test run and was not run from this new public export checkout.
+
+The CLI main-binary unit tests cover the changed doctor code; TUI library tests cover the changed TUI code. The CLI library executable's 15 tests (login/debug sandbox) and the TUI integration executable's 13 tests (tmux resize/VT100) were not run in those groups; their relevant source had no patch diff. A protocol schema smoke test remains ignored. Permission results cover the policy-component tests only, not full native enforcement or expanded privileges.
+
+A release build, release-executable behavior and installation/live-app checks are separate from these test groups. At this source-export handoff, release execution and installation are **NOT_RUN**. Public-checkout compilation and runtime testing are also **NOT_RUN**. Source export success and synthetic fixtures do not establish production cleanup, desktop responsiveness or memory/resource-growth outcomes. Original operational logs, local receipts and implementation/audit artifacts remain private.
+
+## Reproducible checks
+
+Run the source/provenance and exporter safety checks without Python optimization:
+
+```sh
+python -B scripts/source-import/verify.py
+python -B scripts/source-import/test_verify.py
+```
+
+The source verifier distinguishes canonical Git bytes from Windows working inputs. For 38 embedded prompt files, it checks Windows raw SHA-256 against `upstream/windows-prompt-inputs.json` and canonicalizes only their line endings for the Git-blob comparison. The root attributes preserve the old repository rules, merge the selected upstream LF/generated rules and add native `text` rules only for those 38 prompts. An actual Windows Git materialization with `core.autocrlf=true` and `core.eol=native` matched all 38 pinned raw prompt hashes while preserving both compressed schema resources byte-for-byte. A Linux materialization and a new Rust build of the public checkout are **NOT_RUN**; no Linux CRLF rule is added.
+
+The public-export follow-up for generated TypeScript preserves the original Rust schema comparison: it removes only the publication notice from generated fixture files and records that notice externally in MODIFICATIONS. The Python regression reads GENERATED_TS_HEADER from the actual Rust exporter, checks its position in all eight modified fixtures and rejects a local comment before it. This is a source/contract guard, not a substitute for the actual Rust schema group below. That public-checkout group is **NOT_RUN** at this edit while the separate release build is active. Run it after that build finishes, with a separate target directory:
+
+```sh
+cargo test --manifest-path codex-rs/Cargo.toml --locked --offline --target x86_64-pc-windows-msvc --target-dir <separate-build-target> --profile dev-small -j 1 -p codex-app-server-protocol --lib schema_fixtures_tests -- --test-threads=1 --nocapture
+```
+
+The minimum group contains the TypeScript/JSON generated comparisons, stable/experimental precomputed export comparisons and the existing ignored write-fixtures test. Check that all four read/comparison tests pass and that only the write-fixtures test is ignored. No Rust generator or comparison is changed to accept arbitrary publication comments.
+
+For actual Rust boundaries, use the pinned toolchain and lockfile from `codex-rs`. On Windows the following examples exercise native pipes/Jobs, cleanup fault injection, queued RPC cancellation, WebSocket ownership cancellation and a real background PTY process. Fixtures use temporary processes/directories and loopback servers, without a user profile or external service. The exact-name filters below are existing test names; an appropriate Windows MSVC build environment and dependencies must be prepared separately.
+
+```sh
+cd codex-rs
+cargo test --locked -p codex-utils-pty --lib mcp_read_lifetime_owned_job_and_process_fences -- --test-threads=1
+cargo test --locked -p codex-rmcp-client --lib output_pipe_preserves_bytes_and_closes_with_its_writer -- --test-threads=1
+cargo test --locked -p codex-rmcp-client --lib actual_launch_joins_pending_cleanup_before_admitting_next_generation -- --test-threads=1
+cargo test --locked -p codex-app-server --lib queued_mcp_read_accepts_cancel_before_handler_dispatch -- --test-threads=1
+cargo test --locked -p codex-core --lib capacity_owner_change_cancels_websocket_trace_after_untraced_warmup -- --test-threads=1
+cargo test --locked -p codex-core --lib background_terminal_real_startup_keeps_pid_pty_environment_and_one_spawn -- --test-threads=1
+cargo test --locked -p codex-core --lib responses_retry -- --test-threads=1
+```
+
+A filter can match zero tests; check the reported count and individual test names, not only exit code. Additional regression coverage lives alongside these source files and in the app-server/core/TUI integration suites. Run the relevant platform suites before relying on the patch. These commands describe how to test; they do not assert that every test or public-checkout build passed. Full Windows CLI/App Server checks, installation/start-path validation, real-app workload observation and desktop performance/resource measurements remain separate acceptance boundaries.
+
+The packaging helper's [README](../tools/windows-cli/README.md) describes an argv-only disposable executable test. Its generated executable/package/receipt must not be committed. Upstream fixture AWS identifiers/secrets are intentionally synthetic public data; no real credentials are needed for these fixtures.
+
+## Historical r22 test record
+
+The remainder preserves the earlier r22 test record. Its commits, counts and observations do not describe the current 0.165.0 snapshot or a test run from this new public checkout.
+
 # Testing / 테스트 방법
 
 ## 범위

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Queued user input and pending-steer state for `ChatWidget`.
 //!
 //! This module keeps the mutable input queues together so `ChatWidget` can
@@ -49,6 +50,9 @@ pub(super) struct InputQueueState {
     /// fresh user turn instead of restoring them into the composer.
     pub(super) submit_pending_steers_after_interrupt: bool,
     pub(super) suppress_queue_autosend: bool,
+    /// Keep following input behind the captured service-tier request's acceptance, independently
+    /// of generic popup/settings suppression.
+    pub(super) service_tier_selection_pending: bool,
     pub(super) transcript_copy: std::sync::Weak<crate::copy_input_guard::CopyInputGuard>,
     /// Hold submissions while a usage failure or backend-directed model fallback is resolved.
     pub(super) rate_limit_recovery_pending: bool,
@@ -58,7 +62,9 @@ pub(super) struct InputQueueState {
 
 impl InputQueueState {
     pub(super) fn submissions_paused(&self) -> bool {
-        self.suppress_queue_autosend || self.transcript_copy.strong_count() > 0
+        self.suppress_queue_autosend
+            || self.service_tier_selection_pending
+            || self.transcript_copy.strong_count() > 0
     }
 
     pub(super) fn has_unconfirmed_messages(&self) -> bool {
@@ -73,6 +79,7 @@ impl InputQueueState {
 
     pub(super) fn clear(&mut self) {
         self.startup_submission = None;
+        self.service_tier_selection_pending = false;
         self.recovered_queue = false;
         self.queued_user_messages.clear();
         self.queued_user_message_history_records.clear();

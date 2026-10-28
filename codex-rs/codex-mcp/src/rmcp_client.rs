@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex r22 (2026-10-26); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! RMCP client lifecycle for MCP server connections.
 //!
 //! This module owns startup of individual RMCP clients: building the transport,
@@ -100,6 +100,8 @@ use tracing::Instrument;
 use tracing::instrument;
 use tracing::warn;
 
+/// Experimental client/server capability for call-scoped network policy metadata.
+pub const MCP_NETWORK_POLICY_META_CAPABILITY: &str = "codex/network-policy-meta";
 /// Experimental MCP server capability for development and testing only; production servers should
 /// not use it. Its `cacheable: false` property disables sharing tool definitions across connections.
 const MCP_TOOL_CATALOG_CACHE_CAPABILITY: &str = "codex/tool-catalog-cache";
@@ -133,6 +135,7 @@ pub(crate) struct ManagedClient {
     pub(crate) tool_timeout: Option<Duration>,
     pub(crate) server_instructions: Option<String>,
     pub(crate) server_supports_sandbox_state_meta_capability: bool,
+    pub(crate) client_supports_network_policy_meta_capability: bool,
     pub(crate) codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
 }
 
@@ -362,8 +365,9 @@ impl ManagedClientStartup {
             .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         let cancel_token_for_fut = cancel_token;
         let startup = async move {
-            // Keep creation owned across timeout/cancel. Stdio creation may be
+            // Keep local Windows creation owned across timeout/cancel: it may be
             // running in spawn_blocking and cannot safely be detached on drop.
+            // Executor creation remains cancellable under its startup deadline.
             let mut creation: Option<
                 Shared<BoxFuture<'static, Result<Arc<RmcpClient>, StartupOutcomeError>>>,
             > = None;
@@ -371,7 +375,7 @@ impl ManagedClientStartup {
                 .as_ref()
                 .map(McpToolCatalogCacheContext::begin_fetch);
             let refresh_start = is_codex_apps_mcp_server.then(Instant::now);
-            let outcome = match async {
+            let mut outcome = match async {
                 if let Err(error) = validate_mcp_server_name(&server_name) {
                     return Err(error.into());
                 }
@@ -379,6 +383,7 @@ impl ManagedClientStartup {
                 let creating_name = server_name.clone();
                 let creating_server = server.clone();
                 let owns_creation = cfg!(windows)
+                    && server.config().is_local_environment()
                     && matches!(
                         server.config().transport,
                         McpServerTransportConfig::Stdio { .. }
@@ -466,8 +471,19 @@ impl ManagedClientStartup {
                 // Includes cancelled initialization/tool discovery and a creation
                 // that completed after its deadline. Shutdown is awaited before
                 // publishing the startup outcome to manager.shutdown callers.
-                if let Ok(client) = created.await {
-                    client.shutdown().await;
+                match created.await {
+                    Ok(client) => {
+                        if let Err(error) = client.shutdown().await {
+                            outcome = Err(StartupOutcomeError::from(anyhow!(error)));
+                        }
+                    }
+                    Err(
+                        error @ StartupOutcomeError::Failed {
+                            is_termination_unconfirmed: true,
+                            ..
+                        },
+                    ) => outcome = Err(error),
+                    Err(_) => {}
                 }
             }
             // Log once per startup attempt, including discovery without startup notifications.
@@ -652,14 +668,19 @@ impl AsyncManagedClient {
         }
     }
 
-    pub(crate) async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) -> Result<()> {
         self.cancel_token.cancel();
         match self.client().await {
-            Ok(client) => client.client.shutdown().await,
-            Err(StartupOutcomeError::Cancelled) => {}
-            Err(error) => {
-                warn!("failed to initialize MCP client during shutdown: {error:#}");
-            }
+            Ok(client) => client.client.shutdown().await.map_err(Into::into),
+            Err(StartupOutcomeError::Cancelled) => Ok(()),
+            Err(
+                error @ StartupOutcomeError::Failed {
+                    is_termination_unconfirmed: true,
+                    ..
+                },
+            ) => Err(anyhow!(error)),
+            // Ordinary startup failure has no surviving unconfirmed local owner.
+            Err(_) => Ok(()),
         }
     }
 
@@ -729,6 +750,7 @@ pub(crate) enum StartupOutcomeError {
         error: String,
         is_authentication_required: bool,
         is_ema_authentication_required: bool,
+        is_termination_unconfirmed: bool,
     },
 }
 
@@ -750,6 +772,7 @@ impl From<anyhow::Error> for StartupOutcomeError {
         let is_authentication_required = is_authentication_required_error(&error);
         Self::Failed {
             error: format!("{error:#}"),
+            is_termination_unconfirmed: codex_rmcp_client::is_termination_unconfirmed(&error),
             is_authentication_required,
             is_ema_authentication_required: is_authentication_required
                 && (error.downcast_ref::<EmaTokenSourceError>().is_some()
@@ -1068,6 +1091,8 @@ async fn start_server_task(
     } = params;
     let send_elicitation =
         elicitation_requests.make_sender(server_name.clone(), tx_event, &client_mcp_extensions);
+    let client_supports_network_policy_meta =
+        client_mcp_extensions.contains(MCP_NETWORK_POLICY_META_CAPABILITY);
     let mut params =
         mcp_initialize_request_params(client_elicitation_capability, client_mcp_extensions);
     if auth_changes.is_some() {
@@ -1210,6 +1235,7 @@ async fn start_server_task(
         tool_timeout: None,
         server_instructions: initialize_result.instructions,
         server_supports_sandbox_state_meta_capability,
+        client_supports_network_policy_meta_capability: client_supports_network_policy_meta,
         codex_apps_tools_cache_context,
     };
 
@@ -1253,8 +1279,15 @@ pub(crate) fn mcp_initialize_request_params(
 ) -> InitializeRequestParams {
     let mut capabilities = ClientCapabilities::default();
     capabilities.elicitation = Some(client_elicitation_capability);
+    if client_mcp_extensions.contains(MCP_NETWORK_POLICY_META_CAPABILITY) {
+        capabilities.experimental = Some(BTreeMap::from([(
+            MCP_NETWORK_POLICY_META_CAPABILITY.to_string(),
+            serde_json::Map::new(),
+        )]));
+    }
     let extensions = client_mcp_extensions
         .iter()
+        .filter(|(id, _)| *id != MCP_NETWORK_POLICY_META_CAPABILITY)
         .filter_map(|(id, settings)| {
             settings
                 .as_object()
@@ -1502,6 +1535,91 @@ mod tests {
     use rmcp::model::MetaObject;
     use rmcp::transport::auth::AuthError;
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn executor_stdio_creation_remains_bounded_by_timeout_and_cancellation()
+    -> anyhow::Result<()> {
+        // A local TCP peer deliberately never completes the executor handshake.
+        // This exercises the real remote ExecBackend::start without any external service.
+        for cancel in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let environment = Arc::new(Environment::create_for_tests(Some(format!(
+                "ws://{}",
+                listener.local_addr()?
+            )))?);
+            let cwd = std::env::current_dir()?;
+            let mut config: McpServerConfig = serde_json::from_value(serde_json::json!({
+                "command": "never-started-fixture",
+                "environment_id": "executor-fixture",
+                // The executor launcher rejects a missing cwd before connecting.
+                "cwd": cwd
+            }))?;
+            config.startup_timeout_sec = Some(Duration::from_millis(500));
+            let cancel_token = CancellationToken::new();
+            let startup_complete = Arc::new(AtomicBool::new(false));
+            let startup = ManagedClientStartup {
+                ema_auth: None,
+                originator: AuthStorageOriginator::current(),
+                server_name: "executor-fixture".into(),
+                server: EffectiveMcpServer::from_host_config(config),
+                store_mode: OAuthCredentialsStoreMode::File,
+                keyring_backend_kind: AuthKeyringBackendKind::default(),
+                oauth_refresh_mode: McpOAuthRefreshMode::default(),
+                tx_event: None,
+                elicitation_requests: ElicitationRequestManager::default(),
+                codex_apps_tools_cache_context: None,
+                tool_catalog_cache_context: None,
+                runtime_context: McpRuntimeContext::new(
+                    Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+                    cwd,
+                ),
+                resolved_environment: Ok(Some(environment)),
+                runtime_auth_provider: None,
+                client_elicitation_capability: ElicitationCapability::default(),
+                client_mcp_extensions: ClientMcpExtensions::default(),
+                auth_changes: None,
+                protocol_mode: McpProtocolMode::Legacy,
+                catalog_item_limit: 100,
+                cancel_token: cancel_token.clone(),
+                startup_complete: Arc::clone(&startup_complete),
+                server_capabilities: Arc::default(),
+            };
+            // Poll startup alongside the listener so fixture/auth/path errors are
+            // reported immediately instead of being hidden by an accept timeout.
+            let mut task = startup.start();
+            let (peer, _) = tokio::select! {
+                biased;
+                outcome = &mut task => match outcome {
+                    Err(error) => anyhow::bail!(
+                        "executor fixture startup failed before connecting: {error}"
+                    ),
+                    Ok(_) => anyhow::bail!(
+                        "executor fixture startup completed without connecting"
+                    ),
+                },
+                accepted = tokio::time::timeout(Duration::from_secs(5), listener.accept()) => {
+                    accepted??
+                }
+            };
+            if cancel {
+                cancel_token.cancel();
+            }
+            let result = tokio::time::timeout(Duration::from_secs(2), &mut task).await;
+            drop(peer);
+            let outcome = result.expect("remote creation must retain its startup deadline");
+            if cancel {
+                assert!(matches!(outcome, Err(StartupOutcomeError::Cancelled)));
+            } else {
+                assert!(
+                    matches!(outcome, Err(StartupOutcomeError::Failed { error, .. })
+                    if error.contains("MCP client startup timed out"))
+                );
+            }
+            assert!(startup_complete.load(Ordering::Acquire));
+        }
+        Ok(())
+    }
+
     #[test]
     fn startup_outcome_error_identifies_authentication_required() {
         let error = anyhow::Error::new(AuthError::AuthorizationRequired)
@@ -1557,6 +1675,7 @@ mod tests {
             ClientMcpExtensions::default(),
         );
         assert_eq!(unsupported.capabilities.extensions, None);
+        assert_eq!(unsupported.capabilities.experimental, None);
 
         let app_ui = serde_json::json!({
             "mimeTypes": ["text/html;profile=mcp-app"],
@@ -1565,9 +1684,20 @@ mod tests {
         let supported = mcp_initialize_request_params(
             ElicitationCapability::default(),
             ClientMcpExtensions::new([
+                (
+                    MCP_NETWORK_POLICY_META_CAPABILITY.to_string(),
+                    serde_json::json!({}),
+                ),
                 (OPENAI_FORM_EXTENSION_ID.to_string(), serde_json::json!({})),
                 (MCP_APP_UI_EXTENSION_ID.to_string(), app_ui.clone()),
             ]),
+        );
+        assert_eq!(
+            supported.capabilities.experimental,
+            Some(BTreeMap::from([(
+                MCP_NETWORK_POLICY_META_CAPABILITY.to_string(),
+                JsonObject::new()
+            )])),
         );
         assert_eq!(
             supported.capabilities.extensions,

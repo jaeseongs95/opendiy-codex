@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Tracing log export into the local SQLite log database.
 //!
 //! This module provides a `tracing_subscriber::Layer` that captures events,
@@ -59,6 +60,19 @@ const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(10);
 const SQLX_LOG_TARGETS: [&str; 3] = ["sqlx", "sqlx_core", "sqlx_sqlite"];
 
 pub fn default_filter() -> Targets {
+    default_filter_with_cache_diagnostics(
+        !matches!(
+            std::env::var("APP_CACHE_USAGE_DIAGNOSTICS").as_deref(),
+            Ok("0")
+        ),
+        matches!(
+            std::env::var("APP_CACHE_WIRE_DIAGNOSTICS").as_deref(),
+            Ok("1")
+        ),
+    )
+}
+
+fn default_filter_with_cache_diagnostics(usage_enabled: bool, wire_enabled: bool) -> Targets {
     Targets::new()
         .with_default(LevelFilter::TRACE)
         .with_target("h2", LevelFilter::WARN)
@@ -79,6 +93,22 @@ pub fn default_filter() -> Targets {
         .with_target("tokio_graceful::guard", LevelFilter::DEBUG)
         .with_target("tokio_graceful::trigger", LevelFilter::DEBUG)
         .with_target("codex_api::responses_websocket_timing", LevelFilter::OFF)
+        .with_target(
+            "codex_api::prompt_cache",
+            if usage_enabled {
+                LevelFilter::DEBUG
+            } else {
+                LevelFilter::OFF
+            },
+        )
+        .with_target(
+            "codex_api::prompt_cache_wire",
+            if wire_enabled {
+                LevelFilter::DEBUG
+            } else {
+                LevelFilter::OFF
+            },
+        )
         .with_target("codex_core::post_sampling_token_estimate", LevelFilter::OFF)
         // Full model request bodies and streamed response payloads overwhelm the
         // SQLite log database, but remain available to explicit TRACE subscribers.

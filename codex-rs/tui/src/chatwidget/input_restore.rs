@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Input queue restore and thread-input snapshot behavior for `ChatWidget`.
 
 use std::collections::HashSet;
@@ -636,7 +637,10 @@ impl ChatWidget {
                 .input_queue
                 .queued_user_message_history_records
                 .clone(),
-            recovered_queue: self.input_queue.recovered_queue,
+            // A captured tier request cannot survive a widget/runtime replacement. Keep any
+            // following input for explicit recovery instead of sending it with an unconfirmed tier.
+            recovered_queue: self.input_queue.recovered_queue
+                || self.input_queue.service_tier_selection_pending,
             reconnect_pending: false,
             user_turn_pending_start: self.input_queue.user_turn_pending_start,
             pending_user_message_client_id: self.input_queue.pending_user_message_client_id.clone(),
@@ -657,6 +661,7 @@ impl ChatWidget {
         input_state: Option<ThreadInputState>,
         restore_mode: ThreadInputStateRestoreMode,
     ) {
+        self.input_queue.service_tier_selection_pending = false;
         let preserve_in_flight_turn = restore_mode.preserve_in_flight_turn;
         let restored_task_running =
             preserve_in_flight_turn && input_state.as_ref().is_some_and(|state| state.task_running);

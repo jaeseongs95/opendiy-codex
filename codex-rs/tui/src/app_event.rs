@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
@@ -295,6 +296,12 @@ pub(crate) struct AgentPickerThreadRefresh {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
+    CronCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
+    CronReply(Box<crate::app::cron_jobs::CronReply>),
+    CronCancelReply(Box<crate::app::cron_jobs::CronCancelReply>),
     AccountEmailLoaded {
         request_id: uuid::Uuid,
         email: Option<String>,

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Keeps the single voice owner's live widget and subscription across navigation.
 //! Parked widgets process their own events; only voice and account updates leave their sender.
 
@@ -129,6 +130,7 @@ impl App {
         for thread_id in thread_ids {
             if self.voice_owner_thread_id() == Some(thread_id)
                 || destination == Some(thread_id)
+                || self.cron.holds_thread(thread_id)
                 || self.side_threads.contains_key(&thread_id)
                 || self
                     .agents_overview

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use strum::IntoEnumIterator;
 use strum_macros::AsRefStr;
 use strum_macros::EnumIter;
@@ -44,6 +45,7 @@ pub enum SlashCommand {
     Plan,
     Voice,
     Goal,
+    Cron,
     Agents,
     Side,
     Btw,
@@ -69,12 +71,15 @@ pub enum SlashCommand {
     Mcp,
     Apps,
     Plugins,
+    #[strum(to_string = "reload_plugin")]
+    ReloadPlugin,
     Logout,
     Quit,
     Exit,
     Feedback,
     Rollout,
     Ps,
+    Background,
     #[strum(to_string = "stop", serialize = "clean")]
     Stop,
     Clear,
@@ -92,6 +97,7 @@ impl SlashCommand {
     /// User-visible description shown in the popup.
     pub fn description(self) -> &'static str {
         match self {
+            SlashCommand::Cron => "CLI 실행 중에만 대화별 프롬프트 예약 실행",
             SlashCommand::Config => "configure Codex preferences",
             SlashCommand::Feedback => "send logs to maintainers",
             SlashCommand::New => "start a new chat during a conversation",
@@ -129,6 +135,7 @@ impl SlashCommand {
             SlashCommand::Theme => "choose a syntax highlighting theme",
             SlashCommand::Pets => "choose or hide the terminal pet",
             SlashCommand::Ps => "list background terminals",
+            SlashCommand::Background => "yield the current terminal while preserving its process",
             SlashCommand::Stop => "stop all background terminals",
             SlashCommand::MemoryDrop => "DO NOT USE",
             SlashCommand::MemoryUpdate => "DO NOT USE",
@@ -156,6 +163,7 @@ impl SlashCommand {
             SlashCommand::Mcp => "list MCP tools; use /mcp verbose or /mcp login <name>",
             SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
+            SlashCommand::ReloadPlugin => "reload plugins for this conversation without restarting",
             SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
@@ -183,6 +191,7 @@ impl SlashCommand {
                 | SlashCommand::Fork
                 | SlashCommand::Plan
                 | SlashCommand::Goal
+                | SlashCommand::Cron
                 | SlashCommand::Voice
                 | SlashCommand::Ide
                 | SlashCommand::Keymap
@@ -289,14 +298,17 @@ impl SlashCommand {
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig
+            | SlashCommand::Background
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::App
             | SlashCommand::Goal
+            | SlashCommand::Cron
             | SlashCommand::Voice
             | SlashCommand::Mcp
             | SlashCommand::Apps
             | SlashCommand::Plugins
+            | SlashCommand::ReloadPlugin
             | SlashCommand::Title
             | SlashCommand::Statusline
             | SlashCommand::AutoReview
@@ -373,6 +385,29 @@ mod tests {
         assert_eq!(
             SlashCommand::from_str("approve"),
             Ok(SlashCommand::AutoReview)
+        );
+    }
+}
+
+#[cfg(test)]
+mod reload_plugin_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn reload_plugin_command_name_and_availability() {
+        assert_eq!(
+            SlashCommand::from_str("reload_plugin"),
+            Ok(SlashCommand::ReloadPlugin)
+        );
+        assert_eq!(SlashCommand::ReloadPlugin.command(), "reload_plugin");
+        assert!(SlashCommand::ReloadPlugin.available_during_task());
+        assert!(!SlashCommand::ReloadPlugin.supports_inline_args());
+        assert!(!SlashCommand::ReloadPlugin.available_when_thread_unavailable());
+        assert!(
+            built_in_slash_commands()
+                .iter()
+                .any(|(name, _)| *name == "reload_plugin")
         );
     }
 }

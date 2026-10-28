@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 use anyhow::Context;
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
@@ -4599,6 +4600,7 @@ async fn direct_input_to_multi_agent_v2_subagent_is_rejected(
             request_id,
             params: codex_app_server_protocol::ThreadListParams {
                 excluded_thread_ids: None,
+                attached_to_thread_id: None,
                 originators: None,
                 cursor: None,
                 limit: Some(10),
@@ -5786,4 +5788,147 @@ fn write_test_skill(codex_home: &Path, name: &str) -> std::io::Result<()> {
         skill_dir.join("SKILL.md"),
         format!("---\nname: {name}\ndescription: {name} description\n---\n\n# Body\n"),
     )
+}
+
+#[tokio::test]
+async fn turn_start_if_idle_atomically_skips_busy_without_recording_or_steering() -> Result<()> {
+    use codex_app_server_protocol::{
+        ThreadReadParams, ThreadReadResponse, TurnStartIfIdleParams, TurnStartIfIdleResponse,
+    };
+    let (release, gate) = oneshot::channel();
+    let (server, _completions) = start_streaming_sse_server(vec![
+        vec![
+            StreamingSseChunk {
+                gate: None,
+                body: responses::sse(vec![responses::ev_response_created("cron-response")]),
+            },
+            StreamingSseChunk {
+                gate: Some(gate),
+                body: responses::sse(vec![responses::ev_completed("cron-response")]),
+            },
+        ],
+        vec![StreamingSseChunk {
+            gate: None,
+            body: responses::sse(vec![
+                responses::ev_response_created("manual-followup"),
+                responses::ev_completed("manual-followup"),
+            ]),
+        }],
+    ])
+    .await;
+    let home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri())
+        .with_approval_policy("on-request")
+        .write(home.path())?;
+    let mut app = TestAppServer::builder()
+        .with_codex_home(home.path())
+        .without_managed_config()
+        .build_initialized()
+        .await?;
+    let started = app
+        .start_thread(ThreadStartParams {
+            model: Some("mock-model".into()),
+            ..Default::default()
+        })
+        .await?;
+    assert_eq!(
+        started.approval_policy,
+        codex_app_server_protocol::AskForApproval::OnRequest
+    );
+    let thread = started.thread;
+    // Both requests are outstanding before either reply is read. Core owns admission.
+    let first = app
+        .send_request(
+            "turn/startIfIdle",
+            Some(serde_json::to_value(TurnStartIfIdleParams {
+                thread_id: thread.id.clone(),
+                input: vec![V2UserInput::Text {
+                    text: "saved cron prompt".into(),
+                    text_elements: vec![],
+                }],
+            })?),
+        )
+        .await?;
+    let second = app
+        .send_request(
+            "turn/startIfIdle",
+            Some(serde_json::to_value(TurnStartIfIdleParams {
+                thread_id: thread.id.clone(),
+                input: vec![V2UserInput::Text {
+                    text: "saved cron prompt".into(),
+                    text_elements: vec![],
+                }],
+            })?),
+        )
+        .await?;
+    let first: TurnStartIfIdleResponse =
+        timeout(DEFAULT_READ_TIMEOUT, app.read_response(first)).await??;
+    let second: TurnStartIfIdleResponse =
+        timeout(DEFAULT_READ_TIMEOUT, app.read_response(second)).await??;
+    let owned = match (first, second) {
+        (TurnStartIfIdleResponse::Started { turn }, TurnStartIfIdleResponse::SkippedBusy)
+        | (TurnStartIfIdleResponse::SkippedBusy, TurnStartIfIdleResponse::Started { turn }) => turn,
+        outcomes => anyhow::bail!("expected exactly one admitted turn: {outcomes:?}"),
+    };
+    let busy: TurnStartIfIdleResponse = app
+        .request(|request_id| ClientRequest::TurnStartIfIdle {
+            request_id,
+            params: TurnStartIfIdleParams {
+                thread_id: thread.id.clone(),
+                input: vec![V2UserInput::Text {
+                    text: "BUSY_CRON_MUST_NOT_BE_RECORDED".into(),
+                    text_elements: vec![],
+                }],
+            },
+        })
+        .await?;
+    assert_eq!(busy, TurnStartIfIdleResponse::SkippedBusy);
+    timeout(DEFAULT_READ_TIMEOUT, server.wait_for_request_count(1)).await?;
+    // Existing manual semantics remain intact while a cron-owned turn is running.
+    let manual: TurnStartResponse = app
+        .request(|request_id| ClientRequest::TurnStart {
+            request_id,
+            params: TurnStartParams {
+                thread_id: thread.id.clone(),
+                input: vec![V2UserInput::Text {
+                    text: "manual steering remains manual".into(),
+                    text_elements: vec![],
+                }],
+                ..Default::default()
+            },
+        })
+        .await?;
+    assert_eq!(manual.turn.id, owned.id);
+    release.send(()).expect("response gate remains owned");
+    let completed: TurnCompletedNotification = timeout(
+        DEFAULT_READ_TIMEOUT,
+        app.read_notification("turn/completed"),
+    )
+    .await??;
+    assert_eq!(completed.turn.id, owned.id);
+    let read: ThreadReadResponse = app
+        .request(|request_id| ClientRequest::ThreadRead {
+            request_id,
+            params: ThreadReadParams {
+                thread_id: thread.id,
+                include_turns: true,
+            },
+        })
+        .await?;
+    let persisted = serde_json::to_string(&read)?;
+    assert!(persisted.contains("saved cron prompt"));
+    assert!(persisted.contains("manual steering remains manual"));
+    assert!(!persisted.contains("BUSY_CRON_MUST_NOT_BE_RECORDED"));
+    let requests = server.requests().await;
+    assert_eq!(
+        requests.len(),
+        2,
+        "busy cron must not inject an extra model request"
+    );
+    for request in requests {
+        let body: Value = serde_json::from_slice(&request)?;
+        assert_eq!(body["model"], "mock-model");
+        assert!(!body.to_string().contains("BUSY_CRON_MUST_NOT_BE_RECORDED"));
+    }
+    Ok(())
 }

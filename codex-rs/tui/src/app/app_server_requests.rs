@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 //! Tracks pending approvals and retains their originating connection until resolution.
 
 use std::collections::HashMap;
@@ -1208,4 +1209,4 @@ mod tests {
 
 #[cfg(test)]
 #[path = "retained_reply_tests.rs"]
-mod retained_reply_tests;
+pub(in crate::app) mod retained_reply_tests;
