@@ -5061,6 +5061,17 @@
       ],
       "type": "object"
     },
+    "ThreadPluginReloadParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadReadParams": {
       "properties": {
         "includeTurns": {
@@ -5857,6 +5868,26 @@
           "type": "string"
         }
       ]
+    },
+    "TurnStartIfIdleParams": {
+      "additionalProperties": false,
+      "description": "Starts user input only if core atomically admits a new turn. Never steers or queues. Thread model, environment, and permission settings are inherited and validated by the server.",
+      "properties": {
+        "input": {
+          "items": {
+            "$ref": "#/definitions/UserInput"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "threadId"
+      ],
+      "type": "object"
     },
     "TurnStartParams": {
       "properties": {
@@ -6983,6 +7014,31 @@
       "type": "object"
     },
     {
+      "description": "Reload plugin runtime configuration for one already-loaded thread.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/plugin/reload"
+          ],
+          "title": "Thread/plugin/reloadRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadPluginReloadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/plugin/reloadRequest",
+      "type": "object"
+    },
+    {
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"
@@ -7821,6 +7877,30 @@
         "params"
       ],
       "title": "Plugin/uninstallRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "turn/startIfIdle"
+          ],
+          "title": "Turn/startIfIdleRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TurnStartIfIdleParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Turn/startIfIdleRequest",
       "type": "object"
     },
     {
