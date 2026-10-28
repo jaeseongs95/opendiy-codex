@@ -45,7 +45,7 @@ All four read/comparison tests passed; the existing write-fixtures test remained
 
 ## Limits and pending acceptance
 
-The designated external reviewer gave a scoped pass for artifact identity, package contents and the public schema correction, with no blocking findings in that scope. Desktop entry-point post-installation review was still pending at this documentation checkpoint. A three-second negative test assertion remains a non-blocking bounded observation, not a general timing guarantee. Raw runtime/build receipts and operational logs remain private. No installable binary or proprietary desktop asset is included here.
+The designated external reviewer gave scoped passes for artifact identity, package contents, the public schema correction and the later desktop entry-point use, with no blocking findings in those scopes. The reviewer was the user-designated long-running Claude session, not a fresh-context audit worker. A three-second negative test assertion remains a non-blocking bounded observation, not a general timing guarantee. The desktop CMD intentionally sets its calling console to UTF-8 for the Korean path; that console stays at code page 65001 after it returns. Raw runtime/build receipts and operational logs remain private. No installable binary or proprietary desktop asset is included here.
 
 The full public CLI release build, Linux checkout, real OpenAI service behavior and sustained user workloads have not been validated by these checks. A short synthetic test cannot establish complete resolution of CLOSE_WAIT growth, memory retention or desktop typing/navigation latency. No prompt-cache hit-rate improvement is claimed.
 
