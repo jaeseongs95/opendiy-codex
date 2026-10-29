@@ -304,7 +304,7 @@ pub struct McpServerRefreshResponse {
     /// This does not acknowledge current registry membership, runtime readiness,
     /// or cleanup of previous clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
+    #[ts(optional)]
     pub reconnect_queued_for_thread_id: Option<String>,
 }
 

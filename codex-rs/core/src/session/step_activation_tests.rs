@@ -436,7 +436,7 @@ async fn context_window_refresh_rejects_new_model_limit_before_turn_creation() {
     manager.refreshed_context_window = Some(64_000);
     session.services.models_manager = Arc::new(manager);
     session
-        .update_settings(super::session::SessionSettingsUpdate {
+        .update_settings(crate::session::SessionSettingsUpdate {
             model_context_window: Some(Some(120_000)),
             ..Default::default()
         })
