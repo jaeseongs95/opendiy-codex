@@ -214,6 +214,7 @@ pub(crate) struct ThreadHistoryPagination {
     direction: HistoryDirection,
     newer_item_cursor: Option<String>,
     newer_turn_cursor: Option<String>,
+    seek_newer_metadata: bool,
     older_scope: Option<String>,
     newer_scope: Option<String>,
     older_anchor: Option<ThreadItemsListCursor>,
@@ -300,13 +301,7 @@ impl AppServerSession {
         } else {
             SortDirection::Desc
         });
-        if state.direction != direction
-            || direction == HistoryDirection::Latest
-            || matches!(
-                params.cursor.as_ref(),
-                Some(ThreadItemsListCursor::Anchor(_))
-            )
-        {
+        if state.direction != direction || direction == HistoryDirection::Latest {
             // A deliberate reversal/re-anchor starts a new traversal, not a cursor cycle.
             state.seen_item_cursors = CursorHistory::default();
             state.seen_turn_cursors = CursorHistory::default();
@@ -341,6 +336,7 @@ impl AppServerSession {
             state.newer_scope = None;
             state.newer_anchor = None;
             state.newer_item_cursor = None;
+            state.seek_newer_metadata = false;
             return;
         }
         let (turn, newer) = if direction == HistoryDirection::Older {
@@ -365,6 +361,10 @@ impl AppServerSession {
             state.newer_scope = Some(turn.id.clone());
             state.newer_anchor = anchor;
             state.newer_item_cursor = None;
+            // The reverse cursor of a whole metadata page may lie beyond this retained edge.
+            // Reuse the older continuation and seek through the bounded retained shells first.
+            state.newer_turn_cursor = state.next_turn_cursor.clone();
+            state.seek_newer_metadata = true;
         } else {
             state.older_scope = Some(turn.id.clone());
             state.older_anchor = anchor;
@@ -409,18 +409,19 @@ impl AppServerSession {
             if next.is_some() {
                 break;
             }
+            let seeking = newer && state.seek_newer_metadata;
             let cursor = if newer {
                 state.newer_turn_cursor.take()
             } else {
                 state.next_turn_cursor.take()
             };
-            let Some(cursor) = cursor else {
+            if cursor.is_none() && !seeking {
                 break;
-            };
-            let page = self
+            }
+            let mut page = self
                 .thread_turns_page_direction(
                     thread_id,
-                    Some(cursor.clone()),
+                    cursor.clone(),
                     INITIAL_HISTORY_TURN_LIMIT,
                     if newer {
                         SortDirection::Asc
@@ -429,19 +430,35 @@ impl AppServerSession {
                     },
                 )
                 .await?;
+            if seeking {
+                if let Some(index) = page.data.iter().position(|turn| turn.id == current) {
+                    page.data.drain(..index);
+                    state.seek_newer_metadata = false;
+                } else {
+                    page.data.clear();
+                    if page.next_cursor.is_none() {
+                        state.seek_newer_metadata = false;
+                    }
+                }
+            }
             let first_new = page
                 .data
                 .iter()
                 .find(|turn| !turns.iter().any(|known| known.id == turn.id))
                 .map(|turn| turn.id.clone());
             let next_cursor = advancing_cursor(
-                Some(&cursor),
+                cursor.as_deref(),
                 page.next_cursor,
                 &mut state.seen_turn_cursors,
             );
+            if seeking && next_cursor.is_none() {
+                state.seek_newer_metadata = false;
+            }
             if newer {
                 state.newer_turn_cursor = next_cursor;
-                state.next_turn_cursor = page.backwards_cursor;
+                if !state.seek_newer_metadata {
+                    state.next_turn_cursor = page.backwards_cursor;
+                }
             } else {
                 state.next_turn_cursor = next_cursor;
                 state.newer_turn_cursor = page.backwards_cursor;
@@ -649,6 +666,7 @@ impl AppServerSession {
             state.newer_turn_cursor = metadata.backwards_cursor;
             state.older_scope = None;
             state.newer_scope = None;
+            state.seek_newer_metadata = false;
             state.next_item_cursor = None;
             state.newer_item_cursor = None;
             turns.extend(metadata.data.into_iter().rev());
@@ -845,7 +863,9 @@ impl AppServerSession {
     ) -> Result<()> {
         let thread_id = ThreadId::from_string(&thread.id)
             .wrap_err("invalid thread id in bounded history response")?;
-        if thread.history_mode == ThreadHistoryMode::Legacy && !self.supports_paginated_history() {
+        if thread.history_mode == ThreadHistoryMode::Legacy
+            && (!self.supports_paginated_history() || !self.uses_embedded_app_server())
+        {
             if thread.turns.is_empty() {
                 thread.turns = Box::pin(self.thread_read(thread_id, /*include_turns*/ true))
                     .await?
@@ -884,23 +904,22 @@ impl AppServerSession {
             let page = match result {
                 Ok(page) => page,
                 Err(error) if scope == HistoryHydrationScope::Initial => {
-                    let error = format!("{error:#}");
-                    state.errors.push(error.clone());
-                    if error.contains("historyItemTooLarge")
-                        || error.contains("historyPageTooLarge")
-                    {
-                        state.older_scope = state
-                            .oldest_item
-                            .as_ref()
-                            .map(|(turn, _)| turn.clone())
-                            .or_else(|| thread.turns.last().map(|turn| turn.id.clone()));
-                        state.older_anchor = state.oldest_item.as_ref().map(|(_, item)| {
-                            ThreadItemsListCursor::Anchor(ThreadItemsListAnchor::Item {
-                                item_id: item.clone(),
-                            })
-                        });
-                        state.next_item_cursor = None;
+                    // Compatibility and transport failures keep their official caller recovery.
+                    // Only explicit unavailable projection payloads become an unloaded UI state.
+                    let structured = error
+                        .downcast_ref::<codex_app_server_client::TypedRequestError>()
+                        .and_then(|error| match error {
+                            codex_app_server_client::TypedRequestError::Server {
+                                source, ..
+                            } => source.data.as_ref(),
+                            _ => None,
+                        })
+                        .and_then(|data| data.get("kind"))
+                        .and_then(serde_json::Value::as_str);
+                    if structured != Some("historyProjectionUnavailable") {
+                        return Err(error);
                     }
+                    state.errors.push(format!("{error:#}"));
                     break;
                 }
                 Err(error) => return Err(error),

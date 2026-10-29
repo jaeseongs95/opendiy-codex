@@ -128,7 +128,7 @@ impl App {
         let receiver = channel.receiver.take()?;
         let mut store = channel.store.lock().await;
         store.active = true;
-        let snapshot = store.take_snapshot();
+        let snapshot = store.snapshot();
         Some((receiver, snapshot))
     }
 
@@ -1727,7 +1727,10 @@ impl App {
         snapshot: &mut ThreadEventSnapshot,
     ) -> bool {
         if !self.should_refresh_snapshot_session(thread_id, is_replay_only, snapshot) {
-            if !self.side_threads.contains_key(&thread_id) {
+            if !self.side_threads.contains_key(&thread_id)
+                && snapshot.turns.iter().all(|turn| turn.items.is_empty())
+                && snapshot.events.is_empty()
+            {
                 let display = async {
                     let mut thread = app_server
                         .thread_read(thread_id, /*include_turns*/ false)

@@ -1,8 +1,11 @@
 ---
 source: tui/src/chatwidget/tests/popups_and_settings.rs
+assertion_line: 3298
 expression: popup
 ---
   Memories
+  Memory scope: global
+  /memory view · /memory edit · /memory scope project
   Choose how Codex uses and creates memories. Changes are saved to config.toml
 
 

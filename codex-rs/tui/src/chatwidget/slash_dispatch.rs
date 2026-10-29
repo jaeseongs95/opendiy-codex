@@ -494,7 +494,8 @@ impl ChatWidget {
                 self.open_auto_review_denials_popup();
             }
             SlashCommand::Memories => {
-                if !self.config.features.enabled(Feature::MemoryTool) {
+                if !self.config.features.enabled(Feature::MemoryTool) || self.thread_id().is_none()
+                {
                     self.open_memories_popup();
                     return;
                 }

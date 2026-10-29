@@ -168,7 +168,10 @@ impl ThreadEventStore {
                 }
             }
         }
-        self.set_session(session, display_turn_shells(turns));
+        self.set_session(
+            session,
+            super::history_pagination::clone_display_turns(turns),
+        );
     }
 
     pub(super) fn set_session(&mut self, session: ThreadSessionState, turns: Vec<Turn>) {
@@ -201,6 +204,7 @@ impl ThreadEventStore {
             .map(|turn| turn.id.clone());
         self.latest_turn_id = turns.last().map(|turn| turn.id.clone());
         self.turns = turns;
+        super::history_pagination::bound_display_turns(&mut self.turns, false);
     }
 
     pub(super) fn set_active_turn_id(&mut self, turn_id: String) {
@@ -410,30 +414,8 @@ impl ThreadEventStore {
             .or_else(|| file_change_changes(self.buffer.iter(), &self.turns, turn_id, item_id))
     }
 
-    /// Runtime replay transfers payload ownership instead of cloning an entire history.
-    pub(super) fn take_snapshot(&mut self) -> ThreadEventSnapshot {
-        let turns = std::mem::take(&mut self.turns);
-        self.turns = display_turn_shells(&turns);
-        let events = std::mem::take(&mut self.buffer)
-            .into_iter()
-            .collect::<Vec<_>>();
-        // Pending interactive data is operational state, not an expendable display cache.
-        self.buffer = events
-            .iter()
-            .filter(|event| {
-                matches!(event,
-            ThreadBufferedEvent::Request(request)
-                if self.pending_interactive_replay.should_replay_snapshot_request(request))
-            })
-            .cloned()
-            .collect();
-        self.buffered_agent_message_delta_bytes = 0;
-        self.buffered_event_sizes = self.buffer.iter().map(|_| 0).collect();
-        self.buffered_display_bytes = 0;
-        self.snapshot_with_payload(turns, events)
-    }
-
-    #[cfg(test)]
+    /// A replay is a reader, not a destructive drain. Copy only the bounded display window;
+    /// pending requests, captions and input must remain available for the next consumer.
     pub(super) fn snapshot(&self) -> ThreadEventSnapshot {
         self.snapshot_with_payload(self.turns.clone(), self.buffer.iter().cloned().collect())
     }
@@ -700,29 +682,6 @@ fn file_change_item_changes(
         ThreadItem::FileChange { id, changes, .. } if id == item_id => Some(changes.clone()),
         _ => None,
     }
-}
-
-/// Copy bounded turn metadata while leaving payload ownership with its display projection.
-pub(super) fn display_turn_shells(turns: &[Turn]) -> Vec<Turn> {
-    turns
-        .iter()
-        .rev()
-        .take(crate::history_window::MAX_HISTORY_TURNS)
-        .map(|turn| Turn {
-            id: turn.id.clone(),
-            root_turn_id: turn.root_turn_id.clone(),
-            items: Vec::new(),
-            items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
-            status: turn.status.clone(),
-            error: turn.error.clone(),
-            started_at: turn.started_at,
-            completed_at: turn.completed_at,
-            duration_ms: turn.duration_ms,
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect()
 }
 
 #[derive(Debug)]
@@ -1287,7 +1246,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_snapshot_moves_payload_and_preserves_pending_requests() {
+    fn repeated_runtime_snapshots_preserve_bounded_sources_and_pending_requests() {
         let thread_id = ThreadId::new();
         let item: ThreadItem = serde_json::from_value(serde_json::json!({
             "type": "agentMessage", "id": "body", "text": "x".repeat(4096),
@@ -1301,16 +1260,21 @@ mod tests {
         };
         let original = text.as_ptr();
         store.push_request(exec_approval_request(thread_id, "turn", "approval", None));
-        let snapshot = store.take_snapshot();
+        let snapshot = store.snapshot();
         let ThreadItem::AgentMessage { text, .. } = &snapshot.turns[0].items[0] else {
             panic!("agent item")
+        };
+        assert_eq!(text.len(), 4096);
+        let again = store.snapshot();
+        assert_eq!(again.turns, snapshot.turns);
+        let ThreadItem::AgentMessage { text, .. } = &store.turns[0].items[0] else {
+            panic!("retained agent item")
         };
         assert_eq!(
             text.as_ptr(),
             original,
-            "runtime replay must move, not deep clone"
+            "replay must not drain or replace its canonical source"
         );
-        assert!(store.turns[0].items.is_empty());
         assert!(store.has_pending_thread_approvals());
         assert_eq!(store.pending_replay_requests().len(), 1);
     }

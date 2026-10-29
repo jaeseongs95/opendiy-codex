@@ -536,23 +536,75 @@ fn merge_older_turns(current_turns: &mut Vec<Turn>, mut older_turns: Vec<Turn>) 
     current_turns.splice(0..0, older_turns);
 }
 
-fn bound_display_turns(turns: &mut Vec<Turn>, prefer_older: bool) {
+fn admit_display_item(item: &ThreadItem, items: &mut usize, bytes: &mut usize) -> bool {
+    if *items >= crate::history_window::MAX_HISTORY_ITEMS {
+        return false;
+    }
+    let Ok(size) = crate::history_window::payload_bytes(item) else {
+        return false;
+    };
+    if bytes.saturating_add(size) > crate::history_window::MAX_HISTORY_BYTES {
+        return false;
+    }
+    *items += 1;
+    *bytes += size;
+    true
+}
+
+/// Replay readers may copy only the bounded display projection, never the full input history.
+pub(super) fn clone_display_turns(turns: &[Turn]) -> Vec<Turn> {
+    let mut items = 0usize;
+    let mut bytes = 0usize;
+    let mut retained = turns
+        .iter()
+        .rev()
+        .take(crate::history_window::MAX_HISTORY_TURNS)
+        .map(|turn| {
+            let mut copy = crate::history_window::turn_shell(turn);
+            copy.items = turn
+                .items
+                .iter()
+                .rev()
+                .filter(|item| admit_display_item(item, &mut items, &mut bytes))
+                .cloned()
+                .collect();
+            copy.items.reverse();
+            copy.items_view = if copy.items.len() == turn.items.len() {
+                turn.items_view
+            } else if copy.items.is_empty() {
+                codex_app_server_protocol::TurnItemsView::NotLoaded
+            } else {
+                codex_app_server_protocol::TurnItemsView::Summary
+            };
+            copy
+        })
+        .collect::<Vec<_>>();
+    retained.reverse();
+    retained
+}
+
+pub(super) fn bound_display_turns(turns: &mut Vec<Turn>, prefer_older: bool) {
+    let count = turns.len();
+    if count > crate::history_window::MAX_HISTORY_TURNS {
+        if prefer_older {
+            turns.truncate(crate::history_window::MAX_HISTORY_TURNS);
+        } else {
+            turns.drain(..count - crate::history_window::MAX_HISTORY_TURNS);
+        }
+    }
     let mut items = 0usize;
     let mut bytes = 0usize;
     let visit = |turn: &mut Turn, items: &mut usize, bytes: &mut usize| {
-        turn.items.retain(|item| {
-            let Ok(size) = crate::history_window::payload_bytes(item) else {
-                return false;
+        let count = turn.items.len();
+        turn.items
+            .retain(|item| admit_display_item(item, items, bytes));
+        if count != turn.items.len() {
+            turn.items_view = if turn.items.is_empty() {
+                codex_app_server_protocol::TurnItemsView::NotLoaded
+            } else {
+                codex_app_server_protocol::TurnItemsView::Summary
             };
-            if *items >= crate::history_window::MAX_HISTORY_ITEMS
-                || bytes.saturating_add(size) > crate::history_window::MAX_HISTORY_BYTES
-            {
-                return false;
-            }
-            *items += 1;
-            *bytes += size;
-            true
-        });
+        }
     };
     if prefer_older {
         for turn in turns.iter_mut() {
@@ -563,14 +615,6 @@ fn bound_display_turns(turns: &mut Vec<Turn>, prefer_older: bool) {
             turn.items.reverse();
             visit(turn, &mut items, &mut bytes);
             turn.items.reverse();
-        }
-    }
-    let count = turns.len();
-    if count > crate::history_window::MAX_HISTORY_TURNS {
-        if prefer_older {
-            turns.truncate(crate::history_window::MAX_HISTORY_TURNS);
-        } else {
-            turns.drain(..count - crate::history_window::MAX_HISTORY_TURNS);
         }
     }
 }

@@ -487,6 +487,9 @@ async fn copy_shortcut_reveals_its_feedback_without_changing_the_draft() -> Resu
 #[tokio::test]
 async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
     let (mut app, mut events, _op_rx) = make_test_app_with_channels().await;
+    let thread_id = ThreadId::new();
+    app.chat_widget
+        .handle_thread_session(test_thread_session(thread_id, app.config.cwd.to_path_buf()));
     set_fast_mode_test_catalog(&mut app.chat_widget);
     app.chat_widget.set_model("gpt-5.4");
     app.chat_widget
@@ -503,12 +506,16 @@ async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
     assert_matches!(&follow, AppEvent::FollowTranscript);
     app.handle_event(&mut tui, &mut server, follow).await?;
     assert!(app.transcript_view.is_following());
+    let pending = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
+    assert!(pending.iter().any(|event| matches!(event,
+        AppEvent::SubmitThreadOp { thread_id: owner, op: AppCommand::SelectServiceTier { owner_generation, service_tier: Some(tier) } }
+            if *owner == thread_id && *owner_generation == app.chat_widget.thread_runtime_generation
+                && tier == ServiceTier::Fast.request_value()
+    )));
     assert!(
-        std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
-            event,
-            AppEvent::PersistServiceTierSelection { service_tier: Some(tier) }
-                if tier == ServiceTier::Fast.request_value()
-        ))
+        pending
+            .iter()
+            .all(|event| !matches!(event, AppEvent::PersistServiceTierSelection { .. }))
     );
 
     tui.set_owned_screen(/*owned*/ false)?;
