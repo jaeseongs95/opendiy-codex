@@ -37,6 +37,29 @@ fn value(response: DynamicToolCallResponse) -> Value {
     serde_json::from_str(text).unwrap()
 }
 
+async fn mcp_request(config: &Value, payload: Value) -> color_eyre::Result<Value> {
+    let mut request = codex_http_client::HttpClientBuilder::new()
+        .build_direct()?
+        .post(config["url"].as_str().unwrap())
+        .header(
+            "Authorization",
+            config["http_headers"]["Authorization"].as_str().unwrap(),
+        )
+        .header("Accept", "application/json, text/event-stream")
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("MCP-Method", payload["method"].as_str().unwrap());
+    if let Some(name) = payload["params"]["name"].as_str() {
+        request = request.header("MCP-Name", name);
+    }
+    let response = request.json(&payload).send().await?.text().await?;
+    Ok(serde_json::from_str(
+        response
+            .lines()
+            .find_map(|line| line.strip_prefix("data: "))
+            .unwrap_or(&response),
+    )?)
+}
+
 async fn start_server(
     config: &Config,
 ) -> color_eyre::Result<crate::app_server_session::AppServerSession> {
@@ -50,38 +73,77 @@ async fn start_server(
             status,
         )
         .await?;
-    let mut overrides = None;
-    server.thread_tool_transport().configure_mcp(&mut overrides);
-    let overrides = overrides.unwrap();
-    assert!(!overrides.contains_key("mcp_servers.codex_tui"));
-    let mcp = &overrides["mcp_servers.codex_worktrees"];
-    let response = codex_http_client::HttpClientBuilder::new().build_direct()?
-        .post(mcp["url"].as_str().unwrap())
-        .header("Authorization", mcp["http_headers"]["Authorization"].as_str().unwrap())
-        .header("Accept", "application/json, text/event-stream")
-        .header("MCP-Protocol-Version", "2026-07-28")
-        .header("MCP-Method", "tools/list")
-        .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{
-            "io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}))
-        .send().await?.text().await?;
-    let result: Value = serde_json::from_str(
-        response
-            .lines()
-            .find_map(|line| line.strip_prefix("data: "))
-            .unwrap_or(&response),
-    )?;
+    // Existing worktree MCP carries cron; do not also inject native tools.
+    let mut params = codex_app_server_protocol::ThreadStartParams {
+        dynamic_tools: Some(crate::cron_tools::specs()),
+        ..Default::default()
+    };
+    server.thread_tool_transport().configure(&mut params);
+    assert_eq!(params.dynamic_tools, None);
+    let overrides = params.config.unwrap();
     assert_eq!(
-        result["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|tool| tool["name"].as_str().unwrap())
-            .collect::<Vec<_>>(),
+        overrides.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["mcp_servers.codex_worktrees"]
+    );
+    let mcp = &overrides["mcp_servers.codex_worktrees"];
+    let metadata = json!({
+        "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities":{}
+    });
+    let result = mcp_request(
+        mcp,
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":metadata}}),
+    )
+    .await?;
+    let tools = result["result"]["tools"].as_array().unwrap();
+    let names = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
         vec![
+            "cron",
             "create_worktree",
             "get_worktree_creation_status",
             "list_worktrees"
         ]
+    );
+    assert_eq!(
+        names
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        names.len()
+    );
+    let schema = &tools.iter().find(|tool| tool["name"] == "cron").unwrap()["inputSchema"];
+    assert_eq!(schema["additionalProperties"], json!(false));
+    let mut arguments = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    arguments.sort_unstable();
+    assert_eq!(arguments, vec!["action", "at", "every", "id", "prompt"]);
+
+    // Valid protocol and caller metadata must reach the task-tools feature gate.
+    let mut metadata = metadata;
+    metadata["threadId"] = json!(Uuid::new_v4().to_string());
+    metadata["turnId"] = json!("worktree-tools-turn");
+    metadata["callId"] = json!("worktree-tools-create-thread");
+    let rejected = mcp_request(
+        mcp,
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"create_thread","arguments":{"prompt":"Create a task"},"_meta":metadata
+        }}),
+    )
+    .await?;
+    assert_eq!(rejected["error"]["code"], json!(-32602), "{rejected}");
+    assert_eq!(
+        rejected["error"]["message"],
+        json!("Task tools are unavailable on this connection"),
+        "{rejected}"
     );
     Ok(server)
 }

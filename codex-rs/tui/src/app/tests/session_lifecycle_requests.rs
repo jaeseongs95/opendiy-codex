@@ -1312,15 +1312,21 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
             params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
             Some(7)
         );
-        assert!(
-            params["dynamicTools"][0]["tools"]
-                .as_array()
-                .is_some_and(|tools| tools.iter().all(|tool| {
-                    tool["deferLoading"] == true
-                        && !crate::dynamic_tools::DELEGATION_TOOLS
-                            .contains(&tool["name"].as_str().unwrap_or_default())
-                }))
+        let tools = params["dynamicTools"][0]["tools"].as_array().unwrap();
+        assert_eq!(
+            tools
+                .iter()
+                .filter(|tool| tool["name"] == crate::cron_tools::NAME)
+                .count(),
+            1
         );
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap();
+            // Cron must be visible without a tool search so ordinary scheduling
+            // requests can select it. Existing non-delegation tools stay deferred.
+            assert_eq!(tool["deferLoading"], name != crate::cron_tools::NAME);
+            assert!(!crate::dynamic_tools::DELEGATION_TOOLS.contains(&name));
+        }
     }
     let target_id = started.session.thread_id;
     app_server
