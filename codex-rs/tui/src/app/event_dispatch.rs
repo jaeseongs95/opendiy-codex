@@ -92,6 +92,7 @@ impl App {
                     | AppEvent::BeginThreadSwitchHistoryReplayBuffer
                     | AppEvent::EndInitialHistoryReplayBuffer
                     | AppEvent::FatalExitRequest(_)
+                    | AppEvent::CronToolCall(_)
                     | AppEvent::CronCommand { .. }
                     | AppEvent::CronReply(_)
                     | AppEvent::CronCancelReply(_)
@@ -169,6 +170,7 @@ impl App {
         match event {
             AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
             AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
+            AppEvent::CronToolCall(request) => self.handle_cron_tool_call(app_server, *request).await,
             AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
             AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,
             AppEvent::CronCancelReply(reply) => self.handle_cron_cancel_reply(*reply),

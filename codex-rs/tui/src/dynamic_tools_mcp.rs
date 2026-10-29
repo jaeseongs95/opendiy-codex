@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Approval-gated MCP transport for task tools owned by a local-daemon TUI.
 
 use crate::app_event_sender::AppEventSender;
@@ -53,7 +54,7 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 pub(crate) enum ThreadToolTransport {
-    Disabled,
+    CronOnly,
     Dynamic,
     Mcp(Arc<DynamicToolMcpServer>),
 }
@@ -76,7 +77,7 @@ impl ThreadToolTransport {
 
     pub(crate) fn configure(&self, params: &mut ThreadStartParams) {
         match self {
-            Self::Disabled => params.dynamic_tools = None,
+            Self::CronOnly => params.dynamic_tools = Some(crate::cron_tools::specs()),
             Self::Dynamic => {
                 params.dynamic_tools = Some(dynamic_tools::non_delegation_tool_specs());
             }
@@ -100,6 +101,7 @@ impl ThreadToolTransport {
 #[derive(Clone)]
 pub(crate) struct ToolServices {
     pub(crate) task_tools: bool,
+    pub(crate) cron: Option<crate::cron_tools::Connection>,
     pub(crate) worktrees: Option<crate::managed_worktree_tools::ManagedWorktreeTools>,
 }
 
@@ -113,7 +115,15 @@ impl ToolServices {
     }
 }
 
-type ToolConnection = Arc<RwLock<Option<(AppServerRequestHandle, AppEventSender)>>>;
+type ToolConnection = Arc<
+    RwLock<
+        Option<(
+            AppServerRequestHandle,
+            AppEventSender,
+            Option<crate::cron_tools::Connection>,
+        )>,
+    >,
+>;
 
 pub(crate) struct DynamicToolMcpServer {
     connection: ToolConnection,
@@ -124,17 +134,26 @@ pub(crate) struct DynamicToolMcpServer {
 
 impl DynamicToolMcpServer {
     pub(crate) fn suspend(&self) {
-        *self
+        let mut connection = self
             .connection
             .write()
-            .unwrap_or_else(PoisonError::into_inner) = None;
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, _, Some(cron))) = connection.as_ref() {
+            cron.live.store(false, std::sync::atomic::Ordering::Release);
+        }
+        *connection = None;
     }
 
-    pub(crate) fn reconnect(&self, handle: AppServerRequestHandle, events: AppEventSender) {
+    pub(crate) fn reconnect(
+        &self,
+        handle: AppServerRequestHandle,
+        events: AppEventSender,
+        cron: Option<crate::cron_tools::Connection>,
+    ) {
         *self
             .connection
             .write()
-            .unwrap_or_else(PoisonError::into_inner) = Some((handle, events));
+            .unwrap_or_else(PoisonError::into_inner) = Some((handle, events, cron));
     }
 
     pub(crate) async fn start(
@@ -177,7 +196,11 @@ impl DynamicToolMcpServer {
         if let Some(overrides) = thread_start_params.config.as_mut() {
             overrides.remove("web_search");
         }
-        let connection = Arc::new(RwLock::new(Some((request_handle, app_event_tx))));
+        let connection = Arc::new(RwLock::new(Some((
+            request_handle,
+            app_event_tx,
+            services.cron.clone(),
+        ))));
         let namespace = services.namespace();
         let handler = DynamicToolMcpHandler {
             connection: Arc::clone(&connection),
@@ -261,6 +284,9 @@ impl ServerHandler for DynamicToolMcpHandler {
         } else {
             Vec::new()
         };
+        if !self.services.task_tools && self.services.cron.is_some() {
+            specs.extend(crate::cron_tools::specs());
+        }
         if self.services.worktrees.is_some() {
             specs.extend(crate::managed_worktree_tool_specs::specs());
         }
@@ -311,6 +337,36 @@ impl ServerHandler for DynamicToolMcpHandler {
                 Value::String(value) => serde_json::from_str(value).ok(),
                 _ => None,
             });
+        if request.name == crate::cron_tools::NAME {
+            for (direct, nested) in [("threadId", "thread_id"), ("turnId", "turn_id")] {
+                let direct_value = metadata.get(direct).and_then(Value::as_str);
+                let nested_value = turn_metadata
+                    .as_ref()
+                    .and_then(|value| value.get(nested))
+                    .and_then(Value::as_str);
+                if direct_value.zip(nested_value).is_some_and(|(a, b)| a != b) {
+                    return Err(McpError::invalid_params(
+                        "호출 메타데이터가 서로 다릅니다.",
+                        None,
+                    ));
+                }
+            }
+            if metadata
+                .get("callId")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+                || metadata
+                    .get("turnId")
+                    .and_then(Value::as_str)
+                    .or_else(|| turn_metadata.as_ref()?.get("turn_id")?.as_str())
+                    .is_none_or(str::is_empty)
+            {
+                return Err(McpError::invalid_params(
+                    "예약에는 실제 turn·call 메타데이터가 필요합니다.",
+                    None,
+                ));
+            }
+        }
         let thread_id = metadata
             .get("threadId")
             .and_then(Value::as_str)
@@ -340,7 +396,7 @@ impl ServerHandler for DynamicToolMcpHandler {
             self.server_config.clone(),
         );
         // Snapshot once: an in-flight call must never switch connections or replay a mutation.
-        let (request_handle, app_event_tx) = self
+        let (request_handle, app_event_tx, cron) = self
             .connection
             .read()
             .unwrap_or_else(PoisonError::into_inner)
@@ -348,7 +404,15 @@ impl ServerHandler for DynamicToolMcpHandler {
             .ok_or_else(|| {
                 McpError::internal_error("TUI is reconnecting; tool was not sent", None)
             })?;
-        let response = if matches!(
+        let response = if params.tool == crate::cron_tools::NAME {
+            let connection = cron.ok_or_else(|| {
+                McpError::invalid_params("예약 도구가 이 연결에서 제공되지 않습니다.", None)
+            })?;
+            tokio::select! {
+                response = crate::cron_tools::execute(connection, request_handle, params, &app_event_tx, context.ct.clone()) => response,
+                _ = context.ct.cancelled() => dynamic_tools::failure_response("예약 요청이 중단되었습니다. 결과가 불명확하면 list로 확인하세요."),
+            }
+        } else if matches!(
             params.tool.as_str(),
             "create_worktree" | "get_worktree_creation_status" | "list_worktrees"
         ) {

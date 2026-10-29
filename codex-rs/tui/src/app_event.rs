@@ -623,6 +623,9 @@ pub(crate) enum AppEvent {
         response: DynamicToolCallResponse,
     },
 
+    /// Run a caller-bound scheduler command on the owning app event loop.
+    CronToolCall(Box<crate::cron_tools::Request>),
+
     /// Register task tools inherited by a dynamically created thread.
     TaskToolsAvailable {
         thread_id: ThreadId,

@@ -1,5 +1,7 @@
 # Testing methods and validation history
 
+자연어 예약 도구 연결은 [사용 안내](native-cli-cron.ko.md)를 참고하세요. 새 후보의 `model_cron`·`cron_arguments` 시험은 해당 호출·취소 경계를 검사하기 위한 표적이며, 이 공개 작업 트리에서 실행한 결과로 보고하지 않습니다. 현재 실행 파일에 설치되지 않았고 실제 모델의 자연어 도구 선택 평가도 실행하지 않았습니다.
+
 Current R28 checks are in [R28 validation and limits](cli-r28-validation.md). The sections below preserve earlier checkpoints and do not describe a new R28 public-checkout build.
 
 For the earlier R26 final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.

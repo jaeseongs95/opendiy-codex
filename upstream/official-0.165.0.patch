@@ -39260,10 +39260,26 @@ index 13d30c273..b044f40b0 100644
              cwd: test_path_buf("/tmp/thread-settings").abs(),
              approval_policy: codex_app_server_protocol::AskForApproval::Never,
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index cd8f1678d..c5a11510f 100644
+index cd8f1678d..ccf18c26d 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
-@@ -252,6 +252,8 @@ impl App {
+@@ -96,6 +96,15 @@ impl App {
+         app_server_client: &AppServerSession,
+         event: AppServerEvent,
+     ) {
++        if matches!(
++            &event,
++            AppServerEvent::Lagged { .. } | AppServerEvent::Disconnected { .. }
++        ) {
++            app_server_client
++                .cron_tool_connection()
++                .live
++                .store(false, std::sync::atomic::Ordering::Release);
++        }
+         match event {
+             AppServerEvent::Lagged { skipped } => {
+                 tracing::warn!(
+@@ -252,6 +261,8 @@ impl App {
  
              return;
          }
@@ -39272,6 +39288,85 @@ index cd8f1678d..c5a11510f 100644
          self.handle_agent_picker_visibility_notification(app_server_client, &notification);
  
          if let ServerNotification::ThreadStarted(started) = &notification
+@@ -297,6 +308,13 @@ impl App {
+         }
+         match &notification {
+             ServerNotification::ServerRequestResolved(notification) => {
++                if let Some((_, cancellation, task)) = self.cron.tool_tasks.remove(&(
++                    app_server_client.backend_id(),
++                    notification.request_id.clone(),
++                )) {
++                    cancellation.cancel();
++                    task.abort();
++                }
+                 if let Some((_, task)) = self.dynamic_tool_tasks.remove(&notification.request_id) {
+                     task.abort();
+                 }
+@@ -620,6 +638,64 @@ impl App {
+             return;
+         }
+         if let ServerRequest::DynamicToolCall { request_id, params } = &request {
++            if params.namespace.as_deref() == Some(crate::dynamic_tools::NAMESPACE)
++                && params.tool == crate::cron_tools::NAME
++                && !matches!(
++                    app_server_client.thread_tool_transport(),
++                    crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(_)
++                )
++            {
++                let key = (app_server_client.backend_id(), request_id.clone());
++                self.cron
++                    .tool_tasks
++                    .retain(|_, (_, _, task)| !task.is_finished());
++                if self.cron.tool_tasks.contains_key(&key) {
++                    return;
++                }
++                let Ok(source) = ThreadId::from_string(&params.thread_id) else {
++                    let response = crate::dynamic_tools::failure_response(
++                        "호출 대화 식별자가 올바르지 않습니다.",
++                    );
++                    match serde_json::to_value(response) {
++                        Ok(result) => {
++                            if let Err(error) = buffered_request.reply.resolve(result).await {
++                                tracing::warn!(%error, "잘못된 예약 도구 호출의 응답 전송 실패");
++                            }
++                        }
++                        Err(error) => tracing::warn!(%error, "예약 도구 오류 응답 직렬화 실패"),
++                    }
++                    return;
++                };
++                let connection = app_server_client.cron_tool_connection();
++                let handle = app_server_client.request_handle();
++                let events = self.app_event_tx.clone();
++                let params = params.clone();
++                let reply = buffered_request.reply.clone();
++                let cancellation = tokio_util::sync::CancellationToken::new();
++                let task_cancellation = cancellation.clone();
++                let task = tokio::spawn(async move {
++                    let response = crate::cron_tools::execute(
++                        connection,
++                        handle,
++                        params,
++                        &events,
++                        task_cancellation,
++                    )
++                    .await;
++                    match serde_json::to_value(response) {
++                        Ok(result) => {
++                            if let Err(error) = reply.resolve(result).await {
++                                tracing::warn!(%error, "예약 도구 응답 결과 미확인: 재전송하지 않음");
++                            }
++                        }
++                        Err(error) => tracing::warn!(%error, "예약 도구 응답 직렬화 실패"),
++                    }
++                });
++                self.cron
++                    .tool_tasks
++                    .insert(key, (source, cancellation, task));
++                return;
++            }
+             if self.dynamic_tool_tasks.contains_key(request_id)
+                 || (params.namespace.as_deref() != Some(crate::dynamic_tools::NAMESPACE)
+                     && !app_server_client.uses_embedded_app_server())
 diff --git a/codex-rs/tui/src/app/app_server_requests.rs b/codex-rs/tui/src/app/app_server_requests.rs
 index be5c77608..b0a862e6d 100644
 --- a/codex-rs/tui/src/app/app_server_requests.rs
@@ -39283,17 +39378,25 @@ index be5c77608..b0a862e6d 100644
 -mod retained_reply_tests;
 +pub(in crate::app) mod retained_reply_tests;
 diff --git a/codex-rs/tui/src/app/backend_events.rs b/codex-rs/tui/src/app/backend_events.rs
-index 3f5d59937..5f0680337 100644
+index 3f5d59937..0c7e135cb 100644
 --- a/codex-rs/tui/src/app/backend_events.rs
 +++ b/codex-rs/tui/src/app/backend_events.rs
-@@ -15,6 +15,15 @@ impl App {
+@@ -15,6 +15,23 @@ impl App {
          displayed_owner: BackendId,
          event: AppServerSessionEvent,
      ) {
++        if event.backend_id != app_server.backend_id() {
++            tracing::warn!("ignoring server event from a different backend");
++            return;
++        }
 +        if matches!(
 +            &event.event,
 +            AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. }
 +        ) {
++            app_server
++                .cron_tool_connection()
++                .live
++                .store(false, std::sync::atomic::Ordering::Release);
 +            self.cron.invalidate_backend(
 +                event.backend_id,
 +                "backend 연결 또는 이벤트 수신 유실: 예약 실행 중지",
@@ -39317,10 +39420,10 @@ index ef5b91278..16f0b825d 100644
      pub(super) fn reasoning_label(reasoning_effort: Option<&ReasoningEffortConfig>) -> String {
 diff --git a/codex-rs/tui/src/app/cron_jobs.rs b/codex-rs/tui/src/app/cron_jobs.rs
 new file mode 100644
-index 000000000..3ba88901d
+index 000000000..dd8f43ded
 --- /dev/null
 +++ b/codex-rs/tui/src/app/cron_jobs.rs
-@@ -0,0 +1,885 @@
+@@ -0,0 +1,1719 @@
 +//! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 +use super::*;
 +use crate::backend_id::BackendId;
@@ -39330,6 +39433,8 @@ index 000000000..3ba88901d
 +    TurnStartIfIdleParams, TurnStartIfIdleResponse,
 +};
 +use std::time::Instant as MonotonicInstant;
++
++const MAX_MODEL_CALLS: usize = 1_024;
 +
 +const USAGE: &str = "/cron add --every 10m -- <prompt> | add --at <RFC3339+offset> -- <prompt> | list | pause/resume/remove/cancel <id>";
 +
@@ -39363,6 +39468,13 @@ index 000000000..3ba88901d
 +    unsupported: HashSet<BackendId>,
 +    tasks: HashMap<(u64, u64), (BackendId, JoinHandle<()>)>,
 +    cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
++    pub(super) tool_tasks:
++        HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
++    closed_threads: HashSet<(BackendId, ThreadId)>,
++    model_calls: HashMap<
++        (BackendId, uuid::Uuid, ThreadId, String, String),
++        (String, codex_app_server_protocol::DynamicToolCallResponse),
++    >,
 +}
 +
 +impl Drop for CronState {
@@ -39383,6 +39495,11 @@ index 000000000..3ba88901d
 +            *self.epochs.entry(owner).or_default() += 1;
 +        }
 +        self.unsupported.clear();
++        self.model_calls.clear();
++        for (_, (_, cancellation, task)) in self.tool_tasks.drain() {
++            cancellation.cancel();
++            task.abort();
++        }
 +        for (_, (_, task)) in self.tasks.drain() {
 +            task.abort();
 +        }
@@ -39398,6 +39515,18 @@ index 000000000..3ba88901d
 +    pub(super) fn invalidate_backend(&mut self, backend: BackendId, reason: &str) {
 +        *self.epochs.entry(backend).or_default() += 1;
 +        self.unsupported.remove(&backend);
++        self.model_calls
++            .retain(|(owner, _, _, _, _), _| *owner != backend);
++        self.tool_tasks
++            .retain(|(owner, _), (_, cancellation, task)| {
++                if *owner == backend {
++                    cancellation.cancel();
++                    task.abort();
++                    false
++                } else {
++                    true
++                }
++            });
 +        self.scheduler
 +            .invalidate(|target| target.backend == backend, reason);
 +        self.cancel_tasks.retain(|_, (owner, task)| {
@@ -39493,6 +39622,93 @@ index 000000000..3ba88901d
 +}
 +
 +impl App {
++    pub(super) async fn handle_cron_tool_call(
++        &mut self,
++        app_server: &AppServerSession,
++        request: crate::cron_tools::Request,
++    ) {
++        use std::sync::atomic::Ordering;
++        let fail = |message| crate::dynamic_tools::failure_response(message);
++        let Ok(thread) = ThreadId::from_string(&request.params.thread_id) else {
++            let _ = request
++                .reply
++                .send(fail("호출 대화 식별자가 올바르지 않습니다."));
++            return;
++        };
++        if request.reply.is_closed() {
++            return;
++        }
++        let current_connection = app_server.cron_tool_connection();
++        let available = request.connection.backend == current_connection.backend
++            && request.connection.id == current_connection.id
++            && request.connection.live.load(Ordering::Acquire)
++            && !self.reconnect.offline
++            && !self
++                .cron
++                .closed_threads
++                .contains(&(request.connection.backend, thread))
++            && !self.abandoned_side_threads.contains(&thread)
++            && !self.temporary_structured_requests.contains_key(&thread)
++            && !self.thread_unavailable(thread)
++            && self.active_turn_id_for_thread(thread).await.as_deref()
++                == Some(request.params.turn_id.as_str());
++        if !available {
++            let _ = request.reply.send(fail("원래 호출 대화·활성 turn·연결이 종료되거나 바뀌었습니다. 예약을 변경하지 않았습니다."));
++            return;
++        }
++        let key = (
++            request.connection.backend,
++            request.connection.id,
++            thread,
++            request.params.turn_id.clone(),
++            request.params.call_id.clone(),
++        );
++        if let Some((command, response)) = self.cron.model_calls.get(&key) {
++            let response = if command == &request.command {
++                response.clone()
++            } else {
++                fail("동일 호출 식별자에 다른 요청을 사용할 수 없습니다.")
++            };
++            let _ = request.reply.send(response);
++            return;
++        }
++        if self.cron.model_calls.len() >= MAX_MODEL_CALLS {
++            let _ = request.reply.send(fail("동시 활성 호출 기록 한도에 도달했습니다. 이전 요청을 다시 등록하지 말고 turn 종료 후 확인하세요."));
++            return;
++        }
++        // Cancellation before this claim wins. After it, a lost reply is an unknown
++        // outcome, not permission to replay the same mutation.
++        if request.reply.is_closed()
++            || request.cancellation.is_cancelled()
++            || request
++                .claim
++                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
++                .is_err()
++            || request.cancellation.is_cancelled()
++            || !request.connection.live.load(Ordering::Acquire)
++        {
++            return;
++        }
++        let response = match self
++            .cron_command_scoped(app_server, Some(thread), &request.command, true)
++            .await
++        {
++            Ok(message) => codex_app_server_protocol::DynamicToolCallResponse {
++                success: true,
++                content_items: vec![
++                    codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText {
++                        text: message,
++                    },
++                ],
++            },
++            Err(error) => crate::dynamic_tools::failure_response(error),
++        };
++        self.cron
++            .model_calls
++            .insert(key, (request.command, response.clone()));
++        let _ = request.reply.send(response);
++    }
++
 +    pub(super) async fn handle_cron_command(
 +        &mut self,
 +        app_server: &AppServerSession,
@@ -39512,11 +39728,26 @@ index 000000000..3ba88901d
 +        thread: Option<ThreadId>,
 +        args: &str,
 +    ) -> Result<String, String> {
++        self.cron_command_scoped(app_server, thread, args, false)
++            .await
++    }
++
++    async fn cron_command_scoped(
++        &mut self,
++        app_server: &AppServerSession,
++        thread: Option<ThreadId>,
++        args: &str,
++        model_scoped: bool,
++    ) -> Result<String, String> {
 +        let now = MonotonicInstant::now();
 +        let words: Vec<_> = args.split_whitespace().collect();
 +        match words.as_slice() {
 +            [] | ["list"] => {
-+                if self.cron.scheduler.jobs.is_empty() {
++                if self.cron.scheduler.jobs.iter().all(|job| {
++                    model_scoped
++                        && (job.target.backend != app_server.backend_id()
++                            || Some(job.target.thread) != thread)
++                }) {
 +                    return Ok("등록된 예약이 없습니다. CLI를 종료하면 예약도 사라집니다.".into());
 +                }
 +                Ok(self
@@ -39524,6 +39755,11 @@ index 000000000..3ba88901d
 +                    .scheduler
 +                    .jobs
 +                    .iter()
++                    .filter(|job| {
++                        !model_scoped
++                            || (job.target.backend == app_server.backend_id()
++                                && Some(job.target.thread) == thread)
++                    })
 +                    .map(|job| {
 +                        let state = match &job.phase {
 +                            Phase::Ready => "대기".to_string(),
@@ -39579,12 +39815,12 @@ index 000000000..3ba88901d
 +            }
 +            ["add", ..] => {
 +                let thread = thread.ok_or("등록 대상 대화가 없습니다.")?;
-+                if self.current_displayed_thread_id() != Some(thread)
++                if (!model_scoped && self.current_displayed_thread_id() != Some(thread))
 +                    || self.thread_unavailable(thread)
 +                {
 +                    return Err("등록 대상 대화가 바뀌었거나 사용할 수 없습니다.".into());
 +                }
-+                if self.chat_widget.has_misalignment_policy_violation() {
++                if !model_scoped && self.chat_widget.has_misalignment_policy_violation() {
 +                    return Err("현재 대화는 직접 입력을 허용하지 않습니다.".into());
 +                }
 +                if self.cron.unsupported.contains(&app_server.backend_id()) {
@@ -39607,7 +39843,9 @@ index 000000000..3ba88901d
 +            [action @ ("pause" | "resume" | "remove" | "cancel"), id] => {
 +                let id = id.parse::<u64>().map_err(|_| USAGE)?;
 +                let job = self.cron.scheduler.job_mut(id)?;
-+                if job.target.backend != app_server.backend_id() {
++                if job.target.backend != app_server.backend_id()
++                    || (model_scoped && Some(job.target.thread) != thread)
++                {
 +                    return Err("예약이 다른 backend에 속합니다.".into());
 +                }
 +                let target = job.target.clone();
@@ -39862,10 +40100,28 @@ index 000000000..3ba88901d
 +        };
 +        if let Some(thread) = closed_thread.and_then(|id| ThreadId::from_string(id).ok()) {
 +            let owner = app_server.backend_id();
++            self.cron.closed_threads.insert((owner, thread));
 +            self.cron.scheduler.invalidate(
 +                |target| target.backend == owner && target.thread == thread,
 +                "대화 종료·삭제·보관: 실행 상태를 자동 추정하지 않음",
 +            );
++        }
++        if let ServerNotification::TurnStarted(started) = notification
++            && let Ok(thread) = ThreadId::from_string(&started.thread_id)
++        {
++            self.cron
++                .closed_threads
++                .remove(&(app_server.backend_id(), thread));
++        }
++        if let ServerNotification::TurnCompleted(completed) = notification {
++            let thread = ThreadId::from_string(&completed.thread_id).ok();
++            self.cron
++                .model_calls
++                .retain(|(backend, _, caller, turn, _), _| {
++                    *backend != app_server.backend_id()
++                        || Some(*caller) != thread
++                        || turn != &completed.turn.id
++                });
 +        }
 +        if let ServerNotification::TurnCompleted(completed) = notification
 +            && let Ok(thread) = ThreadId::from_string(&completed.thread_id)
@@ -39930,6 +40186,687 @@ index 000000000..3ba88901d
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    fn model_request(
++        connection: crate::cron_tools::Connection,
++        thread: ThreadId,
++        call: &str,
++        command: &str,
++    ) -> (
++        crate::cron_tools::Request,
++        tokio::sync::oneshot::Receiver<codex_app_server_protocol::DynamicToolCallResponse>,
++    ) {
++        let (reply, result) = tokio::sync::oneshot::channel();
++        (
++            crate::cron_tools::Request {
++                connection,
++                params: codex_app_server_protocol::DynamicToolCallParams {
++                    thread_id: thread.to_string(),
++                    turn_id: "caller-turn".into(),
++                    call_id: call.into(),
++                    namespace: Some(crate::dynamic_tools::NAMESPACE.into()),
++                    tool: crate::cron_tools::NAME.into(),
++                    arguments: serde_json::json!({}),
++                },
++                command: command.into(),
++                claim: Arc::new(std::sync::atomic::AtomicU8::new(0)),
++                cancellation: CancellationToken::new(),
++                reply,
++            },
++            result,
++        )
++    }
++
++    #[tokio::test]
++    async fn model_cron_is_caller_scoped_and_same_call_does_not_register_twice()
++    -> color_eyre::Result<()> {
++        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
++        let (session, _observed, worker) =
++            super::super::app_server_requests::retained_reply_tests::connection().await?;
++        let caller = ThreadId::new();
++        let displayed = ThreadId::new();
++        app.active_thread_id = Some(displayed);
++        app.chat_widget
++            .restore_user_message_to_composer("다른 대화 초안".into());
++        app.ensure_thread_channel(caller)
++            .store
++            .lock()
++            .await
++            .set_active_turn_id("caller-turn".into());
++        app.ensure_thread_channel(displayed)
++            .store
++            .lock()
++            .await
++            .set_active_turn_id("caller-turn".into());
++        let connection = session.cron_tool_connection();
++        for attempt in 0..2 {
++            let (request, response) = model_request(
++                connection.clone(),
++                caller,
++                "same-add",
++                "add --every 10m -- 원래 대화 확인",
++            );
++            app.handle_cron_tool_call(&session, request).await;
++            if attempt == 0 {
++                // The mutation completed, but its consumer never receives the reply.
++                drop(response);
++                app.cron
++                    .invalidate_backend(BackendId::new(), "다른 backend 종료");
++            } else {
++                assert!(response.await?.success);
++            }
++        }
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "same-add",
++            "add --every 2m -- 다른 내용",
++        );
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(!response.await?.success);
++        assert_eq!(app.cron.scheduler.jobs.len(), 1);
++        assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
++        let id = app.cron.scheduler.jobs[0].id;
++        for command in ["list".to_string(), format!("pause {id}")] {
++            let (request, response) =
++                model_request(connection.clone(), displayed, &command, &command);
++            app.handle_cron_tool_call(&session, request).await;
++            let response = response.await?;
++            if command == "list" {
++                assert!(response.success);
++                assert!(
++                    matches!(&response.content_items[0], codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text } if !text.contains(&format!("#{id}")))
++                );
++            } else {
++                assert!(!response.success);
++            }
++        }
++        for (action, paused) in [("pause", true), ("resume", false)] {
++            let command = format!("{action} {id}");
++            let (request, response) = model_request(connection.clone(), caller, action, &command);
++            app.handle_cron_tool_call(&session, request).await;
++            assert!(response.await?.success);
++            assert_eq!(app.cron.scheduler.jobs[0].paused, paused);
++        }
++        assert_eq!(
++            app.chat_widget.composer_text_with_pending(),
++            "다른 대화 초안"
++        );
++        app.active_thread_id = Some(caller);
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "remove",
++            &format!("remove {id}"),
++        );
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(response.await?.success);
++        assert!(app.cron.scheduler.jobs.is_empty());
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "same-add",
++            "add --every 10m -- 원래 대화 확인",
++        );
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(response.await?.success);
++        assert!(
++            app.cron.scheduler.jobs.is_empty(),
++            "삭제한 예약을 같은 호출 재전송으로 되살리지 않음"
++        );
++        let other_caller = ThreadId::new();
++        while app.cron.model_calls.len() < MAX_MODEL_CALLS {
++            app.cron.model_calls.insert(
++                (
++                    connection.backend,
++                    connection.id,
++                    other_caller,
++                    "other-turn".into(),
++                    uuid::Uuid::new_v4().to_string(),
++                ),
++                (
++                    "list".into(),
++                    crate::dynamic_tools::failure_response("시험 기록"),
++                ),
++            );
++        }
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "over-limit",
++            "add --every 1m -- 한도 초과",
++        );
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(!response.await?.success);
++        assert!(app.cron.scheduler.jobs.is_empty());
++        assert_eq!(app.cron.model_calls.len(), MAX_MODEL_CALLS);
++        let (request, response) =
++            model_request(connection.clone(), caller, "capacity-list", "list");
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(
++            !response.await?.success,
++            "한도에서는 성공을 기록할 수 없는 신규 조회도 거부"
++        );
++        app.note_cron_notification(
++            &session,
++            &ServerNotification::TurnCompleted(
++                codex_app_server_protocol::TurnCompletedNotification {
++                    thread_id: other_caller.to_string(),
++                    turn: codex_app_server_protocol::Turn {
++                        id: "other-turn".into(),
++                        root_turn_id: Some("other-turn".into()),
++                        items: vec![],
++                        items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
++                        error: None,
++                        status: codex_app_server_protocol::TurnStatus::Completed,
++                        started_at: None,
++                        completed_at: None,
++                        duration_ms: None,
++                    },
++                },
++            ),
++        )
++        .await;
++        assert!(app.cron.model_calls.len() < MAX_MODEL_CALLS);
++        // The rejected list never succeeded. A later explicit call can now be admitted,
++        // and that successful payload remains bound to the key.
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "capacity-list",
++            "add --every 1m -- 명시적 새 요청",
++        );
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(response.await?.success);
++        let (request, response) = model_request(connection, caller, "capacity-list", "list");
++        app.handle_cron_tool_call(&session, request).await;
++        assert!(!response.await?.success);
++        assert_eq!(app.cron.scheduler.jobs.len(), 1);
++        app.cron.stop();
++        session.shutdown().await?;
++        worker.await??;
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn model_cron_cancelled_stale_and_closed_requests_never_mutate() -> color_eyre::Result<()>
++    {
++        use std::sync::atomic::Ordering;
++        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
++        let (session, _observed, worker) =
++            super::super::app_server_requests::retained_reply_tests::connection().await?;
++        let caller = ThreadId::new();
++        app.ensure_thread_channel(caller)
++            .store
++            .lock()
++            .await
++            .set_active_turn_id("caller-turn".into());
++        let connection = session.cron_tool_connection();
++        let (request, response) = model_request(
++            connection.clone(),
++            caller,
++            "dropped",
++            "add --every 1m -- 확인",
++        );
++        drop(response);
++        app.handle_cron_tool_call(&session, request).await;
++        for case in [
++            "cancelled",
++            "other-turn",
++            "other-connection",
++            "closed",
++            "disconnected",
++        ] {
++            let (mut request, response) =
++                model_request(connection.clone(), caller, case, "add --every 1m -- 확인");
++            match case {
++                "cancelled" => request.claim.store(2, Ordering::Release),
++                "other-turn" => request.params.turn_id = "old-turn".into(),
++                "other-connection" => request.connection.id = uuid::Uuid::new_v4(),
++                "closed" => {
++                    app.cron.closed_threads.insert((connection.backend, caller));
++                }
++                "disconnected" => {
++                    app.cron.closed_threads.clear();
++                    connection.live.store(false, Ordering::Release);
++                }
++                _ => unreachable!(),
++            }
++            app.handle_cron_tool_call(&session, request).await;
++            assert!(response.await.map_or(true, |response| !response.success));
++            assert!(app.cron.scheduler.jobs.is_empty(), "{case}");
++        }
++        session.shutdown().await?;
++        worker.await??;
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn model_cron_background_transport_loss_fences_queued_call_only_for_its_owner()
++    -> color_eyre::Result<()> {
++        use crate::app_server_session::AppServerSessionEvent;
++        use codex_app_server_client::AppServerEvent;
++        for lost in [
++            AppServerEvent::Disconnected {
++                message: "background lost".into(),
++            },
++            AppServerEvent::Lagged { skipped: 1 },
++        ] {
++            let (mut app, mut events, _ops) =
++                crate::app::tests::make_test_app_with_channels().await;
++            let (session, _observed, worker) =
++                super::super::app_server_requests::retained_reply_tests::connection().await?;
++            let caller = ThreadId::new();
++            let displayed = ThreadId::new();
++            let displayed_owner = BackendId::new();
++            app.active_thread_id = Some(displayed);
++            app.ensure_thread_channel(caller)
++                .store
++                .lock()
++                .await
++                .set_active_turn_id("caller-turn".into());
++            app.chat_widget
++                .restore_user_message_to_composer("다른 backend 초안".into());
++            let now = MonotonicInstant::now();
++            let manual = app
++                .cron
++                .scheduler
++                .add(
++                    CronTarget {
++                        backend: displayed_owner,
++                        epoch: 0,
++                        thread: displayed,
++                    },
++                    "다른 backend 수동 예약".into(),
++                    Schedule::Every(Duration::from_secs(60)),
++                    now,
++                )
++                .expect("valid manual scheduler fixture");
++            let connection = session.cron_tool_connection();
++            let (request, response) = model_request(
++                connection.clone(),
++                caller,
++                "queued-before-loss",
++                "add --every 1m -- 중단 대상",
++            );
++            app.app_event_tx
++                .send(AppEvent::CronToolCall(Box::new(request)));
++            let queued = loop {
++                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
++                    break request;
++                }
++            };
++            app.handle_polled_backend_event(
++                &session,
++                displayed_owner,
++                AppServerSessionEvent {
++                    backend_id: displayed_owner,
++                    event: AppServerEvent::Lagged { skipped: 1 },
++                },
++            )
++            .await;
++            assert!(
++                connection.live.load(std::sync::atomic::Ordering::Acquire),
++                "외부 소유 사건은 원연결을 바꾸지 않음"
++            );
++            app.handle_polled_backend_event(
++                &session,
++                displayed_owner,
++                AppServerSessionEvent {
++                    backend_id: session.backend_id(),
++                    event: lost,
++                },
++            )
++            .await;
++            app.handle_cron_tool_call(&session, *queued).await;
++            assert!(!response.await?.success);
++            assert!(!connection.live.load(std::sync::atomic::Ordering::Acquire));
++            assert_eq!(app.cron.scheduler.jobs.len(), 1);
++            assert_eq!(app.cron.scheduler.jobs[0].id, manual);
++            assert!(matches!(app.cron.scheduler.jobs[0].phase, Phase::Ready));
++            assert!(!app.reconnect.offline);
++            assert_eq!(
++                app.chat_widget.composer_text_with_pending(),
++                "다른 backend 초안"
++            );
++            app.cron.stop();
++            session.shutdown().await?;
++            worker.await??;
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn model_cron_native_resolved_cancels_queued_call_before_worker_drop()
++    -> color_eyre::Result<()> {
++        use codex_app_server_client::AppServerEvent;
++        use codex_utils_absolute_path::test_support::PathExt;
++        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
++        let home = tempfile::tempdir()?;
++        app.config.codex_home = home.path().to_path_buf().abs();
++        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
++        let mut session =
++            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
++        let caller = session.start_thread(&app.config).await?.session.thread_id;
++        app.ensure_thread_channel(caller)
++            .store
++            .lock()
++            .await
++            .set_active_turn_id("caller-turn".into());
++        let (request, _response) = model_request(
++            session.cron_tool_connection(),
++            caller,
++            "native-resolved",
++            "",
++        );
++        let mut params = request.params;
++        params.arguments =
++            serde_json::json!({"action":"add","every":"1m","prompt":"중단된 native 요청"});
++        let request_id = AppServerRequestId::Integer(9001);
++        app.handle_app_server_event(
++            &session,
++            AppServerEvent::ServerRequest(Box::new(ServerRequest::DynamicToolCall {
++                request_id: request_id.clone(),
++                params,
++            })),
++        )
++        .await;
++        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++            loop {
++                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
++                    break request;
++                }
++            }
++        })
++        .await?;
++        assert!(!queued.cancellation.is_cancelled());
++        app.handle_app_server_event(
++            &session,
++            AppServerEvent::ServerNotification(Box::new(
++                ServerNotification::ServerRequestResolved(
++                    codex_app_server_protocol::ServerRequestResolvedNotification {
++                        thread_id: caller.to_string(),
++                        request_id,
++                    },
++                ),
++            )),
++        )
++        .await;
++        // No yield or JoinHandle await here: the native worker has not dropped its future.
++        assert!(queued.cancellation.is_cancelled());
++        assert_eq!(queued.claim.load(std::sync::atomic::Ordering::Acquire), 0);
++        app.handle_cron_tool_call(&session, *queued).await;
++        assert!(app.cron.scheduler.jobs.is_empty());
++        app.cron.stop();
++        session.shutdown().await?;
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn model_cron_mcp_metadata_and_cancelled_queue_fail_closed() -> color_eyre::Result<()> {
++        use codex_utils_absolute_path::test_support::PathExt;
++        use serde_json::json;
++        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
++        let home = tempfile::tempdir()?;
++        app.config.codex_home = home.path().to_path_buf().abs();
++        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
++        let mut session =
++            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
++        let source = session.start_thread(&app.config).await?;
++        let caller = source.session.thread_id;
++        app.ensure_thread_channel(caller)
++            .store
++            .lock()
++            .await
++            .set_active_turn_id("caller-turn".into());
++        let connection = session.cron_tool_connection();
++        let (request, _unused) =
++            model_request(connection.clone(), caller, "cancel-before-actor", "");
++        let mut params = request.params;
++        params.arguments = json!({"action":"add","every":"1m","prompt":"중단된 요청"});
++        let handle = session.request_handle();
++        let sender = app.app_event_tx.clone();
++        let pending_connection = connection.clone();
++        let pending = tokio::spawn(async move {
++            crate::cron_tools::execute(
++                pending_connection,
++                handle,
++                params,
++                &sender,
++                CancellationToken::new(),
++            )
++            .await
++        });
++        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++            loop {
++                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
++                    break request;
++                }
++            }
++        })
++        .await?;
++        pending.abort();
++        assert!(pending.await.unwrap_err().is_cancelled());
++        app.handle_cron_tool_call(&session, *queued).await;
++        assert!(app.cron.scheduler.jobs.is_empty());
++
++        let server = Arc::new(
++            crate::dynamic_tools_mcp::DynamicToolMcpServer::start(
++                session.request_handle(),
++                codex_app_server_protocol::ThreadStartParams::default(),
++                app.config.features.get().clone(),
++                app.app_event_tx.clone(),
++                app.dynamic_tool_status_updates.clone(),
++                None,
++                crate::dynamic_tools_mcp::ToolServices {
++                    task_tools: true,
++                    cron: Some(connection),
++                    worktrees: None,
++                },
++            )
++            .await?,
++        );
++        let transport = crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(Arc::clone(&server));
++        let mut overrides = None;
++        transport.configure_mcp(&mut overrides);
++        let config = overrides.unwrap().remove("mcp_servers.codex_tui").unwrap();
++        let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
++        let call = |id, metadata| {
++            client.post(config["url"].as_str().unwrap())
++            .header("Authorization", config["http_headers"]["Authorization"].as_str().unwrap())
++            .header("Accept", "application/json, text/event-stream")
++            .header("MCP-Protocol-Version", "2026-07-28")
++            .header("MCP-Method", "tools/call")
++            .header("MCP-Name", crate::cron_tools::NAME)
++            .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"cron","arguments":{"action":"add","every":"1m","prompt":"MCP 확인"},"_meta":metadata}}))
++        };
++        for (id, metadata) in [
++            (1, json!({"threadId":caller,"turnId":"caller-turn"})),
++            (
++                2,
++                json!({"threadId":caller,"turnId":"caller-turn","callId":"conflict","x-codex-turn-metadata":{"thread_id":ThreadId::new().to_string(),"turn_id":"caller-turn"}}),
++            ),
++        ] {
++            let body = call(id, metadata).send().await?.text().await?;
++            assert!(body.contains("error"), "{body}");
++            assert!(app.cron.scheduler.jobs.is_empty());
++        }
++        let request = call(
++            3,
++            json!({"threadId":caller,"turnId":"caller-turn","callId":"cancelled-mcp"}),
++        );
++        let response = tokio::spawn(async move { request.send().await?.text().await });
++        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++            loop {
++                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
++                    break request;
++                }
++            }
++        })
++        .await?;
++        // This is the actual RequestContext.ct clone held by the HTTP handler.
++        // Do not yield to that handler after cancelling it and before actor admission.
++        queued.cancellation.cancel();
++        assert_eq!(queued.claim.load(std::sync::atomic::Ordering::Acquire), 0);
++        app.handle_cron_tool_call(&session, *queued).await;
++        assert!(app.cron.scheduler.jobs.is_empty());
++        let body = response.await??;
++        assert!(
++            body.contains("중단") || body.contains("결과 미확인"),
++            "{body}"
++        );
++        let request = call(
++            4,
++            json!({"threadId":caller,"turnId":"caller-turn","callId":"old-connection"}),
++        );
++        let response = tokio::spawn(async move { request.send().await?.text().await });
++        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++            loop {
++                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
++                    break request;
++                }
++            }
++        })
++        .await?;
++        server.suspend();
++        app.handle_cron_tool_call(&session, *queued).await;
++        let body = response.await??;
++        assert!(body.contains("원래 호출 대화"), "{body}");
++        assert!(app.cron.scheduler.jobs.is_empty());
++        drop(transport);
++        drop(server);
++        session.shutdown().await?;
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn model_cron_native_roundtrip_registers_and_survives_resume() -> color_eyre::Result<()> {
++        use app_test_support::{
++            MockResponsesConfig, create_final_assistant_message_sse_response,
++            create_mock_responses_server_sequence_unchecked,
++        };
++        use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind};
++        use codex_model_provider_info::ModelProviderInfo;
++        use codex_utils_absolute_path::test_support::PathExt;
++        use core_test_support::responses;
++        let mut responses = Vec::new();
++        for (id, arguments) in [
++            (
++                "model-cron-add",
++                serde_json::json!({"action":"add","every":"10m","prompt":"주기 확인"}),
++            ),
++            ("model-cron-list", serde_json::json!({"action":"list"})),
++        ] {
++            responses.push(responses::sse(vec![
++                responses::ev_response_created(id),
++                responses::ev_function_call_with_namespace(
++                    id,
++                    crate::dynamic_tools::NAMESPACE,
++                    crate::cron_tools::NAME,
++                    &arguments.to_string(),
++                ),
++                responses::ev_completed(id),
++            ]));
++            responses.push(
++                create_final_assistant_message_sse_response("예약 결과 확인")
++                    .expect("valid final assistant message fixture"),
++            );
++        }
++        let model_server = create_mock_responses_server_sequence_unchecked(responses).await;
++        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
++        let home = tempfile::tempdir()?;
++        MockResponsesConfig::new(&model_server.uri()).write(home.path())?;
++        codex_login::login_with_api_key(
++            home.path(),
++            "sk-test-key",
++            AuthCredentialsStoreMode::File,
++            AuthKeyringBackendKind::default(),
++        )?;
++        app.config.codex_home = home.path().to_path_buf().abs();
++        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
++        app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
++        app.config.model = Some("mock-model".into());
++        app.config.model_provider_id = "test_provider".into();
++        app.config.model_provider = ModelProviderInfo {
++            name: "Test provider".into(),
++            base_url: Some(format!("{}/v1", model_server.uri())),
++            request_max_retries: Some(0),
++            stream_max_retries: Some(0),
++            ..Default::default()
++        };
++        let mut session =
++            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
++        let started = session.start_thread(&app.config).await?;
++        assert!(
++            !started.task_tools_available,
++            "예약만으로 일반 작업 도구를 활성화하지 않음"
++        );
++        let caller = started.session.thread_id;
++        app.enqueue_primary_thread_session(started.session, started.turns)
++            .await?;
++        let mut tui = crate::tui::test_support::make_test_tui()?;
++        for round in 0..2 {
++            if round == 1 {
++                let resumed = session
++                    .resume_thread(
++                        &app.local_settings,
++                        app.config.clone(),
++                        caller,
++                        crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
++                    )
++                    .await?;
++                assert!(!resumed.blocks_direct_input);
++            }
++            let _: codex_app_server_protocol::TurnStartResponse = session
++                .request_handle()
++                .request_typed(ClientRequest::TurnStart {
++                    request_id: AppServerRequestId::String(uuid::Uuid::new_v4().to_string()),
++                    params: codex_app_server_protocol::TurnStartParams {
++                        thread_id: caller.to_string(),
++                        input: vec![codex_app_server_protocol::UserInput::Text {
++                            text: "예약을 확인해줘".into(),
++                            text_elements: Vec::new(),
++                        }],
++                        ..Default::default()
++                    },
++                })
++                .await?;
++            tokio::time::timeout(Duration::from_secs(30), async {
++                loop {
++                    tokio::select! {
++                        event = session.next_event() => {
++                            let event = event.expect("내장 서버 이벤트");
++                            let completed = matches!(&event.event, codex_app_server_client::AppServerEvent::ServerNotification(notification) if matches!(notification.as_ref(), ServerNotification::TurnCompleted(_)));
++                            app.handle_backend_event(&session, event).await;
++                            if completed { break; }
++                        }
++                        Some(event) = events.recv() => { app.handle_event(&mut tui, &mut session, event).await?; }
++                    }
++                }
++                Ok::<_, color_eyre::Report>(())
++            }).await??;
++            assert_eq!(app.cron.scheduler.jobs.len(), 1);
++            assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
++        }
++        let requests = model_server.received_requests().await.unwrap();
++        let requests: Vec<_> = requests
++            .iter()
++            .filter(|request| request.url.path().ends_with("/responses"))
++            .collect();
++        assert_eq!(requests.len(), 4);
++        let first: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
++        let tools = first["tools"].to_string();
++        assert!(tools.contains("cron"));
++        assert!(!tools.contains("list_threads"));
++        let registered: serde_json::Value = serde_json::from_slice(&requests[1].body)?;
++        assert!(registered["input"].to_string().contains("예약 #1 등록"));
++        let listed: serde_json::Value = serde_json::from_slice(&requests[3].body)?;
++        assert!(listed["input"].to_string().contains("#1 thread="));
++        app.cron.stop();
++        session.shutdown().await?;
++        Ok(())
++    }
++
 +    #[tokio::test]
 +    async fn cron_a_survives_plain_b_navigation_and_preserves_b_draft() -> color_eyre::Result<()> {
 +        use app_test_support::{
@@ -40207,32 +41144,34 @@ index 000000000..3ba88901d
 +    }
 +}
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 6687d053b..0339734ac 100644
+index 6687d053b..d7f6c79ea 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -91,6 +91,9 @@ impl App {
+@@ -91,6 +91,10 @@ impl App {
                      | AppEvent::BeginThreadSwitchHistoryReplayBuffer
                      | AppEvent::EndInitialHistoryReplayBuffer
                      | AppEvent::FatalExitRequest(_)
++                    | AppEvent::CronToolCall(_)
 +                    | AppEvent::CronCommand { .. }
 +                    | AppEvent::CronReply(_)
 +                    | AppEvent::CronCancelReply(_)
              )
          {
              return Ok(AppRunControl::Continue);
-@@ -163,6 +166,11 @@ impl App {
+@@ -163,6 +167,12 @@ impl App {
              event => (event, None),
          };
          match event {
 +            AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
 +            AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
++            AppEvent::CronToolCall(request) => self.handle_cron_tool_call(app_server, *request).await,
 +            AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
 +            AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,
 +            AppEvent::CronCancelReply(reply) => self.handle_cron_cancel_reply(*reply),
              AppEvent::OpenDaemonMenu => self.open_daemon_menu(),
              AppEvent::ConfirmDaemonRestart => self.confirm_daemon_restart(),
              AppEvent::RunDaemonRestart => {
-@@ -381,9 +389,18 @@ impl App {
+@@ -381,9 +391,18 @@ impl App {
              }
              AppEvent::OlderThreadHistoryLoaded {
                  thread_id,
@@ -40251,7 +41190,7 @@ index 6687d053b..0339734ac 100644
                  if let Err(err) = self
                      .handle_older_history_page(tui, app_server, thread_id, &cursor, result)
                      .await
-@@ -399,6 +416,7 @@ impl App {
+@@ -399,6 +418,7 @@ impl App {
                      tracing::warn!(%thread_id, error = %err, "failed to load older transcript history");
                  }
              }
@@ -40259,7 +41198,7 @@ index 6687d053b..0339734ac 100644
              AppEvent::OpenWarnings => self.chat_widget.open_warnings(&self.transcript_cells),
              AppEvent::UpdateWarnings { transcript, dismissed, kept } => {
                  if !Arc::ptr_eq(&transcript, &self.chat_widget.warning_display_state.transcript) {
-@@ -912,6 +930,10 @@ impl App {
+@@ -912,6 +932,10 @@ impl App {
                  self.transcript_view.jump_to_latest();
                  tui.frame_requester().schedule_frame();
              }
@@ -40270,7 +41209,7 @@ index 6687d053b..0339734ac 100644
              AppEvent::InsertHistoryCell(cell) => {
                  self.insert_history_cell(tui, cell);
              }
-@@ -927,6 +949,12 @@ impl App {
+@@ -927,6 +951,12 @@ impl App {
                  if tui.is_owned_screen() {
                      self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
                  }
@@ -40283,7 +41222,7 @@ index 6687d053b..0339734ac 100644
                  self.finish_initial_history_replay_buffer(tui);
              }
              AppEvent::ConsolidateAgentMessage {
-@@ -981,6 +1009,7 @@ impl App {
+@@ -981,6 +1011,7 @@ impl App {
  
                      self.maybe_finish_stream_reflow(tui)?;
                  }
@@ -41238,7 +42177,7 @@ index 7c43e1799..f5e5d7c8e 100644
              return;
          }
 diff --git a/codex-rs/tui/src/app/reconnect.rs b/codex-rs/tui/src/app/reconnect.rs
-index 3713be11a..a5681aa35 100644
+index 3713be11a..98d40dac3 100644
 --- a/codex-rs/tui/src/app/reconnect.rs
 +++ b/codex-rs/tui/src/app/reconnect.rs
 @@ -213,6 +213,7 @@ impl App {
@@ -41258,6 +42197,19 @@ index 3713be11a..a5681aa35 100644
          *app_server = session;
          #[cfg(any(target_os = "windows", test))]
          let interrupted_windows_setup = self.windows_sandbox.pending_setup.take().is_some();
+@@ -563,7 +566,11 @@ impl App {
+         }
+         // Only accept fresh task-tool calls once this connection and its event queue are adopted.
+         if let ThreadToolTransport::Mcp(server) = app_server.thread_tool_transport() {
+-            server.reconnect(app_server.request_handle(), self.app_event_tx.clone());
++            server.reconnect(
++                app_server.request_handle(),
++                self.app_event_tx.clone(),
++                Some(app_server.cron_tool_connection()),
++            );
+         }
+         self.reconnect.offline = false;
+         self.chat_widget.update_account_state(
 diff --git a/codex-rs/tui/src/app/retained_reply_tests.rs b/codex-rs/tui/src/app/retained_reply_tests.rs
 index c60f1d11d..d6d99f4f9 100644
 --- a/codex-rs/tui/src/app/retained_reply_tests.rs
@@ -41449,6 +42401,28 @@ index 811d97176..113c6a0fe 100644
                  if let Some(channel) = self.thread_event_channels.get(&thread_id) {
                      for request in channel.store.lock().await.pending_replay_requests() {
                          if let Some(request) = previous_pending.buffered_request(request) {
+diff --git a/codex-rs/tui/src/app/side.rs b/codex-rs/tui/src/app/side.rs
+index 8ac0adfea..a84b8218c 100644
+--- a/codex-rs/tui/src/app/side.rs
++++ b/codex-rs/tui/src/app/side.rs
+@@ -511,6 +511,17 @@ impl App {
+     }
+ 
+     pub(super) async fn discard_thread_local_state(&mut self, thread_id: ThreadId) {
++        self.cron
++            .tool_tasks
++            .retain(|_, (source, cancellation, task)| {
++                if *source == thread_id {
++                    cancellation.cancel();
++                    task.abort();
++                    false
++                } else {
++                    true
++                }
++            });
+         self.pending_app_server_requests
+             .cancel_thread_verification(&thread_id.to_string());
+         let app_event_tx = self.app_event_tx.clone();
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
 index 4a9461199..b2cd9073e 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
@@ -41520,7 +42494,7 @@ index 8aa1bca71..8c75a9e09 100644
  
  
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index aacc60b90..065659ce4 100644
+index aacc60b90..f101ff47f 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
 @@ -983,6 +983,7 @@ See the Codex keymap documentation for supported actions and examples."
@@ -41558,7 +42532,20 @@ index aacc60b90..065659ce4 100644
                      result = async {
                          match app.daemon_restart.as_mut() {
                              Some(task) => task.await,
-@@ -1666,6 +1679,7 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1433,7 +1446,11 @@ See the Codex keymap documentation for supported actions and examples."
+                                 if cell.as_any().is::<history_cell::SessionInfoCell>()
+                         );
+                         let had_active_modal = app.chat_widget.has_active_modal();
+-                        match Box::pin(app.handle_event(tui, backends.session_at_mut(displayed_session), event)).await {
++                        let event_session = match &event {
++                            AppEvent::CronToolCall(request) => backends.slot(request.connection.backend).unwrap_or(displayed_session),
++                            _ => displayed_session,
++                        };
++                        match Box::pin(app.handle_event(tui, backends.session_at_mut(event_session), event)).await {
+                             Ok(AppRunControl::Continue) => {
+                                 if is_initial_session_header {
+                                     waiting_for_initial_session_header = false;
+@@ -1666,6 +1683,7 @@ See the Codex keymap documentation for supported actions and examples."
                  }
              }
          };
@@ -41866,10 +42853,18 @@ index ae4532818..e64defe35 100644
              cwd: test_absolute_path("/tmp/thread-settings"),
              approval_policy: AskForApproval::OnRequest,
 diff --git a/codex-rs/tui/src/app/tests/active_reconnect_tests.rs b/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
-index f102e25b4..037b4f367 100644
+index f102e25b4..2002bdf00 100644
 --- a/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
 +++ b/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
-@@ -241,6 +241,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -190,6 +190,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+                 /*managed_requirement*/ None,
+                 crate::dynamic_tools_mcp::ToolServices {
+                     task_tools: true,
++                    cron: None,
+                     worktrees: None,
+                 },
+             )
+@@ -241,6 +242,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
              let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
              app.chat_widget.show_bottom_pane_view(Box::new(view));
          }
@@ -41877,7 +42872,7 @@ index f102e25b4..037b4f367 100644
          app.begin_reconnect();
          if deferred_notice {
              assert_eq!(
-@@ -315,6 +316,10 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -315,6 +317,10 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
          app.finish_reconnect(&mut tui, &mut session, &mut events, connected, "2.1.0")
              .await?;
          assert_eq!(session.backend_id(), backend_id);
@@ -41888,7 +42883,7 @@ index f102e25b4..037b4f367 100644
          if edit_offline {
              assert!(!app.chat_widget.has_active_view());
              assert!(
-@@ -464,8 +469,52 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -464,8 +470,52 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
          while let Ok(event) = events.try_recv() {
              app.handle_event(&mut tui, &mut session, event).await?;
          }
@@ -42934,7 +43929,7 @@ index 000000000..c52c04af1
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 787c7e086..c68e9f947 100644
+index 787c7e086..4f6f94e3c 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -378,6 +378,13 @@ pub(super) enum HistoryCapabilities {
@@ -43033,7 +44028,48 @@ index 787c7e086..c68e9f947 100644
                      } else if history_capabilities == HistoryCapabilities::ConfigReadFails
                          && request.method == "config/read"
                      {
-@@ -5265,6 +5340,38 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -1235,7 +1310,7 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
+         assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
+         assert_eq!(
+             params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
+-            Some(6)
++            Some(7)
+         );
+         assert!(
+             params["dynamicTools"][0]["tools"]
+@@ -1535,7 +1610,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+         .find(|server| server.name == "codex_tui")
+         .expect("local daemon must connect to the TUI MCP server")
+         .tools;
+-    assert_eq!(tools.len(), 9);
++    assert_eq!(tools.len(), 10);
++    assert!(tools.contains_key(crate::cron_tools::NAME));
+     for tool in crate::dynamic_tools::DELEGATION_TOOLS {
+         assert!(tools.contains_key(tool));
+     }
+@@ -1678,7 +1754,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+     drop(events);
+     let mut events = new_rx;
+     assert!(app.app_event_tx.app_event_tx.is_closed());
+-    tool_server.reconnect(replacement.request_handle(), new_sender);
++    tool_server.reconnect(
++        replacement.request_handle(),
++        new_sender,
++        Some(replacement.cron_tool_connection()),
++    );
+     let previous = std::mem::replace(
+         &mut app_server,
+         replacement.with_thread_tool_transport(transport),
+@@ -1869,7 +1949,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
+         } else {
+             assert_eq!(
+                 start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
+-                Some(6)
++                Some(7)
+             );
+             assert!(start["config"]["mcp_servers.codex_tui"].is_null());
+         }
+@@ -5265,6 +5345,47 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
              LoaderOverrides::default(),
          )
          .await?;
@@ -43047,21 +44083,30 @@ index 787c7e086..c68e9f947 100644
 +            .await?;
 +            assert_eq!(
 +                notice,
-+                Some("Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable.")
++                Some(
++                    "Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable."
++                )
 +            );
 +            assert_eq!(
-+                viewed.turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
++                viewed
++                    .turns
++                    .iter()
++                    .map(|turn| turn.id.clone())
++                    .collect::<Vec<_>>(),
 +                (saved_turn_count.saturating_sub(100)..saved_turn_count)
 +                    .map(|index| format!("saved-turn-{index}"))
 +                    .collect::<Vec<_>>()
 +            );
 +            assert!(viewed.turns.iter().all(|turn| {
-+                turn.items.iter().any(|item| matches!(item,
++                turn.items.iter().any(|item| {
++                    matches!(item,
 +                    ThreadItem::UserMessage { content, .. }
 +                        if content.iter().any(|input| matches!(input,
-+                            UserInput::Text { text, .. } if text == "Locked task"))))
-+                    && turn.items.iter().any(|item| matches!(item,
-+                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer"))
++                            UserInput::Text { text, .. } if text == "Locked task")))
++                }) && turn.items.iter().any(|item| {
++                    matches!(item,
++                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer")
++                })
 +            }));
 +            assert!(
 +                recorded_params(&requests, "thread/read")
@@ -43072,14 +44117,14 @@ index 787c7e086..c68e9f947 100644
          app.app_server_target = AppServerTarget::LocalDaemon {
              allow_embedded_fallback: true,
              endpoint: crate::resolve_remote_addr("ws://127.0.0.1:4500")?,
-@@ -5355,7 +5462,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -5355,7 +5476,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                  assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                  assert_eq!(
                      turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
 -                    (saved_turn_count.saturating_sub(100)..saved_turn_count)
-+                    (saved_turn_count.saturating_sub(
-+                        100usize.min(crate::history_window::MAX_HISTORY_TURNS),
-+                    )..saved_turn_count)
++                    (saved_turn_count
++                        .saturating_sub(100usize.min(crate::history_window::MAX_HISTORY_TURNS),)
++                        ..saved_turn_count)
                          .map(|index| format!("saved-turn-{index}"))
                          .collect::<Vec<_>>()
                  );
@@ -44200,7 +45245,7 @@ index f1f3cb2e1..e03c11af5 100644
          cwds: Vec<PathBuf>,
          force_reload: bool,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index e2b86c9c1..9391f87bc 100644
+index e2b86c9c1..2d73d5f1a 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -295,6 +295,20 @@ pub(crate) struct AgentPickerThreadRefresh {
@@ -44233,7 +45278,17 @@ index e2b86c9c1..9391f87bc 100644
          cursor: String,
          result: Result<ThreadItemsListResponse, String>,
      },
-@@ -1166,6 +1182,7 @@ pub(crate) enum AppEvent {
+@@ -606,6 +622,9 @@ pub(crate) enum AppEvent {
+         response: DynamicToolCallResponse,
+     },
+ 
++    /// Run a caller-bound scheduler command on the owning app event loop.
++    CronToolCall(Box<crate::cron_tools::Request>),
++
+     /// Register task tools inherited by a dynamically created thread.
+     TaskToolsAvailable {
+         thread_id: ThreadId,
+@@ -1166,6 +1185,7 @@ pub(crate) enum AppEvent {
      FollowTranscript,
  
      InsertHistoryCell(Box<dyn HistoryCell>),
@@ -44242,7 +45297,7 @@ index e2b86c9c1..9391f87bc 100644
      TurnTipReady {
          thread_id: ThreadId,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 143f09d35..21d06f044 100644
+index 143f09d35..386093b31 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
 @@ -8,6 +8,8 @@ mod events;
@@ -44254,7 +45309,86 @@ index 143f09d35..21d06f044 100644
  mod models;
  pub(crate) mod provider_selection;
  #[cfg(test)]
-@@ -1397,8 +1399,26 @@ impl AppServerSession {
+@@ -254,11 +256,23 @@ pub(crate) async fn request_thread_start_with_history_fallback(
+             .await
+         {
+             Ok(response) => {
+-                let task_tools_available = params.dynamic_tools.is_some()
+-                    || params
+-                        .config
+-                        .as_ref()
+-                        .is_some_and(|config| config.contains_key("mcp_servers.codex_tui"));
++                let task_tools_available = params.dynamic_tools.as_ref().is_some_and(|specs| {
++                    specs.iter().any(|spec| match spec {
++                        codex_app_server_protocol::DynamicToolSpec::Namespace(namespace) => {
++                            namespace.tools.iter().any(|tool| match tool {
++                                codex_app_server_protocol::DynamicToolNamespaceTool::Function(
++                                    function,
++                                ) => function.name != crate::cron_tools::NAME,
++                            })
++                        }
++                        codex_app_server_protocol::DynamicToolSpec::Function(function) => {
++                            function.name != crate::cron_tools::NAME
++                        }
++                    })
++                }) || params
++                    .config
++                    .as_ref()
++                    .is_some_and(|config| config.contains_key("mcp_servers.codex_tui"));
+                 return Ok((response, history_support, task_tools_available));
+             }
+             Err(TypedRequestError::Server { source, .. })
+@@ -324,6 +338,8 @@ pub(crate) struct AppServerBootstrap {
+ 
+ pub(crate) struct AppServerSession {
+     backend_id: crate::backend_id::BackendId,
++    connection_id: uuid::Uuid,
++    connection_live: Arc<std::sync::atomic::AtomicBool>,
+     client: AppServerClient,
+     next_request_id: i64,
+     history_pagination: HashMap<ThreadId, history::ThreadHistoryPagination>,
+@@ -448,6 +464,8 @@ impl AppServerSession {
+     ) -> Self {
+         Self {
+             backend_id,
++            connection_id: uuid::Uuid::new_v4(),
++            connection_live: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+             client,
+             next_request_id: 1,
+             history_pagination: HashMap::new(),
+@@ -473,6 +491,14 @@ impl AppServerSession {
+         self.backend_id
+     }
+ 
++    pub(crate) fn cron_tool_connection(&self) -> crate::cron_tools::Connection {
++        crate::cron_tools::Connection {
++            backend: self.backend_id,
++            id: self.connection_id,
++            live: Arc::clone(&self.connection_live),
++        }
++    }
++
+     pub(crate) async fn start_dynamic_tool_mcp(
+         &mut self,
+         config: Config,
+@@ -518,6 +544,7 @@ impl AppServerSession {
+         };
+         let services = crate::dynamic_tools_mcp::ToolServices {
+             task_tools: !self.uses_embedded_app_server(),
++            cron: Some(self.cron_tool_connection()),
+             worktrees,
+         };
+         if !services.task_tools && services.worktrees.is_none() {
+@@ -584,7 +611,7 @@ impl AppServerSession {
+         if let Some(server) = self.dynamic_tool_mcp.as_ref() {
+             ThreadToolTransport::Mcp(Arc::clone(server))
+         } else if self.uses_embedded_app_server() {
+-            ThreadToolTransport::Disabled
++            ThreadToolTransport::CronOnly
+         } else {
+             ThreadToolTransport::Dynamic
+         }
+@@ -1397,8 +1424,26 @@ impl AppServerSession {
          &mut self,
          params: ThreadSettingsUpdateParams,
      ) -> Result<bool> {
@@ -44282,7 +45416,7 @@ index 143f09d35..21d06f044 100644
          }
          let request_id = self.next_request_id();
          match self
-@@ -1409,7 +1429,7 @@ impl AppServerSession {
+@@ -1409,7 +1454,7 @@ impl AppServerSession {
              })
              .await
          {
@@ -44291,7 +45425,7 @@ index 143f09d35..21d06f044 100644
              Err(TypedRequestError::Server { source, .. })
                  if is_thread_settings_update_unsupported(&source) =>
              {
-@@ -1419,7 +1439,7 @@ impl AppServerSession {
+@@ -1419,7 +1464,7 @@ impl AppServerSession {
                  // downgrade so local TUI setting changes stay best-effort instead
                  // of showing an error every time the user changes model, effort, or mode.
                  self.thread_settings_update_supported = false;
@@ -44300,7 +45434,7 @@ index 143f09d35..21d06f044 100644
              }
              Err(err) => Err(err).wrap_err("thread/settings/update failed in TUI"),
          }
-@@ -1598,6 +1618,41 @@ impl AppServerSession {
+@@ -1598,6 +1643,41 @@ impl AppServerSession {
          Ok(())
      }
  
@@ -44342,7 +45476,7 @@ index 143f09d35..21d06f044 100644
      pub(crate) async fn memory_reset(&mut self) -> Result<()> {
          let request_id = self.next_request_id();
          let _: MemoryResetResponse = self
-@@ -1752,6 +1807,28 @@ impl AppServerSession {
+@@ -1752,6 +1832,28 @@ impl AppServerSession {
          Ok(())
      }
  
@@ -44371,7 +45505,7 @@ index 143f09d35..21d06f044 100644
      pub(crate) async fn thread_background_terminals_clean(
          &mut self,
          thread_id: ThreadId,
-@@ -1800,6 +1877,24 @@ impl AppServerSession {
+@@ -1800,6 +1902,24 @@ impl AppServerSession {
              .wrap_err("skills/list failed in TUI")
      }
  
@@ -49311,6 +50445,385 @@ index 000000000..6fd5e9c88
 +        assert!(matches!(s.jobs[1].phase, Phase::Finished(_)));
 +    }
 +}
+diff --git a/codex-rs/tui/src/cron_tools.rs b/codex-rs/tui/src/cron_tools.rs
+new file mode 100644
+index 000000000..ed4aed829
+--- /dev/null
++++ b/codex-rs/tui/src/cron_tools.rs
+@@ -0,0 +1,190 @@
++//! Model-facing transport into the TUI-owned, CLI-lifetime scheduler.
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++use crate::backend_id::BackendId;
++use crate::dynamic_tools;
++use codex_app_server_protocol::{
++    DynamicToolCallParams, DynamicToolCallResponse, DynamicToolFunctionSpec,
++    DynamicToolNamespaceSpec, DynamicToolNamespaceTool, DynamicToolSpec,
++};
++use serde::Deserialize;
++use serde_json::{Value, json};
++use std::sync::{
++    Arc,
++    atomic::{AtomicBool, AtomicU8, Ordering},
++};
++use tokio::sync::oneshot;
++use tokio_util::sync::CancellationToken;
++
++pub(crate) const NAME: &str = "cron";
++
++#[derive(Clone, Debug)]
++pub(crate) struct Connection {
++    pub(crate) backend: BackendId,
++    pub(crate) id: uuid::Uuid,
++    pub(crate) live: Arc<AtomicBool>,
++}
++
++#[derive(Debug)]
++pub(crate) struct Request {
++    pub(crate) connection: Connection,
++    pub(crate) params: DynamicToolCallParams,
++    pub(crate) command: String,
++    pub(crate) claim: Arc<AtomicU8>,
++    pub(crate) cancellation: CancellationToken,
++    pub(crate) reply: oneshot::Sender<DynamicToolCallResponse>,
++}
++
++struct PendingCall(Arc<AtomicU8>);
++impl Drop for PendingCall {
++    fn drop(&mut self) {
++        let _ = self
++            .0
++            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire);
++    }
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Arguments {
++    action: String,
++    every: Option<String>,
++    at: Option<String>,
++    prompt: Option<String>,
++    id: Option<u64>,
++}
++
++fn command(value: Value) -> Result<String, String> {
++    let args: Arguments = serde_json::from_value(value).map_err(|error| error.to_string())?;
++    match args.action.as_str() {
++        "add" if args.id.is_none() && args.every.is_some() != args.at.is_some() => {
++            let (flag, value) = match (args.every, args.at) {
++                (Some(value), None) => ("--every", value),
++                (None, Some(value)) => ("--at", value),
++                _ => unreachable!(),
++            };
++            if value.is_empty() || value.chars().any(char::is_whitespace) {
++                return Err("일정은 공백 없는 간격 또는 offset이 포함된 RFC3339 시각이어야 합니다.".into());
++            }
++            let prompt = args.prompt.filter(|prompt| !prompt.trim().is_empty())
++                .ok_or("등록에는 실행할 prompt가 필요합니다.")?;
++            Ok(format!("add {flag} {value} -- {prompt}"))
++        }
++        "list" if args.every.is_none() && args.at.is_none() && args.prompt.is_none() && args.id.is_none() => Ok("list".into()),
++        "pause" | "resume" | "remove" | "cancel" if args.every.is_none() && args.at.is_none() && args.prompt.is_none() => {
++            let id = args.id.filter(|id| *id > 0).ok_or("관리할 예약 id가 필요합니다.")?;
++            Ok(format!("{} {id}", args.action))
++        }
++        _ => Err("action에 맞는 인자를 사용하세요. add에는 every 또는 at 하나와 prompt, 관리에는 id만 필요합니다.".into()),
++    }
++}
++
++pub(crate) fn specs() -> Vec<DynamicToolSpec> {
++    vec![DynamicToolSpec::Namespace(DynamicToolNamespaceSpec {
++        name: dynamic_tools::NAMESPACE.into(),
++        description: "현재 대화의 CLI 수명 예약을 관리합니다.".into(),
++        tools: vec![DynamicToolNamespaceTool::Function(DynamicToolFunctionSpec {
++            name: NAME.into(),
++            description: "사용자가 예약·주기적 확인을 요청하면 호출하세요. 일정이나 실행할 일이 불명확하면 먼저 질문하세요. add는 every(예: 10m, 30s, 2h) 또는 at(offset 포함 RFC3339) 하나와 prompt가 필요합니다. list와 pause/resume/remove/cancel(id)을 지원합니다. 실제 성공 응답 전 등록됐다고 말하지 마세요. 시간초과·응답 유실은 결과 미확인입니다. 재등록하지 말고 list로 확인하세요. 현재 호출 대화만 대상이며 CLI 종료 시 사라집니다. 바쁜 회차는 건너뜁니다. remove는 실행 중 turn을 취소하지 않습니다.".into(),
++            input_schema: json!({"type":"object", "additionalProperties":false,
++                "properties": {
++                    "action":{"type":"string","enum":["add","list","pause","resume","remove","cancel"]},
++                    "every":{"type":"string","description":"양의 정수와 s, m, h 단위"},
++                    "at":{"type":"string","description":"미래 시각, offset 포함 RFC3339"},
++                    "prompt":{"type":"string","minLength":1},
++                    "id":{"type":"integer","minimum":1}
++                }, "required":["action"]}),
++            defer_loading: false,
++        })],
++    })]
++}
++
++pub(crate) async fn execute(
++    connection: Connection,
++    handle: codex_app_server_client::AppServerRequestHandle,
++    params: DynamicToolCallParams,
++    events: &AppEventSender,
++    cancellation: CancellationToken,
++) -> DynamicToolCallResponse {
++    let command = match command(params.arguments.clone()) {
++        Ok(command) => command,
++        Err(error) => return dynamic_tools::failure_response(error),
++    };
++    if params.thread_id.is_empty() || params.turn_id.is_empty() || params.call_id.is_empty() {
++        return dynamic_tools::failure_response("실제 호출 대화·turn·call 정보가 필요합니다.");
++    }
++    // Verify source policy on the originating connection, never from visible UI state.
++    let verified = tokio::time::timeout(
++        std::time::Duration::from_secs(10),
++        handle.request_typed::<codex_app_server_protocol::ThreadReadResponse>(
++            codex_app_server_protocol::ClientRequest::ThreadRead {
++                request_id: codex_app_server_protocol::RequestId::String(
++                    uuid::Uuid::new_v4().to_string(),
++                ),
++                params: codex_app_server_protocol::ThreadReadParams {
++                    thread_id: params.thread_id.clone(),
++                    include_turns: false,
++                },
++            },
++        ),
++    )
++    .await;
++    match verified {
++        Ok(Ok(response))
++            if response.thread.id == params.thread_id
++                && !crate::app_server_session::thread_blocks_direct_input(&response.thread)
++                && !matches!(
++                    response.thread.source,
++                    codex_app_server_protocol::SessionSource::SubAgent(_)
++                ) => {}
++        Ok(Ok(_)) => {
++            return dynamic_tools::failure_response("이 대화는 예약 도구를 사용할 수 없습니다.");
++        }
++        Ok(Err(error)) => {
++            return dynamic_tools::failure_response(format!("호출 대화 확인 실패: {error}"));
++        }
++        Err(_) => {
++            return dynamic_tools::failure_response(
++                "호출 대화 확인 시간초과: 예약 요청을 보내지 않았습니다.",
++            );
++        }
++    }
++    let (reply, result) = oneshot::channel();
++    let pending = PendingCall(Arc::new(AtomicU8::new(0)));
++    events.send(AppEvent::CronToolCall(Box::new(Request {
++        connection,
++        params,
++        command,
++        claim: Arc::clone(&pending.0),
++        cancellation,
++        reply,
++    })));
++    match tokio::time::timeout(std::time::Duration::from_secs(30), result).await {
++        Ok(Ok(response)) => response,
++        _ => dynamic_tools::failure_response(
++            "예약 처리 결과 미확인: 자동 재전송하지 않습니다. 재등록하지 말고 list로 확인하세요.",
++        ),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn cron_arguments_reject_target_injection_and_ambiguous_schedules() {
++        assert_eq!(
++            command(json!({"action":"add","every":"10m","prompt":"확인 -- 그대로"})).unwrap(),
++            "add --every 10m -- 확인 -- 그대로"
++        );
++        for value in [
++            json!({"action":"add","every":"10m","at":"2030-01-01T00:00:00+09:00","prompt":"확인"}),
++            json!({"action":"add","every":"10m -- 주입","prompt":"확인"}),
++            json!({"action":"list","threadId":"다른 대화"}),
++            json!({"action":"remove","id":0}),
++            json!({"action":"list","prompt":"불필요"}),
++        ] {
++            assert!(command(value).is_err());
++        }
++    }
++}
+diff --git a/codex-rs/tui/src/dynamic_tools.rs b/codex-rs/tui/src/dynamic_tools.rs
+index 4b895da67..6aa429721 100644
+--- a/codex-rs/tui/src/dynamic_tools.rs
++++ b/codex-rs/tui/src/dynamic_tools.rs
+@@ -257,6 +257,14 @@ pub(crate) fn tool_specs() -> Vec<DynamicToolSpec> {
+                     defer_loading: true,
+                 })
+             })
++            .chain(
++                crate::cron_tools::specs()
++                    .into_iter()
++                    .flat_map(|spec| match spec {
++                        DynamicToolSpec::Namespace(namespace) => namespace.tools,
++                        DynamicToolSpec::Function(_) => unreachable!(),
++                    }),
++            )
+             .collect(),
+     })]
+ }
+diff --git a/codex-rs/tui/src/dynamic_tools_mcp.rs b/codex-rs/tui/src/dynamic_tools_mcp.rs
+index 71914649a..c50e6c335 100644
+--- a/codex-rs/tui/src/dynamic_tools_mcp.rs
++++ b/codex-rs/tui/src/dynamic_tools_mcp.rs
+@@ -53,7 +53,7 @@ use uuid::Uuid;
+ 
+ #[derive(Clone)]
+ pub(crate) enum ThreadToolTransport {
+-    Disabled,
++    CronOnly,
+     Dynamic,
+     Mcp(Arc<DynamicToolMcpServer>),
+ }
+@@ -76,7 +76,7 @@ impl ThreadToolTransport {
+ 
+     pub(crate) fn configure(&self, params: &mut ThreadStartParams) {
+         match self {
+-            Self::Disabled => params.dynamic_tools = None,
++            Self::CronOnly => params.dynamic_tools = Some(crate::cron_tools::specs()),
+             Self::Dynamic => {
+                 params.dynamic_tools = Some(dynamic_tools::non_delegation_tool_specs());
+             }
+@@ -100,6 +100,7 @@ impl ThreadToolTransport {
+ #[derive(Clone)]
+ pub(crate) struct ToolServices {
+     pub(crate) task_tools: bool,
++    pub(crate) cron: Option<crate::cron_tools::Connection>,
+     pub(crate) worktrees: Option<crate::managed_worktree_tools::ManagedWorktreeTools>,
+ }
+ 
+@@ -113,7 +114,15 @@ impl ToolServices {
+     }
+ }
+ 
+-type ToolConnection = Arc<RwLock<Option<(AppServerRequestHandle, AppEventSender)>>>;
++type ToolConnection = Arc<
++    RwLock<
++        Option<(
++            AppServerRequestHandle,
++            AppEventSender,
++            Option<crate::cron_tools::Connection>,
++        )>,
++    >,
++>;
+ 
+ pub(crate) struct DynamicToolMcpServer {
+     connection: ToolConnection,
+@@ -124,17 +133,26 @@ pub(crate) struct DynamicToolMcpServer {
+ 
+ impl DynamicToolMcpServer {
+     pub(crate) fn suspend(&self) {
+-        *self
++        let mut connection = self
+             .connection
+             .write()
+-            .unwrap_or_else(PoisonError::into_inner) = None;
++            .unwrap_or_else(PoisonError::into_inner);
++        if let Some((_, _, Some(cron))) = connection.as_ref() {
++            cron.live.store(false, std::sync::atomic::Ordering::Release);
++        }
++        *connection = None;
+     }
+ 
+-    pub(crate) fn reconnect(&self, handle: AppServerRequestHandle, events: AppEventSender) {
++    pub(crate) fn reconnect(
++        &self,
++        handle: AppServerRequestHandle,
++        events: AppEventSender,
++        cron: Option<crate::cron_tools::Connection>,
++    ) {
+         *self
+             .connection
+             .write()
+-            .unwrap_or_else(PoisonError::into_inner) = Some((handle, events));
++            .unwrap_or_else(PoisonError::into_inner) = Some((handle, events, cron));
+     }
+ 
+     pub(crate) async fn start(
+@@ -177,7 +195,11 @@ impl DynamicToolMcpServer {
+         if let Some(overrides) = thread_start_params.config.as_mut() {
+             overrides.remove("web_search");
+         }
+-        let connection = Arc::new(RwLock::new(Some((request_handle, app_event_tx))));
++        let connection = Arc::new(RwLock::new(Some((
++            request_handle,
++            app_event_tx,
++            services.cron.clone(),
++        ))));
+         let namespace = services.namespace();
+         let handler = DynamicToolMcpHandler {
+             connection: Arc::clone(&connection),
+@@ -261,6 +283,9 @@ impl ServerHandler for DynamicToolMcpHandler {
+         } else {
+             Vec::new()
+         };
++        if !self.services.task_tools && self.services.cron.is_some() {
++            specs.extend(crate::cron_tools::specs());
++        }
+         if self.services.worktrees.is_some() {
+             specs.extend(crate::managed_worktree_tool_specs::specs());
+         }
+@@ -311,6 +336,36 @@ impl ServerHandler for DynamicToolMcpHandler {
+                 Value::String(value) => serde_json::from_str(value).ok(),
+                 _ => None,
+             });
++        if request.name == crate::cron_tools::NAME {
++            for (direct, nested) in [("threadId", "thread_id"), ("turnId", "turn_id")] {
++                let direct_value = metadata.get(direct).and_then(Value::as_str);
++                let nested_value = turn_metadata
++                    .as_ref()
++                    .and_then(|value| value.get(nested))
++                    .and_then(Value::as_str);
++                if direct_value.zip(nested_value).is_some_and(|(a, b)| a != b) {
++                    return Err(McpError::invalid_params(
++                        "호출 메타데이터가 서로 다릅니다.",
++                        None,
++                    ));
++                }
++            }
++            if metadata
++                .get("callId")
++                .and_then(Value::as_str)
++                .is_none_or(str::is_empty)
++                || metadata
++                    .get("turnId")
++                    .and_then(Value::as_str)
++                    .or_else(|| turn_metadata.as_ref()?.get("turn_id")?.as_str())
++                    .is_none_or(str::is_empty)
++            {
++                return Err(McpError::invalid_params(
++                    "예약에는 실제 turn·call 메타데이터가 필요합니다.",
++                    None,
++                ));
++            }
++        }
+         let thread_id = metadata
+             .get("threadId")
+             .and_then(Value::as_str)
+@@ -340,7 +395,7 @@ impl ServerHandler for DynamicToolMcpHandler {
+             self.server_config.clone(),
+         );
+         // Snapshot once: an in-flight call must never switch connections or replay a mutation.
+-        let (request_handle, app_event_tx) = self
++        let (request_handle, app_event_tx, cron) = self
+             .connection
+             .read()
+             .unwrap_or_else(PoisonError::into_inner)
+@@ -348,7 +403,15 @@ impl ServerHandler for DynamicToolMcpHandler {
+             .ok_or_else(|| {
+                 McpError::internal_error("TUI is reconnecting; tool was not sent", None)
+             })?;
+-        let response = if matches!(
++        let response = if params.tool == crate::cron_tools::NAME {
++            let connection = cron.ok_or_else(|| {
++                McpError::invalid_params("예약 도구가 이 연결에서 제공되지 않습니다.", None)
++            })?;
++            tokio::select! {
++                response = crate::cron_tools::execute(connection, request_handle, params, &app_event_tx, context.ct.clone()) => response,
++                _ = context.ct.cancelled() => dynamic_tools::failure_response("예약 요청이 중단되었습니다. 결과가 불명확하면 list로 확인하세요."),
++            }
++        } else if matches!(
+             params.tool.as_str(),
+             "create_worktree" | "get_worktree_creation_status" | "list_worktrees"
+         ) {
 diff --git a/codex-rs/tui/src/exec_cell/live_output.rs b/codex-rs/tui/src/exec_cell/live_output.rs
 index 46f9ab2a9..94c6fad6a 100644
 --- a/codex-rs/tui/src/exec_cell/live_output.rs
@@ -50797,7 +52310,7 @@ index 425198346..72f7a7879 100644
          increase_reasoning_effort => "Increase reasoning effort.",
          previous_permission_mode => "Switch to the previous available permission mode.",
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index c31c2d4da..95af178df 100644
+index c31c2d4da..7af2f37df 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -96,6 +96,8 @@ use tracing::warn;
@@ -50809,15 +52322,16 @@ index c31c2d4da..95af178df 100644
  use url::Url;
  use uuid::Uuid;
  
-@@ -132,6 +134,7 @@ mod color;
+@@ -132,6 +134,8 @@ mod color;
  mod config_panel;
  mod config_update;
  mod copy_input_guard;
 +mod cron;
++mod cron_tools;
  pub(crate) mod custom_terminal;
  mod daybreak;
  mod experimental_features;
-@@ -160,6 +163,7 @@ mod git_action_directives;
+@@ -160,6 +164,7 @@ mod git_action_directives;
  mod goal_display;
  mod goal_files;
  mod history_cell;
@@ -50825,7 +52339,7 @@ index c31c2d4da..95af178df 100644
  mod hooks_rpc;
  mod ide_context;
  mod inline_visualization;
-@@ -1140,6 +1144,8 @@ pub async fn run_main(
+@@ -1140,6 +1145,8 @@ pub async fn run_main(
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -52781,6 +54295,53 @@ index 3d430d363..1bcc6363d 100644
  #[tokio::test]
  async fn background_launches_keep_consoles_hidden_when_containment_fails() -> anyhow::Result<()> {
      const TEST_NAME: &str =
+diff --git a/docs/native-cli-cron.ko.md b/docs/native-cli-cron.ko.md
+new file mode 100644
+index 000000000..65defeb1d
+--- /dev/null
++++ b/docs/native-cli-cron.ko.md
+@@ -0,0 +1,41 @@
++# CLI 예약 실행
++
++예약은 CLI를 켜둔 동안만 유지됩니다. 등록한 대화에서 실행하며, 다른 대화로 이동해도 대상은 바뀌지 않습니다. 실행 시 해당 대화가 작업 중이면 이번 회차를 건너뜁니다. 밀린 회차를 한꺼번에 실행하지 않습니다.
++
++## 직접 등록
++
++아래 명령은 PowerShell이 아니라 Codex의 일반 대화 입력창에 입력합니다.
++
++```text
++/cron add --every 10m -- 빌드 완료 여부를 확인하고 실패했으면 근거를 알려줘
++/cron list
++/cron pause 1
++/cron resume 1
++/cron remove 1
++```
++
++간격은 양의 정수에 `s`, `m`, `h`를 붙입니다. 한 번만 실행하려면 미래 시각과 시간대 차이를 지정합니다.
++
++```text
++/cron add --at 2030-01-01T09:00:00+09:00 -- 시험 결과를 확인해줘
++```
++
++명령에서 ` -- ` 앞은 일정이고 뒤는 실행할 요청입니다. `1`은 예시이며 실제 등록 결과의 예약 번호를 사용합니다. `remove`는 이후 실행만 제거합니다. 이미 실행 중인 예약 작업을 중단하려면 `/cron cancel 1`을 사용합니다. 취소 요청 수락과 실제 작업 종료는 구분됩니다.
++
++## 자연어로 요청
++
++이 변경을 포함한 실행 파일에서 예약 도구가 제공되는 대화라면 다음과 같이 요청할 수 있습니다.
++
++```text
++10분마다 빌드 완료 여부를 확인하도록 예약해줘.
++이 대화의 예약 목록을 보여줘.
++1번 예약을 일시 중지해줘.
++```
++
++모델이 실제 도구 응답을 받은 뒤 등록 결과를 알려줍니다. 일정이나 실행할 내용이 부족하면 먼저 확인합니다. 응답이 사라졌거나 처리 시간이 초과됐다면 등록 여부가 불명확하므로 같은 예약을 다시 만들기 전에 목록을 확인합니다. 모델은 호출한 대화의 예약만 조회·변경할 수 있습니다.
++
++기존 MCP 전달 경로를 사용하는 경우 그 경로의 설정·권한 검사를 유지합니다. 내장 app-server에서 MCP 없이 실행하는 경우 새 대화를 시작할 때 예약 전용 도구를 제공합니다. 도구가 없는 오래된 대화에 재개만으로 새 도구를 주입하는 기능은 제공하지 않습니다. 이 경우 새 대화를 사용하거나 `/cron` 명령으로 직접 등록할 수 있습니다. 기존 R28 실행 파일에는 이 자연어 연결 변경이 포함되지 않습니다.
++
++## 하위 에이전트 표시
++
++같은 최상위 대화에 속한 하위 에이전트 상태가 있으면 일반 입력창 바로 위에 상태별 개수 요약이 표시됩니다. 개별 대화는 `/subagents`로 확인합니다. 목록이 비어 있거나 입력창을 대신하는 다른 화면이 열려 있으면 요약 줄이 보이지 않을 수 있습니다. 개별 에이전트 이름을 항상 펼쳐두는 화면은 아닙니다.
 diff --git a/docs/native-cli-r27.ko.md b/docs/native-cli-r27.ko.md
 new file mode 100644
 index 000000000..91a2e6231

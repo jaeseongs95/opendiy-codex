@@ -9,6 +9,8 @@ use codex_app_server_protocol::{
 };
 use std::time::Instant as MonotonicInstant;
 
+const MAX_MODEL_CALLS: usize = 1_024;
+
 const USAGE: &str = "/cron add --every 10m -- <prompt> | add --at <RFC3339+offset> -- <prompt> | list | pause/resume/remove/cancel <id>";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +43,13 @@ pub(crate) struct CronState {
     unsupported: HashSet<BackendId>,
     tasks: HashMap<(u64, u64), (BackendId, JoinHandle<()>)>,
     cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
+    pub(super) tool_tasks:
+        HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
+    closed_threads: HashSet<(BackendId, ThreadId)>,
+    model_calls: HashMap<
+        (BackendId, uuid::Uuid, ThreadId, String, String),
+        (String, codex_app_server_protocol::DynamicToolCallResponse),
+    >,
 }
 
 impl Drop for CronState {
@@ -61,6 +70,11 @@ impl CronState {
             *self.epochs.entry(owner).or_default() += 1;
         }
         self.unsupported.clear();
+        self.model_calls.clear();
+        for (_, (_, cancellation, task)) in self.tool_tasks.drain() {
+            cancellation.cancel();
+            task.abort();
+        }
         for (_, (_, task)) in self.tasks.drain() {
             task.abort();
         }
@@ -76,6 +90,18 @@ impl CronState {
     pub(super) fn invalidate_backend(&mut self, backend: BackendId, reason: &str) {
         *self.epochs.entry(backend).or_default() += 1;
         self.unsupported.remove(&backend);
+        self.model_calls
+            .retain(|(owner, _, _, _, _), _| *owner != backend);
+        self.tool_tasks
+            .retain(|(owner, _), (_, cancellation, task)| {
+                if *owner == backend {
+                    cancellation.cancel();
+                    task.abort();
+                    false
+                } else {
+                    true
+                }
+            });
         self.scheduler
             .invalidate(|target| target.backend == backend, reason);
         self.cancel_tasks.retain(|_, (owner, task)| {
@@ -171,6 +197,93 @@ fn parse_add(args: &str, now: MonotonicInstant) -> Result<(Schedule, String), St
 }
 
 impl App {
+    pub(super) async fn handle_cron_tool_call(
+        &mut self,
+        app_server: &AppServerSession,
+        request: crate::cron_tools::Request,
+    ) {
+        use std::sync::atomic::Ordering;
+        let fail = |message| crate::dynamic_tools::failure_response(message);
+        let Ok(thread) = ThreadId::from_string(&request.params.thread_id) else {
+            let _ = request
+                .reply
+                .send(fail("호출 대화 식별자가 올바르지 않습니다."));
+            return;
+        };
+        if request.reply.is_closed() {
+            return;
+        }
+        let current_connection = app_server.cron_tool_connection();
+        let available = request.connection.backend == current_connection.backend
+            && request.connection.id == current_connection.id
+            && request.connection.live.load(Ordering::Acquire)
+            && !self.reconnect.offline
+            && !self
+                .cron
+                .closed_threads
+                .contains(&(request.connection.backend, thread))
+            && !self.abandoned_side_threads.contains(&thread)
+            && !self.temporary_structured_requests.contains_key(&thread)
+            && !self.thread_unavailable(thread)
+            && self.active_turn_id_for_thread(thread).await.as_deref()
+                == Some(request.params.turn_id.as_str());
+        if !available {
+            let _ = request.reply.send(fail("원래 호출 대화·활성 turn·연결이 종료되거나 바뀌었습니다. 예약을 변경하지 않았습니다."));
+            return;
+        }
+        let key = (
+            request.connection.backend,
+            request.connection.id,
+            thread,
+            request.params.turn_id.clone(),
+            request.params.call_id.clone(),
+        );
+        if let Some((command, response)) = self.cron.model_calls.get(&key) {
+            let response = if command == &request.command {
+                response.clone()
+            } else {
+                fail("동일 호출 식별자에 다른 요청을 사용할 수 없습니다.")
+            };
+            let _ = request.reply.send(response);
+            return;
+        }
+        if self.cron.model_calls.len() >= MAX_MODEL_CALLS {
+            let _ = request.reply.send(fail("동시 활성 호출 기록 한도에 도달했습니다. 이전 요청을 다시 등록하지 말고 turn 종료 후 확인하세요."));
+            return;
+        }
+        // Cancellation before this claim wins. After it, a lost reply is an unknown
+        // outcome, not permission to replay the same mutation.
+        if request.reply.is_closed()
+            || request.cancellation.is_cancelled()
+            || request
+                .claim
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            || request.cancellation.is_cancelled()
+            || !request.connection.live.load(Ordering::Acquire)
+        {
+            return;
+        }
+        let response = match self
+            .cron_command_scoped(app_server, Some(thread), &request.command, true)
+            .await
+        {
+            Ok(message) => codex_app_server_protocol::DynamicToolCallResponse {
+                success: true,
+                content_items: vec![
+                    codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText {
+                        text: message,
+                    },
+                ],
+            },
+            Err(error) => crate::dynamic_tools::failure_response(error),
+        };
+        self.cron
+            .model_calls
+            .insert(key, (request.command, response.clone()));
+        let _ = request.reply.send(response);
+    }
+
     pub(super) async fn handle_cron_command(
         &mut self,
         app_server: &AppServerSession,
@@ -190,11 +303,26 @@ impl App {
         thread: Option<ThreadId>,
         args: &str,
     ) -> Result<String, String> {
+        self.cron_command_scoped(app_server, thread, args, false)
+            .await
+    }
+
+    async fn cron_command_scoped(
+        &mut self,
+        app_server: &AppServerSession,
+        thread: Option<ThreadId>,
+        args: &str,
+        model_scoped: bool,
+    ) -> Result<String, String> {
         let now = MonotonicInstant::now();
         let words: Vec<_> = args.split_whitespace().collect();
         match words.as_slice() {
             [] | ["list"] => {
-                if self.cron.scheduler.jobs.is_empty() {
+                if self.cron.scheduler.jobs.iter().all(|job| {
+                    model_scoped
+                        && (job.target.backend != app_server.backend_id()
+                            || Some(job.target.thread) != thread)
+                }) {
                     return Ok("등록된 예약이 없습니다. CLI를 종료하면 예약도 사라집니다.".into());
                 }
                 Ok(self
@@ -202,6 +330,11 @@ impl App {
                     .scheduler
                     .jobs
                     .iter()
+                    .filter(|job| {
+                        !model_scoped
+                            || (job.target.backend == app_server.backend_id()
+                                && Some(job.target.thread) == thread)
+                    })
                     .map(|job| {
                         let state = match &job.phase {
                             Phase::Ready => "대기".to_string(),
@@ -257,12 +390,12 @@ impl App {
             }
             ["add", ..] => {
                 let thread = thread.ok_or("등록 대상 대화가 없습니다.")?;
-                if self.current_displayed_thread_id() != Some(thread)
+                if (!model_scoped && self.current_displayed_thread_id() != Some(thread))
                     || self.thread_unavailable(thread)
                 {
                     return Err("등록 대상 대화가 바뀌었거나 사용할 수 없습니다.".into());
                 }
-                if self.chat_widget.has_misalignment_policy_violation() {
+                if !model_scoped && self.chat_widget.has_misalignment_policy_violation() {
                     return Err("현재 대화는 직접 입력을 허용하지 않습니다.".into());
                 }
                 if self.cron.unsupported.contains(&app_server.backend_id()) {
@@ -285,7 +418,9 @@ impl App {
             [action @ ("pause" | "resume" | "remove" | "cancel"), id] => {
                 let id = id.parse::<u64>().map_err(|_| USAGE)?;
                 let job = self.cron.scheduler.job_mut(id)?;
-                if job.target.backend != app_server.backend_id() {
+                if job.target.backend != app_server.backend_id()
+                    || (model_scoped && Some(job.target.thread) != thread)
+                {
                     return Err("예약이 다른 backend에 속합니다.".into());
                 }
                 let target = job.target.clone();
@@ -540,10 +675,28 @@ impl App {
         };
         if let Some(thread) = closed_thread.and_then(|id| ThreadId::from_string(id).ok()) {
             let owner = app_server.backend_id();
+            self.cron.closed_threads.insert((owner, thread));
             self.cron.scheduler.invalidate(
                 |target| target.backend == owner && target.thread == thread,
                 "대화 종료·삭제·보관: 실행 상태를 자동 추정하지 않음",
             );
+        }
+        if let ServerNotification::TurnStarted(started) = notification
+            && let Ok(thread) = ThreadId::from_string(&started.thread_id)
+        {
+            self.cron
+                .closed_threads
+                .remove(&(app_server.backend_id(), thread));
+        }
+        if let ServerNotification::TurnCompleted(completed) = notification {
+            let thread = ThreadId::from_string(&completed.thread_id).ok();
+            self.cron
+                .model_calls
+                .retain(|(backend, _, caller, turn, _), _| {
+                    *backend != app_server.backend_id()
+                        || Some(*caller) != thread
+                        || turn != &completed.turn.id
+                });
         }
         if let ServerNotification::TurnCompleted(completed) = notification
             && let Ok(thread) = ThreadId::from_string(&completed.thread_id)
@@ -608,6 +761,687 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn model_request(
+        connection: crate::cron_tools::Connection,
+        thread: ThreadId,
+        call: &str,
+        command: &str,
+    ) -> (
+        crate::cron_tools::Request,
+        tokio::sync::oneshot::Receiver<codex_app_server_protocol::DynamicToolCallResponse>,
+    ) {
+        let (reply, result) = tokio::sync::oneshot::channel();
+        (
+            crate::cron_tools::Request {
+                connection,
+                params: codex_app_server_protocol::DynamicToolCallParams {
+                    thread_id: thread.to_string(),
+                    turn_id: "caller-turn".into(),
+                    call_id: call.into(),
+                    namespace: Some(crate::dynamic_tools::NAMESPACE.into()),
+                    tool: crate::cron_tools::NAME.into(),
+                    arguments: serde_json::json!({}),
+                },
+                command: command.into(),
+                claim: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+                cancellation: CancellationToken::new(),
+                reply,
+            },
+            result,
+        )
+    }
+
+    #[tokio::test]
+    async fn model_cron_is_caller_scoped_and_same_call_does_not_register_twice()
+    -> color_eyre::Result<()> {
+        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (session, _observed, worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let caller = ThreadId::new();
+        let displayed = ThreadId::new();
+        app.active_thread_id = Some(displayed);
+        app.chat_widget
+            .restore_user_message_to_composer("다른 대화 초안".into());
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        app.ensure_thread_channel(displayed)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        let connection = session.cron_tool_connection();
+        for attempt in 0..2 {
+            let (request, response) = model_request(
+                connection.clone(),
+                caller,
+                "same-add",
+                "add --every 10m -- 원래 대화 확인",
+            );
+            app.handle_cron_tool_call(&session, request).await;
+            if attempt == 0 {
+                // The mutation completed, but its consumer never receives the reply.
+                drop(response);
+                app.cron
+                    .invalidate_backend(BackendId::new(), "다른 backend 종료");
+            } else {
+                assert!(response.await?.success);
+            }
+        }
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "same-add",
+            "add --every 2m -- 다른 내용",
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(!response.await?.success);
+        assert_eq!(app.cron.scheduler.jobs.len(), 1);
+        assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
+        let id = app.cron.scheduler.jobs[0].id;
+        for command in ["list".to_string(), format!("pause {id}")] {
+            let (request, response) =
+                model_request(connection.clone(), displayed, &command, &command);
+            app.handle_cron_tool_call(&session, request).await;
+            let response = response.await?;
+            if command == "list" {
+                assert!(response.success);
+                assert!(
+                    matches!(&response.content_items[0], codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text } if !text.contains(&format!("#{id}")))
+                );
+            } else {
+                assert!(!response.success);
+            }
+        }
+        for (action, paused) in [("pause", true), ("resume", false)] {
+            let command = format!("{action} {id}");
+            let (request, response) = model_request(connection.clone(), caller, action, &command);
+            app.handle_cron_tool_call(&session, request).await;
+            assert!(response.await?.success);
+            assert_eq!(app.cron.scheduler.jobs[0].paused, paused);
+        }
+        assert_eq!(
+            app.chat_widget.composer_text_with_pending(),
+            "다른 대화 초안"
+        );
+        app.active_thread_id = Some(caller);
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "remove",
+            &format!("remove {id}"),
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(response.await?.success);
+        assert!(app.cron.scheduler.jobs.is_empty());
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "same-add",
+            "add --every 10m -- 원래 대화 확인",
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(response.await?.success);
+        assert!(
+            app.cron.scheduler.jobs.is_empty(),
+            "삭제한 예약을 같은 호출 재전송으로 되살리지 않음"
+        );
+        let other_caller = ThreadId::new();
+        while app.cron.model_calls.len() < MAX_MODEL_CALLS {
+            app.cron.model_calls.insert(
+                (
+                    connection.backend,
+                    connection.id,
+                    other_caller,
+                    "other-turn".into(),
+                    uuid::Uuid::new_v4().to_string(),
+                ),
+                (
+                    "list".into(),
+                    crate::dynamic_tools::failure_response("시험 기록"),
+                ),
+            );
+        }
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "over-limit",
+            "add --every 1m -- 한도 초과",
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(!response.await?.success);
+        assert!(app.cron.scheduler.jobs.is_empty());
+        assert_eq!(app.cron.model_calls.len(), MAX_MODEL_CALLS);
+        let (request, response) =
+            model_request(connection.clone(), caller, "capacity-list", "list");
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(
+            !response.await?.success,
+            "한도에서는 성공을 기록할 수 없는 신규 조회도 거부"
+        );
+        app.note_cron_notification(
+            &session,
+            &ServerNotification::TurnCompleted(
+                codex_app_server_protocol::TurnCompletedNotification {
+                    thread_id: other_caller.to_string(),
+                    turn: codex_app_server_protocol::Turn {
+                        id: "other-turn".into(),
+                        root_turn_id: Some("other-turn".into()),
+                        items: vec![],
+                        items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
+                        error: None,
+                        status: codex_app_server_protocol::TurnStatus::Completed,
+                        started_at: None,
+                        completed_at: None,
+                        duration_ms: None,
+                    },
+                },
+            ),
+        )
+        .await;
+        assert!(app.cron.model_calls.len() < MAX_MODEL_CALLS);
+        // The rejected list never succeeded. A later explicit call can now be admitted,
+        // and that successful payload remains bound to the key.
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "capacity-list",
+            "add --every 1m -- 명시적 새 요청",
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(response.await?.success);
+        let (request, response) = model_request(connection, caller, "capacity-list", "list");
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(!response.await?.success);
+        assert_eq!(app.cron.scheduler.jobs.len(), 1);
+        app.cron.stop();
+        session.shutdown().await?;
+        worker.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_cancelled_stale_and_closed_requests_never_mutate() -> color_eyre::Result<()>
+    {
+        use std::sync::atomic::Ordering;
+        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (session, _observed, worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let caller = ThreadId::new();
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        let connection = session.cron_tool_connection();
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "dropped",
+            "add --every 1m -- 확인",
+        );
+        drop(response);
+        app.handle_cron_tool_call(&session, request).await;
+        for case in [
+            "cancelled",
+            "other-turn",
+            "other-connection",
+            "closed",
+            "disconnected",
+        ] {
+            let (mut request, response) =
+                model_request(connection.clone(), caller, case, "add --every 1m -- 확인");
+            match case {
+                "cancelled" => request.claim.store(2, Ordering::Release),
+                "other-turn" => request.params.turn_id = "old-turn".into(),
+                "other-connection" => request.connection.id = uuid::Uuid::new_v4(),
+                "closed" => {
+                    app.cron.closed_threads.insert((connection.backend, caller));
+                }
+                "disconnected" => {
+                    app.cron.closed_threads.clear();
+                    connection.live.store(false, Ordering::Release);
+                }
+                _ => unreachable!(),
+            }
+            app.handle_cron_tool_call(&session, request).await;
+            assert!(response.await.map_or(true, |response| !response.success));
+            assert!(app.cron.scheduler.jobs.is_empty(), "{case}");
+        }
+        session.shutdown().await?;
+        worker.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_background_transport_loss_fences_queued_call_only_for_its_owner()
+    -> color_eyre::Result<()> {
+        use crate::app_server_session::AppServerSessionEvent;
+        use codex_app_server_client::AppServerEvent;
+        for lost in [
+            AppServerEvent::Disconnected {
+                message: "background lost".into(),
+            },
+            AppServerEvent::Lagged { skipped: 1 },
+        ] {
+            let (mut app, mut events, _ops) =
+                crate::app::tests::make_test_app_with_channels().await;
+            let (session, _observed, worker) =
+                super::super::app_server_requests::retained_reply_tests::connection().await?;
+            let caller = ThreadId::new();
+            let displayed = ThreadId::new();
+            let displayed_owner = BackendId::new();
+            app.active_thread_id = Some(displayed);
+            app.ensure_thread_channel(caller)
+                .store
+                .lock()
+                .await
+                .set_active_turn_id("caller-turn".into());
+            app.chat_widget
+                .restore_user_message_to_composer("다른 backend 초안".into());
+            let now = MonotonicInstant::now();
+            let manual = app
+                .cron
+                .scheduler
+                .add(
+                    CronTarget {
+                        backend: displayed_owner,
+                        epoch: 0,
+                        thread: displayed,
+                    },
+                    "다른 backend 수동 예약".into(),
+                    Schedule::Every(Duration::from_secs(60)),
+                    now,
+                )
+                .expect("valid manual scheduler fixture");
+            let connection = session.cron_tool_connection();
+            let (request, response) = model_request(
+                connection.clone(),
+                caller,
+                "queued-before-loss",
+                "add --every 1m -- 중단 대상",
+            );
+            app.app_event_tx
+                .send(AppEvent::CronToolCall(Box::new(request)));
+            let queued = loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            };
+            app.handle_polled_backend_event(
+                &session,
+                displayed_owner,
+                AppServerSessionEvent {
+                    backend_id: displayed_owner,
+                    event: AppServerEvent::Lagged { skipped: 1 },
+                },
+            )
+            .await;
+            assert!(
+                connection.live.load(std::sync::atomic::Ordering::Acquire),
+                "외부 소유 사건은 원연결을 바꾸지 않음"
+            );
+            app.handle_polled_backend_event(
+                &session,
+                displayed_owner,
+                AppServerSessionEvent {
+                    backend_id: session.backend_id(),
+                    event: lost,
+                },
+            )
+            .await;
+            app.handle_cron_tool_call(&session, *queued).await;
+            assert!(!response.await?.success);
+            assert!(!connection.live.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(app.cron.scheduler.jobs.len(), 1);
+            assert_eq!(app.cron.scheduler.jobs[0].id, manual);
+            assert!(matches!(app.cron.scheduler.jobs[0].phase, Phase::Ready));
+            assert!(!app.reconnect.offline);
+            assert_eq!(
+                app.chat_widget.composer_text_with_pending(),
+                "다른 backend 초안"
+            );
+            app.cron.stop();
+            session.shutdown().await?;
+            worker.await??;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_native_resolved_cancels_queued_call_before_worker_drop()
+    -> color_eyre::Result<()> {
+        use codex_app_server_client::AppServerEvent;
+        use codex_utils_absolute_path::test_support::PathExt;
+        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let home = tempfile::tempdir()?;
+        app.config.codex_home = home.path().to_path_buf().abs();
+        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
+        let mut session =
+            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+        let caller = session.start_thread(&app.config).await?.session.thread_id;
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        let (request, _response) = model_request(
+            session.cron_tool_connection(),
+            caller,
+            "native-resolved",
+            "",
+        );
+        let mut params = request.params;
+        params.arguments =
+            serde_json::json!({"action":"add","every":"1m","prompt":"중단된 native 요청"});
+        let request_id = AppServerRequestId::Integer(9001);
+        app.handle_app_server_event(
+            &session,
+            AppServerEvent::ServerRequest(Box::new(ServerRequest::DynamicToolCall {
+                request_id: request_id.clone(),
+                params,
+            })),
+        )
+        .await;
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        assert!(!queued.cancellation.is_cancelled());
+        app.handle_app_server_event(
+            &session,
+            AppServerEvent::ServerNotification(Box::new(
+                ServerNotification::ServerRequestResolved(
+                    codex_app_server_protocol::ServerRequestResolvedNotification {
+                        thread_id: caller.to_string(),
+                        request_id,
+                    },
+                ),
+            )),
+        )
+        .await;
+        // No yield or JoinHandle await here: the native worker has not dropped its future.
+        assert!(queued.cancellation.is_cancelled());
+        assert_eq!(queued.claim.load(std::sync::atomic::Ordering::Acquire), 0);
+        app.handle_cron_tool_call(&session, *queued).await;
+        assert!(app.cron.scheduler.jobs.is_empty());
+        app.cron.stop();
+        session.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_mcp_metadata_and_cancelled_queue_fail_closed() -> color_eyre::Result<()> {
+        use codex_utils_absolute_path::test_support::PathExt;
+        use serde_json::json;
+        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let home = tempfile::tempdir()?;
+        app.config.codex_home = home.path().to_path_buf().abs();
+        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
+        let mut session =
+            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+        let source = session.start_thread(&app.config).await?;
+        let caller = source.session.thread_id;
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        let connection = session.cron_tool_connection();
+        let (request, _unused) =
+            model_request(connection.clone(), caller, "cancel-before-actor", "");
+        let mut params = request.params;
+        params.arguments = json!({"action":"add","every":"1m","prompt":"중단된 요청"});
+        let handle = session.request_handle();
+        let sender = app.app_event_tx.clone();
+        let pending_connection = connection.clone();
+        let pending = tokio::spawn(async move {
+            crate::cron_tools::execute(
+                pending_connection,
+                handle,
+                params,
+                &sender,
+                CancellationToken::new(),
+            )
+            .await
+        });
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        pending.abort();
+        assert!(pending.await.unwrap_err().is_cancelled());
+        app.handle_cron_tool_call(&session, *queued).await;
+        assert!(app.cron.scheduler.jobs.is_empty());
+
+        let server = Arc::new(
+            crate::dynamic_tools_mcp::DynamicToolMcpServer::start(
+                session.request_handle(),
+                codex_app_server_protocol::ThreadStartParams::default(),
+                app.config.features.get().clone(),
+                app.app_event_tx.clone(),
+                app.dynamic_tool_status_updates.clone(),
+                None,
+                crate::dynamic_tools_mcp::ToolServices {
+                    task_tools: true,
+                    cron: Some(connection),
+                    worktrees: None,
+                },
+            )
+            .await?,
+        );
+        let transport = crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(Arc::clone(&server));
+        let mut overrides = None;
+        transport.configure_mcp(&mut overrides);
+        let config = overrides.unwrap().remove("mcp_servers.codex_tui").unwrap();
+        let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
+        let call = |id, metadata| {
+            client.post(config["url"].as_str().unwrap())
+            .header("Authorization", config["http_headers"]["Authorization"].as_str().unwrap())
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2026-07-28")
+            .header("MCP-Method", "tools/call")
+            .header("MCP-Name", crate::cron_tools::NAME)
+            .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"cron","arguments":{"action":"add","every":"1m","prompt":"MCP 확인"},"_meta":metadata}}))
+        };
+        for (id, metadata) in [
+            (1, json!({"threadId":caller,"turnId":"caller-turn"})),
+            (
+                2,
+                json!({"threadId":caller,"turnId":"caller-turn","callId":"conflict","x-codex-turn-metadata":{"thread_id":ThreadId::new().to_string(),"turn_id":"caller-turn"}}),
+            ),
+        ] {
+            let body = call(id, metadata).send().await?.text().await?;
+            assert!(body.contains("error"), "{body}");
+            assert!(app.cron.scheduler.jobs.is_empty());
+        }
+        let request = call(
+            3,
+            json!({"threadId":caller,"turnId":"caller-turn","callId":"cancelled-mcp"}),
+        );
+        let response = tokio::spawn(async move { request.send().await?.text().await });
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        // This is the actual RequestContext.ct clone held by the HTTP handler.
+        // Do not yield to that handler after cancelling it and before actor admission.
+        queued.cancellation.cancel();
+        assert_eq!(queued.claim.load(std::sync::atomic::Ordering::Acquire), 0);
+        app.handle_cron_tool_call(&session, *queued).await;
+        assert!(app.cron.scheduler.jobs.is_empty());
+        let body = response.await??;
+        assert!(
+            body.contains("중단") || body.contains("결과 미확인"),
+            "{body}"
+        );
+        let request = call(
+            4,
+            json!({"threadId":caller,"turnId":"caller-turn","callId":"old-connection"}),
+        );
+        let response = tokio::spawn(async move { request.send().await?.text().await });
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        server.suspend();
+        app.handle_cron_tool_call(&session, *queued).await;
+        let body = response.await??;
+        assert!(body.contains("원래 호출 대화"), "{body}");
+        assert!(app.cron.scheduler.jobs.is_empty());
+        drop(transport);
+        drop(server);
+        session.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_native_roundtrip_registers_and_survives_resume() -> color_eyre::Result<()> {
+        use app_test_support::{
+            MockResponsesConfig, create_final_assistant_message_sse_response,
+            create_mock_responses_server_sequence_unchecked,
+        };
+        use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind};
+        use codex_model_provider_info::ModelProviderInfo;
+        use codex_utils_absolute_path::test_support::PathExt;
+        use core_test_support::responses;
+        let mut responses = Vec::new();
+        for (id, arguments) in [
+            (
+                "model-cron-add",
+                serde_json::json!({"action":"add","every":"10m","prompt":"주기 확인"}),
+            ),
+            ("model-cron-list", serde_json::json!({"action":"list"})),
+        ] {
+            responses.push(responses::sse(vec![
+                responses::ev_response_created(id),
+                responses::ev_function_call_with_namespace(
+                    id,
+                    crate::dynamic_tools::NAMESPACE,
+                    crate::cron_tools::NAME,
+                    &arguments.to_string(),
+                ),
+                responses::ev_completed(id),
+            ]));
+            responses.push(
+                create_final_assistant_message_sse_response("예약 결과 확인")
+                    .expect("valid final assistant message fixture"),
+            );
+        }
+        let model_server = create_mock_responses_server_sequence_unchecked(responses).await;
+        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let home = tempfile::tempdir()?;
+        MockResponsesConfig::new(&model_server.uri()).write(home.path())?;
+        codex_login::login_with_api_key(
+            home.path(),
+            "sk-test-key",
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )?;
+        app.config.codex_home = home.path().to_path_buf().abs();
+        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
+        app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;
+        app.config.model = Some("mock-model".into());
+        app.config.model_provider_id = "test_provider".into();
+        app.config.model_provider = ModelProviderInfo {
+            name: "Test provider".into(),
+            base_url: Some(format!("{}/v1", model_server.uri())),
+            request_max_retries: Some(0),
+            stream_max_retries: Some(0),
+            ..Default::default()
+        };
+        let mut session =
+            Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+        let started = session.start_thread(&app.config).await?;
+        assert!(
+            !started.task_tools_available,
+            "예약만으로 일반 작업 도구를 활성화하지 않음"
+        );
+        let caller = started.session.thread_id;
+        app.enqueue_primary_thread_session(started.session, started.turns)
+            .await?;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        for round in 0..2 {
+            if round == 1 {
+                let resumed = session
+                    .resume_thread(
+                        &app.local_settings,
+                        app.config.clone(),
+                        caller,
+                        crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+                    )
+                    .await?;
+                assert!(!resumed.blocks_direct_input);
+            }
+            let _: codex_app_server_protocol::TurnStartResponse = session
+                .request_handle()
+                .request_typed(ClientRequest::TurnStart {
+                    request_id: AppServerRequestId::String(uuid::Uuid::new_v4().to_string()),
+                    params: codex_app_server_protocol::TurnStartParams {
+                        thread_id: caller.to_string(),
+                        input: vec![codex_app_server_protocol::UserInput::Text {
+                            text: "예약을 확인해줘".into(),
+                            text_elements: Vec::new(),
+                        }],
+                        ..Default::default()
+                    },
+                })
+                .await?;
+            tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    tokio::select! {
+                        event = session.next_event() => {
+                            let event = event.expect("내장 서버 이벤트");
+                            let completed = matches!(&event.event, codex_app_server_client::AppServerEvent::ServerNotification(notification) if matches!(notification.as_ref(), ServerNotification::TurnCompleted(_)));
+                            app.handle_backend_event(&session, event).await;
+                            if completed { break; }
+                        }
+                        Some(event) = events.recv() => { app.handle_event(&mut tui, &mut session, event).await?; }
+                    }
+                }
+                Ok::<_, color_eyre::Report>(())
+            }).await??;
+            assert_eq!(app.cron.scheduler.jobs.len(), 1);
+            assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
+        }
+        let requests = model_server.received_requests().await.unwrap();
+        let requests: Vec<_> = requests
+            .iter()
+            .filter(|request| request.url.path().ends_with("/responses"))
+            .collect();
+        assert_eq!(requests.len(), 4);
+        let first: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
+        let tools = first["tools"].to_string();
+        assert!(tools.contains("cron"));
+        assert!(!tools.contains("list_threads"));
+        let registered: serde_json::Value = serde_json::from_slice(&requests[1].body)?;
+        assert!(registered["input"].to_string().contains("예약 #1 등록"));
+        let listed: serde_json::Value = serde_json::from_slice(&requests[3].body)?;
+        assert!(listed["input"].to_string().contains("#1 thread="));
+        app.cron.stop();
+        session.shutdown().await?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn cron_a_survives_plain_b_navigation_and_preserves_b_draft() -> color_eyre::Result<()> {
         use app_test_support::{

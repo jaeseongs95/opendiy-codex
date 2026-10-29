@@ -1,12 +1,14 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `3a03cbdadf186d74af73fcc5825afc25d3d85f39`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `4d8cf7c1eba5fb80006590464b9970ef239a42d5`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
-`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 357 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
+`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 362 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
 The changes cover MCP request cancellation and process ownership/cleanup, configuration and reload boundaries, capacity retry/trace ownership, background terminal startup yielding, cache observation, scheduled TUI work, terminal controls and related regression tests. `tools/windows-cli` contains packaging source and its disposable test fixture. This is a source export, not an installable desktop release or a claim that live-app latency, resource growth or all regressions are resolved.
 
-The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 357-file modification/provenance list.
+예약 도구 연결은 위 고정 커밋의 검증 중인 소스 후보입니다. 기존 R28 실행 파일에 설치되지 않았으며, 실제 모델이 자연어 요청에서 도구를 선택하는 평가는 실행하지 않았습니다. 기존 예약 실행기를 재사용하고 취소·중복 전달 경계를 보강하는 변경과 사용 안내는 [CLI 예약 실행](docs/native-cli-cron.ko.md)에 정리했습니다. 후속 검증과 수정 전에는 설치·배포 완료로 해석하면 안 됩니다.
+
+The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 362-file modification/provenance list.
 
 Modified Rust, TOML/lock, Python and tool configuration files carry a dated OpenDIY modification comment. Markdown notices are limited to documentation under `docs/`; runtime prompt templates keep their exact source bytes. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
 
@@ -426,7 +428,7 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
 - `docs/native-cli-r27.ko.md`
 
-소스 갱신 `3a03cbdadf186d74af73fcc5825afc25d3d85f39` (통합 진행 중):
+소스 갱신 `4d8cf7c1eba5fb80006590464b9970ef239a42d5` (통합 진행 중):
 
 - `codex-rs/diagnostics/Cargo.toml`
 - `codex-rs/diagnostics/src/batch_log.rs`

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Task-management tools hosted by a TUI connected to an external app server.
 
 use crate::app_event::AppEvent;
@@ -257,6 +258,14 @@ pub(crate) fn tool_specs() -> Vec<DynamicToolSpec> {
                     defer_loading: true,
                 })
             })
+            .chain(
+                crate::cron_tools::specs()
+                    .into_iter()
+                    .flat_map(|spec| match spec {
+                        DynamicToolSpec::Namespace(namespace) => namespace.tools,
+                        DynamicToolSpec::Function(_) => unreachable!(),
+                    }),
+            )
             .collect(),
     })]
 }

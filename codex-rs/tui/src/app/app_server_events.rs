@@ -97,6 +97,15 @@ impl App {
         app_server_client: &AppServerSession,
         event: AppServerEvent,
     ) {
+        if matches!(
+            &event,
+            AppServerEvent::Lagged { .. } | AppServerEvent::Disconnected { .. }
+        ) {
+            app_server_client
+                .cron_tool_connection()
+                .live
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
         match event {
             AppServerEvent::Lagged { skipped } => {
                 tracing::warn!(
@@ -300,6 +309,13 @@ impl App {
         }
         match &notification {
             ServerNotification::ServerRequestResolved(notification) => {
+                if let Some((_, cancellation, task)) = self.cron.tool_tasks.remove(&(
+                    app_server_client.backend_id(),
+                    notification.request_id.clone(),
+                )) {
+                    cancellation.cancel();
+                    task.abort();
+                }
                 if let Some((_, task)) = self.dynamic_tool_tasks.remove(&notification.request_id) {
                     task.abort();
                 }
@@ -623,6 +639,64 @@ impl App {
             return;
         }
         if let ServerRequest::DynamicToolCall { request_id, params } = &request {
+            if params.namespace.as_deref() == Some(crate::dynamic_tools::NAMESPACE)
+                && params.tool == crate::cron_tools::NAME
+                && !matches!(
+                    app_server_client.thread_tool_transport(),
+                    crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(_)
+                )
+            {
+                let key = (app_server_client.backend_id(), request_id.clone());
+                self.cron
+                    .tool_tasks
+                    .retain(|_, (_, _, task)| !task.is_finished());
+                if self.cron.tool_tasks.contains_key(&key) {
+                    return;
+                }
+                let Ok(source) = ThreadId::from_string(&params.thread_id) else {
+                    let response = crate::dynamic_tools::failure_response(
+                        "호출 대화 식별자가 올바르지 않습니다.",
+                    );
+                    match serde_json::to_value(response) {
+                        Ok(result) => {
+                            if let Err(error) = buffered_request.reply.resolve(result).await {
+                                tracing::warn!(%error, "잘못된 예약 도구 호출의 응답 전송 실패");
+                            }
+                        }
+                        Err(error) => tracing::warn!(%error, "예약 도구 오류 응답 직렬화 실패"),
+                    }
+                    return;
+                };
+                let connection = app_server_client.cron_tool_connection();
+                let handle = app_server_client.request_handle();
+                let events = self.app_event_tx.clone();
+                let params = params.clone();
+                let reply = buffered_request.reply.clone();
+                let cancellation = tokio_util::sync::CancellationToken::new();
+                let task_cancellation = cancellation.clone();
+                let task = tokio::spawn(async move {
+                    let response = crate::cron_tools::execute(
+                        connection,
+                        handle,
+                        params,
+                        &events,
+                        task_cancellation,
+                    )
+                    .await;
+                    match serde_json::to_value(response) {
+                        Ok(result) => {
+                            if let Err(error) = reply.resolve(result).await {
+                                tracing::warn!(%error, "예약 도구 응답 결과 미확인: 재전송하지 않음");
+                            }
+                        }
+                        Err(error) => tracing::warn!(%error, "예약 도구 응답 직렬화 실패"),
+                    }
+                });
+                self.cron
+                    .tool_tasks
+                    .insert(key, (source, cancellation, task));
+                return;
+            }
             if self.dynamic_tool_tasks.contains_key(request_id)
                 || (params.namespace.as_deref() != Some(crate::dynamic_tools::NAMESPACE)
                     && !app_server_client.uses_embedded_app_server())

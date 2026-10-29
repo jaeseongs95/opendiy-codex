@@ -257,11 +257,23 @@ pub(crate) async fn request_thread_start_with_history_fallback(
             .await
         {
             Ok(response) => {
-                let task_tools_available = params.dynamic_tools.is_some()
-                    || params
-                        .config
-                        .as_ref()
-                        .is_some_and(|config| config.contains_key("mcp_servers.codex_tui"));
+                let task_tools_available = params.dynamic_tools.as_ref().is_some_and(|specs| {
+                    specs.iter().any(|spec| match spec {
+                        codex_app_server_protocol::DynamicToolSpec::Namespace(namespace) => {
+                            namespace.tools.iter().any(|tool| match tool {
+                                codex_app_server_protocol::DynamicToolNamespaceTool::Function(
+                                    function,
+                                ) => function.name != crate::cron_tools::NAME,
+                            })
+                        }
+                        codex_app_server_protocol::DynamicToolSpec::Function(function) => {
+                            function.name != crate::cron_tools::NAME
+                        }
+                    })
+                }) || params
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| config.contains_key("mcp_servers.codex_tui"));
                 return Ok((response, history_support, task_tools_available));
             }
             Err(TypedRequestError::Server { source, .. })
@@ -327,6 +339,8 @@ pub(crate) struct AppServerBootstrap {
 
 pub(crate) struct AppServerSession {
     backend_id: crate::backend_id::BackendId,
+    connection_id: uuid::Uuid,
+    connection_live: Arc<std::sync::atomic::AtomicBool>,
     client: AppServerClient,
     next_request_id: i64,
     history_pagination: HashMap<ThreadId, history::ThreadHistoryPagination>,
@@ -451,6 +465,8 @@ impl AppServerSession {
     ) -> Self {
         Self {
             backend_id,
+            connection_id: uuid::Uuid::new_v4(),
+            connection_live: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             client,
             next_request_id: 1,
             history_pagination: HashMap::new(),
@@ -474,6 +490,14 @@ impl AppServerSession {
 
     pub(crate) fn backend_id(&self) -> crate::backend_id::BackendId {
         self.backend_id
+    }
+
+    pub(crate) fn cron_tool_connection(&self) -> crate::cron_tools::Connection {
+        crate::cron_tools::Connection {
+            backend: self.backend_id,
+            id: self.connection_id,
+            live: Arc::clone(&self.connection_live),
+        }
     }
 
     pub(crate) async fn start_dynamic_tool_mcp(
@@ -521,6 +545,7 @@ impl AppServerSession {
         };
         let services = crate::dynamic_tools_mcp::ToolServices {
             task_tools: !self.uses_embedded_app_server(),
+            cron: Some(self.cron_tool_connection()),
             worktrees,
         };
         if !services.task_tools && services.worktrees.is_none() {
@@ -587,7 +612,7 @@ impl AppServerSession {
         if let Some(server) = self.dynamic_tool_mcp.as_ref() {
             ThreadToolTransport::Mcp(Arc::clone(server))
         } else if self.uses_embedded_app_server() {
-            ThreadToolTransport::Disabled
+            ThreadToolTransport::CronOnly
         } else {
             ThreadToolTransport::Dynamic
         }
