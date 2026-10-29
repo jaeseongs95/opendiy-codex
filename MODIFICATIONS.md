@@ -1,6 +1,6 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `7042429bd55d1a8a193d1a9e0f275d1127015a78`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `67404f486047863ff7e56d7f47f4c350a872b483`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
 `upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 371 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
@@ -478,7 +478,7 @@ MCP 회귀 요청에는 필수 `io.modelcontextprotocol/protocolVersion`·`io.mo
 
 ## 빈 미저장 대화 이력 복원 후속 후보 — 2026-10-30
 
-새 고정 소스 `7042429bd55d1a8a193d1a9e0f275d1127015a78`는 `004c9113ff02c292998f1fa03355afe3dfe6d404` 이후 시험 3파일만 보강한 후보다. 제품 코드는 동일하다. 직전 `4f`의 화면·계약 시험은 통과했지만 전체 TUI 시험에서 1개가 실패했으며 시험 안내에 기록했다. 직전 `92d`의 06 TUI 컴파일은 시험 준비 호출의 `anyhow::Error`를 `eyre`로 자동 변환하지 못한 `E0277`로 종료 코드 101이었고 실행시험·일반 실행 파일 빌드는 미실행이다. 이번 `704`는 그 호출 한 곳을 인접 시험과 같은 명시적 준비 실패 `expect`로 바꿨다. 07 영향 시험 컴파일과 일반 개발 빌드는 진행 중이며 실행 통과·독립감사 08 승인은 미확인이다. 이전 `9766` 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다.
+새 고정 소스 `67404f486047863ff7e56d7f47f4c350a872b483`는 `004c9113ff02c292998f1fa03355afe3dfe6d404` 이후 시험 3파일만 보강한 후보다. 제품 코드는 동일하다. 직전 `4f`의 화면·계약 시험은 통과했지만 전체 TUI 시험에서 1개가 실패했으며 시험 안내에 기록했다. 직전 `92d`의 06 TUI 컴파일은 시험 준비 호출의 `anyhow::Error`를 `eyre`로 자동 변환하지 못한 `E0277`로 종료 코드 101이었고 실행시험·일반 실행 파일 빌드는 미실행이다. `704`는 그 호출 한 곳을 인접 시험과 같은 명시적 준비 실패 `expect`로 바꿨다. `704`의 07 시험 컴파일은 통과했지만 대화 선택 시험은 1개 통과·2개 실패였고 일반 개발 빌드는 미실행이다. 이번 `674`는 설정 변경 알림과 `includeTurns=false` 생략 계약을 시험에 반영한 수정이다. 08은 일반 개발 CLI 빌드 → TUI 시험 컴파일 → 영향 시험 순서로 진행 중이며 실행 결과·독립감사 08은 미완료다. 이전 `9766` 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다.
 
 서버는 같은 로컬 작성자가 실제로 로드돼 있고 영속 파일 생성을 미룬 상태인 초기 이력 조회의 `-32600` 오류에만 `kind=historyProjectionUnavailable`, `reason=unmaterialized` 표식을 더한다. 기존 코드·메시지는 유지하며 삭제된 저장 이력, 커서·고정점 요청과 다른 오류에 이 예외를 넓히지 않도록 작성했다.
 

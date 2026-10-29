@@ -3070,11 +3070,17 @@ fn attach_live_thread_for_selection_attaches_empty_live_non_ephemeral_threads() 
         );
         assert_eq!(session.rollout_path, started.session.rollout_path);
         assert!(app_server.has_incomplete_history(thread_id));
+        let next_effort = if started.session.reasoning_effort == Some(ReasoningEffortConfig::High) {
+            ReasoningEffortConfig::Low
+        } else {
+            ReasoningEffortConfig::High
+        };
+        assert_ne!(Some(next_effort.clone()), started.session.reasoning_effort);
         assert!(
             app_server
                 .thread_settings_update(codex_app_server_protocol::ThreadSettingsUpdateParams {
                     thread_id: thread_id.to_string(),
-                    model: Some(started.session.model.clone()),
+                    effort: Some(next_effort.clone()),
                     ..Default::default()
                 })
                 .await?
@@ -3082,6 +3088,7 @@ fn attach_live_thread_for_selection_attaches_empty_live_non_ephemeral_threads() 
         let updated = next_thread_settings_updated(&mut app_server, thread_id).await;
         assert_eq!(updated.thread_id, thread_id.to_string());
         assert_eq!(updated.thread_settings.model, started.session.model);
+        assert_eq!(updated.thread_settings.effort, Some(next_effort));
         assert_eq!(app_server.backend_id(), backend_id);
         let after = app_server.thread_read(thread_id, false).await?;
         assert_eq!(after.id, original.id);
@@ -3166,8 +3173,14 @@ fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads
             4,
             "both explicit checks and fallback reads must run"
         );
-        assert_eq!(reads[2]["includeTurns"], false);
-        assert_eq!(reads[3]["includeTurns"], true);
+        let metadata_read: codex_app_server_protocol::ThreadReadParams =
+            serde_json::from_value(reads[2].clone())?;
+        let history_read: codex_app_server_protocol::ThreadReadParams =
+            serde_json::from_value(reads[3].clone())?;
+        assert_eq!(metadata_read.thread_id, id);
+        assert!(!metadata_read.include_turns);
+        assert_eq!(history_read.thread_id, id);
+        assert!(history_read.include_turns);
         app_server.shutdown().await?;
         proxy.await??;
         Ok(())
