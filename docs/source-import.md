@@ -1,10 +1,10 @@
 # Official 0.165.0 source snapshot
 
-The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `004c9113ff02c292998f1fa03355afe3dfe6d404`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
 
 이번 고정 소스에는 [자연어 예약 도구 연결과 사용 안내](native-cli-cron.ko.md)가 포함됩니다. 이 변경은 기존 R28 실행 파일에 설치되지 않았고 검증 중입니다. 실제 모델의 자연어 일정 해석과 도구 선택 평가는 실행하지 않았습니다. 아래 R28 빌드·시험 기록은 이전 소스의 결과이며 이 후속 후보의 통과 근거가 아닙니다.
 
-새 고정 소스 `004c9113ff02c292998f1fa03355afe3dfe6d404`는 이전 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 이후 제품 6파일·시험 4파일의 후속 변경이다. 표적 컴파일·실행시험·전체 TUI 시험·일반 개발 실행 파일 검증은 진행 중이며, 이번 후보의 실행 통과나 독립감사 08 승인은 아직 확인하지 않았다. 이전 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다. [후속 시험 방법과 범위](TESTING.md#빈-미저장-대화-이력-복원-후속-후보)를 참고한다.
+새 고정 소스 `4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b`는 `004c9113ff02c292998f1fa03355afe3dfe6d404`에서 `history_hydration_tests.rs` 한 파일만 보강한 후보다(150줄 추가·38줄 삭제). 제품 코드는 동일하다. 현재 TUI `--lib` 재컴파일 중이며 새 실행 통과나 독립감사 08 승인은 아직 없다. 이전 `9766` 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다. [후속 시험 방법과 범위](TESTING.md#빈-미저장-대화-이력-복원-후속-후보)를 참고한다.
 
 이전 자연어 예약 후보 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 건너뜀으로 종료 코드 101이었다. 실패 중 2개는 MCP 요청의 필수 메타데이터 누락으로 `a3edca405d1eddf138f549764459394603576804`에서 보강했다. 나머지 2개는 새 `cron` 노출을 빠뜨린 도구 목록·`deferLoading` 기대값으로 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`에서 보강했다.
 

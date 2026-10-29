@@ -1,6 +1,6 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `004c9113ff02c292998f1fa03355afe3dfe6d404`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
 `upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 371 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
@@ -478,7 +478,7 @@ MCP 회귀 요청에는 필수 `io.modelcontextprotocol/protocolVersion`·`io.mo
 
 ## 빈 미저장 대화 이력 복원 후속 후보 — 2026-10-30
 
-새 고정 소스 `004c9113ff02c292998f1fa03355afe3dfe6d404`는 이전 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 이후 제품 6파일·시험 4파일의 후속 변경이다. 표적 컴파일·실행시험·전체 TUI 시험·일반 개발 실행 파일 검증은 진행 중이며, 이번 후보의 실행 통과나 독립감사 08 승인은 아직 확인하지 않았다. 이전 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다.
+새 고정 소스 `4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b`는 `004c9113ff02c292998f1fa03355afe3dfe6d404`에서 `history_hydration_tests.rs` 한 파일만 보강한 후보다(150줄 추가·38줄 삭제). 제품 코드는 동일하다. 현재 TUI `--lib` 재컴파일 중이며 새 실행 통과나 독립감사 08 승인은 아직 없다. 이전 `9766` 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다.
 
 서버는 같은 로컬 작성자가 실제로 로드돼 있고 영속 파일 생성을 미룬 상태인 초기 이력 조회의 `-32600` 오류에만 `kind=historyProjectionUnavailable`, `reason=unmaterialized` 표식을 더한다. 기존 코드·메시지는 유지하며 삭제된 저장 이력, 커서·고정점 요청과 다른 오류에 이 예외를 넓히지 않도록 작성했다.
 

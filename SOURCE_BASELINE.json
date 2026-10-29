@@ -3,9 +3,9 @@
   "upstream": "https://github.com/openai/codex",
   "officialVersion": "0.165.0",
   "officialCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
-  "patchedCommit": "004c9113ff02c292998f1fa03355afe3dfe6d404",
+  "patchedCommit": "4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b",
   "officialTree": "307e4fa207fe563a11f3f7af09cee6fccd2d8376",
-  "patchedTree": "db70496b945d03a79ceff28093638d024457670c",
+  "patchedTree": "1b4c3a79a609c523fd14810302810b92711982f8",
   "selectedPrefixes": [
     "codex-rs",
     "third_party",
@@ -17,12 +17,12 @@
     "docs/native-cli-cron.ko.md"
   ],
   "patchPath": "upstream/official-0.165.0.patch",
-  "patchSha256": "d17ccc9f8df002e0359aab416281c1bbb7ba5db9e6b04cdc022aa8a5f51f2e37",
-  "sourceInventorySha256": "1043e5ee3c4dcd16e3caade3c00806122ed2aaa5b58d5b8642fd3483db5380f8",
+  "patchSha256": "fd5ad3e034c99c14c9d69597f4fd78f917b195dcd424cc067163922558ddf700",
+  "sourceInventorySha256": "f8fef9fd0397ac54b5f97ed074551c60a44fe0aabb38dce5ca87dd2e85602a93",
   "windowsPromptInputsPath": "upstream/windows-prompt-inputs.json",
-  "windowsPromptInputsSha256": "7c8e7edb92888706a4d8a06afb24554a29d9f613a2eb96cea99c5c503054c637",
+  "windowsPromptInputsSha256": "ce32bb905ef3fbca20cb329320c64b0101c7d342f0c5ab64c4727fd1a1d0892d",
   "sourceFileCount": 9128,
-  "publishedBytes": 89669701,
+  "publishedBytes": 89674740,
   "modifiedNoticeDate": "2026-10-29",
   "modifiedNoticeLabel": "R28",
   "modifiedFiles": [
@@ -2202,10 +2202,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/history_hydration_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "24db7886f8d0cab7360643520634a35f07ed563f",
-      "sourceSha256": "d5eae04983704c614ed5d1498403862f693cc3b5a70930b5933cb233d33c49b1",
-      "publishedSha256": "53a67a89bf1855b5ed01a3fa675125f1a5937c9faaf4c589b29a48a347df37de",
-      "bytes": 38052,
+      "gitBlob": "f2b8124cfc86bb37b79a8ec74dcfcf94079cf440",
+      "sourceSha256": "905b68fab5270845a4cf9d9e6fefd1aed0611a2ebfc67c2443a225c3c51aa084",
+      "publishedSha256": "f889e69ace2594f337014484f6140f78fbc643de530df029b35507b4a28aa46e",
+      "bytes": 43091,
       "modified": true,
       "noticeOnly": true
     },

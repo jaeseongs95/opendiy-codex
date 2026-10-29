@@ -715,8 +715,6 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
     use codex_app_server_protocol::ThreadHistoryMode;
     use codex_app_server_protocol::ThreadStartParams;
     use codex_app_server_protocol::ThreadStartResponse;
-    use codex_app_server_protocol::TurnStartParams;
-    use codex_app_server_protocol::TurnStartResponse;
     use codex_app_server_protocol::UserInput;
 
     for history_mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
@@ -731,6 +729,14 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             .await?;
         app.local_settings = crate::local_settings::LocalSettings::from(&app.config);
         app.local_settings.transcript_mode = TranscriptMode::Owned;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        tui.set_owned_screen(true)?;
+        let init = app.chatwidget_init_for_forked_or_resumed_thread(
+            &mut tui,
+            app.config.clone(),
+            /*initial_user_message*/ None,
+        );
+        app.replace_chat_widget(ChatWidget::new_with_app_event(init));
         let (mut server, requests, proxy) = start_recording_app_server_with_history(
             &app.config,
             HistoryCapabilities::ForwardLiveEvents,
@@ -781,8 +787,6 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
         app.clear_active_thread().await;
         app.enqueue_primary_thread_session(normal.session, normal.turns)
             .await?;
-        let mut tui = crate::tui::test_support::make_test_tui()?;
-        tui.set_owned_screen(true)?;
         let mut end_events = 0;
         while let Ok(event) = events.try_recv() {
             end_events += usize::from(matches!(event, AppEvent::EndInitialHistoryReplayBuffer));
@@ -838,45 +842,149 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             "Home must not invent a retry without a cursor"
         );
 
-        let request_id = server.next_request_id();
-        let turn: TurnStartResponse = server
-            .request_handle()
-            .request_typed(ClientRequest::TurnStart {
-                request_id,
-                params: TurnStartParams {
-                    thread_id: started.thread.id.clone(),
-                    input: vec![UserInput::Text {
-                        text: "First real input".to_string(),
-                        text_elements: Vec::new(),
-                    }],
-                    ..Default::default()
-                },
-            })
-            .await?;
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
-            loop {
-                let event = server.next_event().await.expect("live event stream remains connected");
-                let AppServerEvent::ServerNotification(notification) = event.event
-                else { continue; };
-                let completed = matches!(notification.as_ref(), ServerNotification::TurnCompleted(event)
-                    if event.thread_id == started.thread.id && event.turn.id == turn.turn.id);
-                if matches!(notification.as_ref(), ServerNotification::TurnStarted(_)
-                    | ServerNotification::ItemStarted(_) | ServerNotification::ItemCompleted(_)
-                    | ServerNotification::TurnCompleted(_)) {
-                    app.enqueue_thread_notification(thread_id, *notification).await?;
-                }
-                if completed { break Ok::<_, color_eyre::Report>(()); }
-            }
-        }).await??;
-        assert!(
-            app.thread_event_channels[&thread_id]
-                .store
-                .lock()
-                .await
-                .turns
-                .iter()
-                .any(|stored| stored.id == turn.turn.id)
+        let approval_policy = app.config.permissions.approval_policy.value();
+        let permission_profile = app.config.permissions.permission_profile().clone();
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            crate::tui::TuiEvent::Paste("First real input".to_string()),
+        )
+        .await?;
+        assert_eq!(
+            app.chat_widget.composer_text_with_pending(),
+            "First real input"
         );
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            crate::tui::TuiEvent::Key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Enter,
+            )),
+        )
+        .await?;
+        let mut submitted_user_turns = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(&event, AppEvent::CodexOp(AppCommand::UserTurn { .. })) {
+                submitted_user_turns += 1;
+            }
+            app.handle_event(&mut tui, &mut server, event).await?;
+        }
+        assert_eq!(
+            submitted_user_turns, 1,
+            "Enter submits through the app queue once"
+        );
+        assert_eq!(
+            app.config.permissions.approval_policy.value(),
+            approval_policy
+        );
+        assert_eq!(
+            app.config.permissions.permission_profile(),
+            &permission_profile
+        );
+        let turn_id = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut started_turn_id = None;
+            loop {
+                let event = server
+                    .next_event()
+                    .await
+                    .expect("live event stream remains connected");
+                let AppServerEvent::ServerNotification(notification) = event.event else {
+                    continue;
+                };
+                let (notified_thread_id, notified_turn_id) = match notification.as_ref() {
+                    ServerNotification::TurnStarted(event) => (&event.thread_id, &event.turn.id),
+                    ServerNotification::TurnCompleted(event) => (&event.thread_id, &event.turn.id),
+                    ServerNotification::ItemStarted(event) => (&event.thread_id, &event.turn_id),
+                    ServerNotification::ItemCompleted(event) => (&event.thread_id, &event.turn_id),
+                    _ => continue,
+                };
+                if notified_thread_id != &started.thread.id {
+                    continue;
+                }
+                if matches!(notification.as_ref(), ServerNotification::TurnStarted(_)) {
+                    assert!(
+                        started_turn_id.replace(notified_turn_id.clone()).is_none(),
+                        "one submitted input starts one turn"
+                    );
+                }
+                let turn_id = started_turn_id
+                    .as_ref()
+                    .expect("turn starts before its items or completion");
+                assert_eq!(notified_turn_id, turn_id);
+                let completed =
+                    matches!(notification.as_ref(), ServerNotification::TurnCompleted(_));
+                let turn_id = turn_id.clone();
+                app.enqueue_thread_notification(thread_id, *notification)
+                    .await?;
+                if completed {
+                    break Ok::<_, color_eyre::Report>(turn_id);
+                }
+            }
+        })
+        .await??;
+        let snapshot = app.thread_event_channels[&thread_id]
+            .store
+            .lock()
+            .await
+            .snapshot();
+        assert!(
+            snapshot.turns.is_empty(),
+            "live events do not rewrite the hydration snapshot"
+        );
+        assert!(snapshot.events.iter().any(
+            |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::TurnStarted(event)
+                    if event.thread_id == started.thread.id && event.turn.id == turn_id))
+        ));
+        assert!(snapshot.events.iter().any(
+            |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::TurnCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn.id == turn_id
+                        && event.turn.status == codex_app_server_protocol::TurnStatus::Completed))
+        ));
+        assert_eq!(snapshot.events.iter().filter(|event|
+            matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn_id == turn_id
+                        && matches!(&event.item, ThreadItem::UserMessage { content, .. }
+                            if content.iter().any(|input| matches!(input, UserInput::Text { text, .. }
+                                if text == "First real input")))))).count(), 1);
+        assert_eq!(
+            snapshot
+                .events
+                .iter()
+                .filter(
+                    |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn_id == turn_id
+                        && matches!(&event.item, ThreadItem::AgentMessage { text, .. }
+                            if text == "Done")))
+                )
+                .count(),
+            1
+        );
+
+        // Use the main loop's existing drain path: active receiver -> ChatWidget -> app queue.
+        while app
+            .active_thread_rx
+            .as_ref()
+            .is_some_and(|rx| !rx.is_empty())
+        {
+            app.drain_active_thread_events(&mut tui).await?;
+            while let Ok(event) = events.try_recv() {
+                app.handle_event(&mut tui, &mut server, event).await?;
+            }
+        }
+        assert_eq!(app.chat_widget.last_turn_id(), Some(turn_id.as_str()));
+        let displayed = app
+            .transcript_cells
+            .iter()
+            .map(|cell| lines_to_single_string(&cell.transcript_lines(1000)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(displayed.matches("First real input").count(), 1);
+        assert_eq!(displayed.matches("Done").count(), 1);
+
         assert!(
             server.has_incomplete_history(thread_id),
             "live events do not prove earlier history complete"
@@ -887,7 +995,11 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             server.thread_read(thread_id, false).await?.session_id,
             started.thread.session_id
         );
-        assert_eq!(recorded_params(&requests, "turn/start").len(), 1);
+        let submitted = recorded_params(&requests, "turn/start");
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(submitted[0]["threadId"], started.thread.id);
+        assert_eq!(submitted[0]["input"][0]["text"], "First real input");
+        assert_eq!(model.received_requests().await.unwrap().len(), 1);
 
         // Explicit successful hydration can clear the marker; there is no automatic retry.
         let rehydrated = server
