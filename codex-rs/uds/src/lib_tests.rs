@@ -87,11 +87,9 @@ async fn socket_validation_rejects_broad_acl_without_repairing_it() {
     let before = inspect(
         r#"
 $ErrorActionPreference = 'Stop'
-$acl = Get-Acl -LiteralPath $env:CODEX_TEST_DIRECTORY
-$everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-$acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $env:CODEX_TEST_DIRECTORY -AclObject $acl
+# Change only this temporary directory's DACL; Set-Acl also requests audit privileges.
+& "$env:SystemRoot\System32\icacls.exe" $env:CODEX_TEST_DIRECTORY /grant '*S-1-1-0:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "icacls failed: $LASTEXITCODE" }
 (Get-Acl -LiteralPath $env:CODEX_TEST_DIRECTORY).Sddl
 "#,
     );

@@ -513,6 +513,7 @@ async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
     history_mode: ThreadHistoryMode,
 ) -> Result<()> {
     use super::connection_handling_websocket as websocket;
+    use codex_app_server_protocol::JSONRPCMessage;
     use futures::SinkExt;
 
     let server = create_mock_responses_server_repeating_assistant("Done").await;
@@ -575,11 +576,22 @@ async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
         })?),
     )
     .await?;
-    let resumed: ThreadResumeResponse =
-        to_response(websocket::read_response_for_id(&mut joining, 4).await?)?;
+    let resumed: ThreadResumeResponse = loop {
+        match websocket::read_jsonrpc_message(&mut joining).await? {
+            JSONRPCMessage::Response(response) if response.id == RequestId::Integer(4) => {
+                break to_response(response)?;
+            }
+            JSONRPCMessage::Error(error) if error.id == RequestId::Integer(4) => {
+                anyhow::bail!("unexpected thread/resume error: {error:?}");
+            }
+            _ => {}
+        }
+    };
     assert_eq!(resumed.thread.id, started.thread.id);
     assert_eq!(resumed.thread.session_id, started.thread.session_id);
     assert_eq!(resumed.thread.history_mode, history_mode);
+    assert_eq!(resumed.turns_backwards_cursor, None);
+    assert_eq!(resumed.items_backwards_cursor, None);
     assert_eq!(resumed.thread.path, started.thread.path);
     assert_eq!(resumed.thread.can_accept_direct_input, Some(true));
     assert_eq!(resumed.thread.status, ThreadStatus::Idle);
@@ -652,17 +664,11 @@ async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
 #[test_case(true; "with sqlite metadata")]
 #[tokio::test]
 async fn thread_resume_metadata_preserves_deleted_rollout_contract(
-    sqlite_enabled: bool,
+    stored_metadata_present: bool,
 ) -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
-    let config = mock_responses_config(&server.uri());
-    let config = if sqlite_enabled {
-        config.enable_feature(Feature::Sqlite)
-    } else {
-        config.disable_feature(Feature::Sqlite)
-    };
-    config.write(codex_home.path())?;
+    mock_responses_config(&server.uri()).write(codex_home.path())?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized()
@@ -684,32 +690,35 @@ async fn thread_resume_metadata_preserves_deleted_rollout_contract(
     .await?;
     let path = started.thread.path.as_ref().expect("local rollout path");
     assert!(path.exists());
-    if sqlite_enabled {
-        let state_db = StateRuntime::init(
-            codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
-            "mock_provider".into(),
-        )
-        .await?;
-        let thread_id = ThreadId::from_string(&started.thread.id)?;
-        // Wait for the real backing record before deleting JSONL. A live thread/read
-        // snapshot alone cannot prove that the metadata-only stored source exists.
-        let metadata = timeout(DEFAULT_READ_TIMEOUT, async {
-            loop {
-                if let Some(metadata) = state_db.get_thread(thread_id).await? {
-                    break Ok::<_, anyhow::Error>(metadata);
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+    let state_db = StateRuntime::init(
+        codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
+        "mock_provider".into(),
+    )
+    .await?;
+    let thread_id = ThreadId::from_string(&started.thread.id)?;
+    // Wait for the real backing record before deleting JSONL. A live thread/read
+    // snapshot alone cannot prove that the metadata-only stored source exists.
+    let metadata = timeout(DEFAULT_READ_TIMEOUT, async {
+        loop {
+            if let Some(metadata) = state_db.get_thread(thread_id).await? {
+                break Ok::<_, anyhow::Error>(metadata);
             }
-        })
-        .await??;
-        assert_eq!(metadata.id, thread_id);
-        assert_eq!(&metadata.rollout_path, path);
-        assert_eq!(
-            metadata.history_mode,
-            codex_protocol::protocol::ThreadHistoryMode::Legacy
-        );
-    }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    assert_eq!(metadata.id, thread_id);
+    assert_eq!(&metadata.rollout_path, path);
+    assert_eq!(
+        metadata.history_mode,
+        codex_protocol::protocol::ThreadHistoryMode::Legacy
+    );
     std::fs::remove_file(path)?;
+    if !stored_metadata_present {
+        // SQLite is always initialized; its removed feature flag cannot create this case.
+        assert_eq!(state_db.delete_thread(thread_id).await?, 1);
+        assert!(state_db.get_thread(thread_id).await?.is_none());
+    }
     let request = mcp
         .send_thread_resume_request(ThreadResumeParams {
             thread_id: started.thread.id.clone(),
@@ -717,7 +726,7 @@ async fn thread_resume_metadata_preserves_deleted_rollout_contract(
             ..Default::default()
         })
         .await?;
-    if sqlite_enabled {
+    if stored_metadata_present {
         let resumed: ThreadResumeResponse =
             timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request)).await??;
         assert_eq!(resumed.thread.id, started.thread.id);

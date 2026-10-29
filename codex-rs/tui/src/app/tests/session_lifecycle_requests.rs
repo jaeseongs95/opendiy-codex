@@ -1322,9 +1322,17 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
         );
         for tool in tools {
             let name = tool["name"].as_str().unwrap();
-            // Cron must be visible without a tool search so ordinary scheduling
-            // requests can select it. Existing non-delegation tools stay deferred.
-            assert_eq!(tool["deferLoading"], name != crate::cron_tools::NAME);
+            // The protocol omits false on serialization and defaults it on read.
+            // Cron stays visible; existing non-delegation tools stay deferred.
+            assert_eq!(
+                tool.get("deferLoading"),
+                (name != crate::cron_tools::NAME).then_some(&serde_json::Value::Bool(true))
+            );
+            let codex_app_server_protocol::DynamicToolNamespaceTool::Function(function) =
+                serde_json::from_value::<codex_app_server_protocol::DynamicToolNamespaceTool>(
+                    tool.clone(),
+                )?;
+            assert_eq!(function.defer_loading, name != crate::cron_tools::NAME);
             assert!(!crate::dynamic_tools::DELEGATION_TOOLS.contains(&name));
         }
     }
