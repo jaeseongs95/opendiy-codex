@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Exercises overload deadlines and automatic reconnect backoff over real connections.
 //! Auth reloads must respect the deadline; shutdown must remain prompt.
 

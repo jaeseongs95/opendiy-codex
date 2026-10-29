@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Owns the current login's relay session and the process-facing handle.
 //! Replacement happens before cleanup; retired sessions cannot publish into their replacements.
 

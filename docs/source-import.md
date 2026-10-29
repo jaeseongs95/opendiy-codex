@@ -1,6 +1,8 @@
 # Official 0.165.0 source snapshot
 
-The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `d811aec5a3b7f1a3d35a4c5f1fa38beba1ee0951`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `25424cfcd098b7eac8946eb6f6779a11d3492df3`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+
+이번 고정 커밋은 예약 기능 후보 `d811aec5a3b7f1a3d35a4c5f1fa38beba1ee0951`에 원격 등록 격리 시험 소스 `64eddac48043abbb8defeb39fbcfd4b0301b7341`의 8개 Git 원문을 합친 별도 통합 소스입니다. 기존 exporter로 전체 소스·패치·재고를 함께 재수출했습니다. 런타임 시험의 기초 소스와 공개 통합 트리는 서로 다르며, 공개 통합 트리 전체 빌드와 실행은 아직 검증하지 않았습니다. [원격 등록 검증 정보](desktop-remote-control-evidence.json)에 두 소스와 파일 해시의 관계를 기록했습니다.
 
 이번 고정 소스에는 [자연어 예약 도구 연결과 사용 안내](native-cli-cron.ko.md)가 포함됩니다. 이 변경은 기존 R28 실행 파일에 설치되지 않았고 검증 중입니다. 실제 모델의 자연어 일정 해석과 도구 선택 평가는 실행하지 않았습니다. 아래 R28 빌드·시험 기록은 이전 소스의 결과이며 이 후속 후보의 통과 근거가 아닙니다.
 

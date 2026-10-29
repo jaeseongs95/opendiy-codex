@@ -19076,11 +19076,92 @@ index 38b00228a..eb810b73a 100644
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
  #[serde(rename_all = "camelCase")]
  #[ts(export_to = "v2/")]
+diff --git a/codex-rs/app-server-transport/Cargo.toml b/codex-rs/app-server-transport/Cargo.toml
+index 95967581f..e9ba4f51f 100644
+--- a/codex-rs/app-server-transport/Cargo.toml
++++ b/codex-rs/app-server-transport/Cargo.toml
+@@ -52,7 +52,7 @@ tokio-tungstenite = { workspace = true }
+ tokio-util = { workspace = true }
+ tracing = { workspace = true, features = ["log"] }
+ url = { workspace = true }
+-uuid = { workspace = true, features = ["serde", "v7"] }
++uuid = { workspace = true, features = ["serde", "v5", "v7"] }
+ zstd = { workspace = true }
+ 
+ [target.'cfg(unix)'.dependencies]
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/controller.rs b/codex-rs/app-server-transport/src/transport/remote_control/controller.rs
+index e7fb3c309..cfb4a43aa 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/controller.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/controller.rs
+@@ -263,7 +263,7 @@ impl RemoteControlHandle {
+ }
+ 
+ pub async fn start_remote_control(
+-    config: RemoteControlStartConfig,
++    mut config: RemoteControlStartConfig,
+     state_db: Option<Arc<StateRuntime>>,
+     auth_manager: Arc<AuthManager>,
+     transport_event_tx: mpsc::Sender<TransportEvent>,
+@@ -271,6 +271,22 @@ pub async fn start_remote_control(
+     app_server_client_name_rx: Option<oneshot::Receiver<String>>,
+     startup_mode: RemoteControlStartupMode,
+ ) -> io::Result<(JoinHandle<()>, RemoteControlHandle)> {
++    // Seed the key before exposing a session: an early RPC must never select another namespace.
++    let client_name = config.client_name.clone();
++    if let Some(name) = client_name.as_deref() {
++        // Keep relay identity stable for this namespace without changing the host installation ID.
++        config.installation_id = uuid::Uuid::new_v5(
++            &uuid::Uuid::NAMESPACE_OID,
++            format!("remote-control-client\0{}\0{name}", config.installation_id).as_bytes(),
++        )
++        .to_string();
++    }
++    let app_server_client_name_rx = if client_name.is_some() {
++        None
++    } else {
++        app_server_client_name_rx
++    };
++    let requires_client_name = client_name.is_some() || app_server_client_name_rx.is_some();
+     let startup =
+         if config.policy == RemoteControlPolicy::DisabledByRequirements || state_db.is_none() {
+             RemoteControlDesiredState::Disabled
+@@ -302,8 +318,8 @@ pub async fn start_remote_control(
+         current: StdMutex::new(None),
+         startup,
+         persistence: RemoteControlPersistence::default(),
+-        client_name: watch::channel(None).0,
+-        requires_client_name: app_server_client_name_rx.is_some(),
++        client_name: watch::channel(client_name).0,
++        requires_client_name,
+         status,
+         session_changed: watch::channel(()).0,
+     });
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/mod.rs b/codex-rs/app-server-transport/src/transport/remote_control/mod.rs
+index f08a694d9..88314a5d2 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/mod.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/mod.rs
+@@ -67,6 +67,8 @@ pub struct RemoteControlStartConfig {
+     pub remote_control_url: String,
+     pub installation_id: String,
+     pub policy: RemoteControlPolicy,
++    /// Explicit process namespace; takes precedence over transport client identification.
++    pub client_name: Option<String>,
+ }
+ 
+ #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 diff --git a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
-index 8cd8793bd..e5daeae39 100644
+index 8cd8793bd..4df35b8ba 100644
 --- a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
 +++ b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
-@@ -301,6 +301,12 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
+@@ -287,6 +287,7 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
+ 
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url: TEST_REMOTE_CONTROL_URL.to_string(),
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -301,6 +302,12 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
      .await
      .expect("remote control should start disabled");
  
@@ -19093,7 +19174,7 @@ index 8cd8793bd..e5daeae39 100644
      assert_eq!(
          remote_handle.status().status,
          RemoteControlConnectionStatus::Disabled
-@@ -314,11 +320,18 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
+@@ -314,11 +321,18 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
              )
              .await
              .expect("enrollment should load"),
@@ -19113,6 +19194,332 @@ index 8cd8793bd..e5daeae39 100644
  }
  
  #[tokio::test]
+@@ -349,6 +363,7 @@ async fn managed_disable_overrides_startup_and_persisted_enablement() {
+ 
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::DisabledByRequirements,
+@@ -800,6 +815,7 @@ async fn remote_control_transport_manages_virtual_clients_and_routes_messages()
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1096,6 +1112,7 @@ async fn remote_control_transport_reconnects_after_disconnect() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1199,6 +1216,7 @@ async fn remote_control_transport_refreshes_server_token_after_websocket_unautho
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1281,6 +1299,7 @@ async fn remote_control_start_allows_remote_control_invalid_url_when_disabled()
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, _remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url: "https://internal.example.com/backend-api/".to_string(),
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1324,6 +1343,7 @@ async fn remote_control_start_allows_missing_auth_when_enabled() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, _remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1360,6 +1380,7 @@ async fn remote_control_start_reports_missing_state_db_as_disabled_when_enabled(
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1420,6 +1441,7 @@ async fn remote_control_handle_enable_disable_stops_and_restarts_connections() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1540,6 +1562,7 @@ async fn remote_control_transport_clears_outgoing_buffer_when_backend_acks() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1726,6 +1749,7 @@ async fn remote_control_http_mode_enrolls_before_connecting() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -1990,6 +2014,7 @@ async fn remote_control_http_mode_refreshes_persisted_enrollment_before_connecti
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, _remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2074,6 +2099,161 @@ async fn remote_control_http_mode_refreshes_persisted_enrollment_before_connecti
+     let _ = remote_task.await;
+ }
+ 
++#[tokio::test]
++async fn explicit_client_names_isolate_enrollment_pairing_and_preference() {
++    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
++    let url = remote_control_url_for_listener(&listener);
++    let target = normalize_remote_control_url(&url).expect("target");
++    let home = TempDir::new().expect("home");
++    let state_db = remote_control_state_runtime(&home).await;
++    let original = RemoteControlEnrollmentRecord {
++        websocket_url: target.websocket_url.clone(),
++        account_id: "account_id".to_string(),
++        app_server_client_name: None,
++        server_id: "daemon-server".to_string(),
++        environment_id: "daemon-environment".to_string(),
++        server_name: "daemon".to_string(),
++        remote_control_enabled: Some(true),
++    };
++    state_db
++        .upsert_remote_control_enrollment(&original)
++        .await
++        .expect("seed daemon");
++    let mut installation_ids = Vec::new();
++    for (index, name) in ["session-a", "session-b", "session-a"]
++        .into_iter()
++        .enumerate()
++    {
++        let (events, _receiver) = mpsc::channel(CHANNEL_CAPACITY);
++        let shutdown = CancellationToken::new();
++        let (stdio_name_tx, stdio_name_rx) = oneshot::channel();
++        let (task, handle) = start_remote_control(
++            RemoteControlStartConfig {
++                client_name: Some(name.to_string()),
++                remote_control_url: url.clone(),
++                installation_id: TEST_INSTALLATION_ID.to_string(),
++                policy: RemoteControlPolicy::Allowed,
++            },
++            Some(state_db.clone()),
++            remote_control_auth_manager_with_home(&home),
++            events,
++            shutdown.clone(),
++            Some(stdio_name_rx),
++            RemoteControlStartupMode::ResolvePersisted,
++        )
++        .await
++        .expect("start");
++        // The namespace is fixed before any spawned task can run or an RPC supplies a name.
++        assert_eq!(
++            handle
++                .inner
++                .session()
++                .pairing_persistence_key(Some("rpc-client"))
++                .expect("key")
++                .as_deref(),
++            Some(name)
++        );
++        let _ = stdio_name_tx.send("stdio-client".to_string());
++        assert!(
++            !handle
++                .resolve_persisted_preference(None)
++                .await
++                .expect("isolated preference")
++        );
++        handle.enable_ephemeral().expect("ephemeral enable");
++        let installation_id = handle.status().installation_id;
++        assert_ne!(installation_id, TEST_INSTALLATION_ID);
++        assert_eq!(
++            uuid::Uuid::parse_str(&installation_id)
++                .expect("uuid")
++                .get_version_num(),
++            5
++        );
++        installation_ids.push(installation_id.clone());
++        let request = accept_http_request(&listener).await;
++        assert!(request.request_line.contains(if index < 2 {
++            "/server/enroll "
++        } else {
++            "/server/refresh "
++        }));
++        let body: serde_json::Value = serde_json::from_str(&request.body).expect("json");
++        assert_eq!(body["installation_id"], installation_id);
++        assert_eq!(
++            request.headers.get(REMOTE_CONTROL_INSTALLATION_ID_HEADER),
++            Some(&installation_id)
++        );
++        let server_id = format!("server-{name}");
++        let environment_id = format!("environment-{name}");
++        let token = format!("token-{name}");
++        respond_with_json(
++            request.stream,
++            remote_control_server_token_response(&server_id, &environment_id, &token),
++        )
++        .await;
++        let (handshake, _websocket) = accept_remote_control_backend_connection(&listener).await;
++        assert_eq!(handshake.headers.get("x-codex-server-id"), Some(&server_id));
++        assert_eq!(
++            handshake.headers.get("authorization"),
++            Some(&format!("Bearer {token}"))
++        );
++        let pairing_handle = handle.clone();
++        let pairing = tokio::spawn(async move {
++            pairing_handle
++                .start_pairing(
++                    RemoteControlPairingStartParams { manual_code: true },
++                    Some("rpc-client"),
++                )
++                .await
++        });
++        let request = accept_http_request(&listener).await;
++        assert!(request.request_line.contains("/server/pair "));
++        assert_eq!(
++            request.headers.get("authorization"),
++            Some(&format!("Bearer {token}"))
++        );
++        respond_with_json(
++            request.stream,
++            json!({
++                "pairing_code": "pairing-code", "manual_pairing_code": "ABCD-EFGH",
++                "server_id": server_id, "environment_id": environment_id,
++                "expires_at": "2099-01-01T00:00:00Z",
++            }),
++        )
++        .await;
++        assert_eq!(
++            pairing.await.expect("join").expect("pair").environment_id,
++            environment_id
++        );
++        handle.disable(Some("rpc-client")).await.expect("disable");
++        shutdown.cancel();
++        task.await.expect("shutdown");
++        let saved = state_db
++            .get_remote_control_enrollment(&target.websocket_url, "account_id", Some(name))
++            .await
++            .expect("read")
++            .expect("saved namespace survives shutdown");
++        assert_eq!(saved.server_id, server_id);
++        assert_eq!(saved.remote_control_enabled, Some(false));
++    }
++    assert_ne!(installation_ids[0], installation_ids[1]);
++    assert_eq!(installation_ids[0], installation_ids[2]);
++    let saved = state_db
++        .get_remote_control_enrollment(&target.websocket_url, "account_id", None)
++        .await
++        .expect("read")
++        .expect("daemon preserved");
++    assert_eq!(saved, original);
++    for other in ["rpc-client", "stdio-client"] {
++        assert!(
++            state_db
++                .get_remote_control_enrollment(&target.websocket_url, "account_id", Some(other))
++                .await
++                .expect("read")
++                .is_none()
++        );
++    }
++}
++
+ #[tokio::test]
+ async fn remote_control_stdio_mode_waits_for_client_name_before_connecting() {
+     let listener = TcpListener::bind("127.0.0.1:0")
+@@ -2112,6 +2292,7 @@ async fn remote_control_stdio_mode_waits_for_client_name_before_connecting() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, _remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2199,6 +2380,7 @@ async fn remote_control_waits_for_account_id_before_enrolling() {
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, _remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2306,6 +2488,7 @@ async fn persisted_enable_does_not_follow_auth_to_an_account_without_a_preferenc
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2427,6 +2610,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2552,6 +2736,7 @@ async fn remote_control_http_mode_reenrolls_after_explicit_missing_server_404()
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2693,6 +2878,7 @@ async fn remote_control_http_mode_preserves_stale_enrollment_when_reenrollment_f
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -2818,6 +3004,7 @@ async fn remote_control_http_mode_preserves_enrollment_after_generic_websocket_4
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url,
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+diff --git a/codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs
+index cd262f56f..903d712d7 100644
+--- a/codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs
++++ b/codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs
+@@ -49,6 +49,7 @@ async fn assert_overload_retry_after(status: &str, reject_enrollment: bool) {
+     auth_manager.reload().await;
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url: remote_control_url_for_listener(&listener),
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
+@@ -212,6 +213,7 @@ async fn reconnect_backoff_covers_refresh_and_resets_after_healthy_connection()
+     let shutdown_token = CancellationToken::new();
+     let (remote_task, remote_handle) = start_remote_control(
+         RemoteControlStartConfig {
++            client_name: None,
+             remote_control_url: remote_control_url_for_listener(&listener),
+             installation_id: TEST_INSTALLATION_ID.to_string(),
+             policy: RemoteControlPolicy::Allowed,
 diff --git a/codex-rs/app-server/src/config_manager_service.rs b/codex-rs/app-server/src/config_manager_service.rs
 index df807ba4b..2b932b331 100644
 --- a/codex-rs/app-server/src/config_manager_service.rs
@@ -19177,7 +19584,7 @@ index df807ba4b..2b932b331 100644
                      .all_layers_high_to_low()
                      .filter(|layer| {
 diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
-index ae5941119..4a57eceaa 100644
+index ae5941119..b5bcdd2f0 100644
 --- a/codex-rs/app-server/src/lib.rs
 +++ b/codex-rs/app-server/src/lib.rs
 @@ -130,6 +130,7 @@ pub mod in_process;
@@ -19188,7 +19595,35 @@ index ae5941119..4a57eceaa 100644
  mod mcp_refresh;
  mod message_processor;
  mod model_catalog;
-@@ -759,12 +760,16 @@ pub async fn run_main_with_transport_options(
+@@ -486,6 +487,8 @@ pub struct AppServerRuntimeOptions {
+     pub code_mode_host_transport: CodeModeHostTransport,
+     pub plugin_startup_tasks: PluginStartupTasks,
+     pub remote_control_startup_mode: RemoteControlStartupMode,
++    /// Process-owned persistence namespace, overriding transport client identification.
++    pub remote_control_client_name: Option<String>,
+     pub install_shutdown_signal_handler: bool,
+     pub managed_daemon: bool,
+ }
+@@ -497,6 +500,7 @@ impl Default for AppServerRuntimeOptions {
+             code_mode_host_transport: CodeModeHostTransport::Local,
+             plugin_startup_tasks: PluginStartupTasks::Start,
+             remote_control_startup_mode: RemoteControlStartupMode::ResolvePersisted,
++            remote_control_client_name: None,
+             install_shutdown_signal_handler: true,
+             managed_daemon: false,
+         }
+@@ -515,6 +519,10 @@ pub async fn run_main_with_transport_options(
+     auth: WebsocketAuthSettings,
+     runtime_options: AppServerRuntimeOptions,
+ ) -> IoResult<AppServerExit> {
++    if let Some(name) = runtime_options.remote_control_client_name.as_deref() {
++        parse_remote_control_client_name(name)
++            .map_err(|err| std::io::Error::new(ErrorKind::InvalidInput, err))?;
++    }
+     let cloud_skill_provider = match runtime_options.cloud_skills_snapshot {
+         Some(path) => {
+             let provider = tokio::task::spawn_blocking(move || {
+@@ -759,12 +767,16 @@ pub async fn run_main_with_transport_options(
          .clone()
          .map(|layer| layer.with_filter(log_db::default_filter()));
      let (otel_layers, otel_logger_reload_handle) = otel_reloader::layers(otel.as_ref());
@@ -19205,11 +19640,42 @@ index ae5941119..4a57eceaa 100644
          .try_init();
      #[cfg(unix)]
      if let Some(Err(err)) = nofile_limit_result {
+@@ -890,6 +902,7 @@ pub async fn run_main_with_transport_options(
+             remote_control_url: config.chatgpt_base_url.clone(),
+             installation_id: installation_id.clone(),
+             policy: remote_control_policy,
++            client_name: runtime_options.remote_control_client_name,
+         },
+         state_db.clone(),
+         auth_manager.clone(),
+@@ -1564,6 +1577,22 @@ fn loader_overrides_with_test_user_config_file(
+     Ok(loader_overrides)
+ }
+ 
++/// Parse an explicit remote-control persistence namespace without normalizing its identity.
++pub fn parse_remote_control_client_name(name: &str) -> Result<String, String> {
++    if name.is_empty()
++        || name.len() > 128
++        || !name
++            .bytes()
++            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
++    {
++        return Err(
++            "remote-control client name must be 1-128 ASCII letters, digits, '-', '_' or '.'"
++                .to_string(),
++        );
++    }
++    Ok(name.to_string())
++}
++
+ fn analytics_rpc_transport(transport: &AppServerTransport) -> AppServerRpcTransport {
+     match transport {
+         AppServerTransport::Stdio => AppServerRpcTransport::Stdio,
 diff --git a/codex-rs/app-server/src/main.rs b/codex-rs/app-server/src/main.rs
-index 9e527dea7..e28c2a9b5 100644
+index 9e527dea7..2a7c62748 100644
 --- a/codex-rs/app-server/src/main.rs
 +++ b/codex-rs/app-server/src/main.rs
-@@ -71,9 +71,17 @@ struct AppServerArgs {
+@@ -71,9 +71,21 @@ struct AppServerArgs {
      disable_plugin_startup_tasks_for_tests: bool,
  
      /// Enable remote control for this app-server process without changing persistence.
@@ -19225,18 +19691,31 @@ index 9e527dea7..e28c2a9b5 100644
 +    #[arg(long = "no-remote-control", conflicts_with = "remote_control")]
 +    no_remote_control: bool,
 +
++    /// Isolate remote-control registrations for this server process (1-128 ASCII letters, digits, '-', '_' or '.').
++    #[arg(long, value_name = "NAME", value_parser = codex_app_server::parse_remote_control_client_name)]
++    remote_control_client_name: Option<String>,
++
      /// Save loaded threads during managed daemon shutdown.
      #[arg(long, hide = true)]
      managed_daemon: bool,
-@@ -93,6 +101,7 @@ fn main() -> anyhow::Result<()> {
+@@ -93,6 +105,8 @@ fn main() -> anyhow::Result<()> {
              #[cfg(debug_assertions)]
              disable_plugin_startup_tasks_for_tests,
              remote_control,
 +            no_remote_control,
++            remote_control_client_name,
              managed_daemon,
          } = AppServerArgs::parse();
          let loader_overrides = if disable_managed_config_from_debug_env() {
-@@ -115,7 +124,7 @@ fn main() -> anyhow::Result<()> {
+@@ -105,6 +119,7 @@ fn main() -> anyhow::Result<()> {
+         let transport = listen;
+         let auth = auth.try_into_settings()?;
+         let mut runtime_options = AppServerRuntimeOptions {
++            remote_control_client_name,
+             cloud_skills_snapshot,
+             code_mode_host_transport: code_mode_host.into(),
+             managed_daemon,
+@@ -115,7 +130,7 @@ fn main() -> anyhow::Result<()> {
              runtime_options.plugin_startup_tasks = PluginStartupTasks::Skip;
          }
          runtime_options.remote_control_startup_mode =
@@ -23213,7 +23692,7 @@ index 000000000..fbc1feb0d
 +    }
 +}
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index f87786eaf..c7fbcdac6 100644
+index f87786eaf..d4adaea21 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -69,6 +69,7 @@ mod exec_server_auth;
@@ -23224,7 +23703,7 @@ index f87786eaf..c7fbcdac6 100644
  mod marketplace_cmd;
  mod mcp_cmd;
  mod mcp_login;
-@@ -606,9 +607,20 @@ struct AppServerCommand {
+@@ -606,9 +607,24 @@ struct AppServerCommand {
      stdio: bool,
  
      /// Enable remote control for this app-server process without changing persistence.
@@ -23243,10 +23722,14 @@ index f87786eaf..c7fbcdac6 100644
 +    )]
 +    no_remote_control: bool,
 +
++    /// Isolate remote-control registrations for this server process (1-128 ASCII letters, digits, '-', '_' or '.').
++    #[arg(long, value_name = "NAME", value_parser = codex_app_server::parse_remote_control_client_name)]
++    remote_control_client_name: Option<String>,
++
      /// Save loaded threads during managed daemon shutdown.
      #[arg(long, hide = true)]
      managed_daemon: bool,
-@@ -1054,6 +1066,7 @@ async fn cli_main(
+@@ -1054,6 +1070,7 @@ async fn cli_main(
      arg0_paths: Arg0DispatchPaths,
      remote_control_disabled: bool,
  ) -> anyhow::Result<()> {
@@ -23254,11 +23737,12 @@ index f87786eaf..c7fbcdac6 100644
      let MultitoolCli {
          config_overrides: mut root_config_overrides,
          feature_toggles,
-@@ -1257,11 +1270,16 @@ async fn cli_main(
+@@ -1257,11 +1274,21 @@ async fn cli_main(
                  listen,
                  stdio,
                  remote_control,
 +                no_remote_control,
++                remote_control_client_name,
                  managed_daemon,
                  analytics_default_enabled,
                  auth,
@@ -23268,10 +23752,18 @@ index f87786eaf..c7fbcdac6 100644
 +                no_remote_control,
 +                subcommand.as_ref(),
 +            )?;
++            reject_remote_control_client_name_for_app_server_subcommand(
++                remote_control_client_name.as_deref(),
++                subcommand.as_ref(),
++            )?;
              reject_strict_config_for_app_server_subcommand(strict_config, subcommand.as_ref())?;
              reject_remote_mode_for_app_server_subcommand(
                  root_remote.as_deref(),
-@@ -1303,8 +1321,10 @@ async fn cli_main(
+@@ -1300,11 +1327,14 @@ async fn cli_main(
+                         let _ = codex_app_server_daemon::maintain_stderr_log();
+                     }
+                     let runtime_options = codex_app_server::AppServerRuntimeOptions {
++                        remote_control_client_name,
                          cloud_skills_snapshot,
                          code_mode_host_transport: code_mode_host.into(),
                          managed_daemon,
@@ -23284,7 +23776,7 @@ index f87786eaf..c7fbcdac6 100644
                              (true, _) => {
                                  codex_app_server::RemoteControlStartupMode::EnabledEphemeral
                              }
-@@ -2391,6 +2411,19 @@ fn unsupported_subcommand_name_for_strict_config(
+@@ -2391,6 +2421,30 @@ fn unsupported_subcommand_name_for_strict_config(
      }
  }
  
@@ -23301,10 +23793,21 @@ index f87786eaf..c7fbcdac6 100644
 +    Ok(())
 +}
 +
++fn reject_remote_control_client_name_for_app_server_subcommand(
++    client_name: Option<&str>,
++    subcommand: Option<&AppServerSubcommand>,
++) -> anyhow::Result<()> {
++    anyhow::ensure!(
++        client_name.is_none() || subcommand.is_none(),
++        "`--remote-control-client-name` only applies when starting app-server"
++    );
++    Ok(())
++}
++
  fn reject_strict_config_for_app_server_subcommand(
      strict_config: bool,
      subcommand: Option<&AppServerSubcommand>,
-@@ -4333,6 +4366,7 @@ enabled = true
+@@ -4333,6 +4387,7 @@ enabled = true
          let app_server = app_server_from_args(["codex", "app-server"].as_ref());
          assert!(!app_server.analytics_default_enabled);
          assert!(!app_server.remote_control);
@@ -23312,11 +23815,63 @@ index f87786eaf..c7fbcdac6 100644
          assert_eq!(
              app_server.listen,
              codex_app_server::AppServerTransport::Stdio
-@@ -4343,6 +4377,114 @@ enabled = true
+@@ -4343,6 +4398,166 @@ enabled = true
      fn app_server_remote_control_startup_flag_enables_remote_control() {
          let enabled = app_server_from_args(["codex", "app-server", "--remote-control"].as_ref());
          assert!(enabled.remote_control);
 +        assert!(!enabled.no_remote_control);
++    }
++
++    #[test]
++    fn app_server_remote_control_client_name_is_explicit_and_validated() {
++        assert!(
++            app_server_from_args(&["codex", "app-server"])
++                .remote_control_client_name
++                .is_none()
++        );
++        let name = "server-5f093fb2_7c43.4af7";
++        let server =
++            app_server_from_args(&["codex", "app-server", "--remote-control-client-name", name]);
++        assert_eq!(server.remote_control_client_name.as_deref(), Some(name));
++        assert!(!server.remote_control);
++        assert!(
++            reject_remote_control_client_name_for_app_server_subcommand(Some(name), None).is_ok()
++        );
++        let daemon = app_server_from_args(&["codex", "app-server", "daemon", "version"]);
++        assert!(
++            reject_remote_control_client_name_for_app_server_subcommand(
++                Some(name),
++                daemon.subcommand.as_ref()
++            )
++            .is_err()
++        );
++        assert!(
++            reject_remote_control_client_name_for_app_server_subcommand(
++                None,
++                daemon.subcommand.as_ref()
++            )
++            .is_ok()
++        );
++        for invalid in ["", " ", "server/name", "서버", "name\n", &"a".repeat(129)] {
++            assert!(
++                MultitoolCli::try_parse_from([
++                    "codex",
++                    "app-server",
++                    "--remote-control-client-name",
++                    invalid,
++                ])
++                .is_err()
++            );
++        }
++        assert!(
++            MultitoolCli::try_parse_from([
++                "codex",
++                "app-server",
++                "--remote-control-client-name",
++                &"a".repeat(128),
++            ])
++            .is_ok()
++        );
 +    }
 +
 +    #[test]

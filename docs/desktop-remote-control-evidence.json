@@ -8,50 +8,58 @@
     {
       "path": "codex-rs/app-server-transport/Cargo.toml",
       "testedSha256": "478ec3b281e77b311a8ab30231ff18fe371e04bdc4e330314f71d189f279cd71",
-      "publishedSha256": "0bbd9d7c291cec46465287b82549984f4658a717f7a360482f31d3d2a908c558",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "publishedSha256": "9c52b16cdce6d01fc64282d0d202b90d478b141ce268c8e28ac8fdb63c86dea9",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "665178c719e7b3f41e8fa0bec7f0431a7b306b2e8f91ec9a18c6d30802a9c196"
     },
     {
       "path": "codex-rs/app-server-transport/src/transport/remote_control/controller.rs",
       "testedSha256": "e5eb26a4f12fe11d7dddf3693f6d2d79d845509d83650c0cb9b4d3a2cb16256e",
-      "publishedSha256": "2df289eb0b92adeed3f7ca8e7881627b6625fec20f13ad2e6a1767f02ded088a",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "publishedSha256": "d0df98cdbf9341d59414f21dd2cf09a4278b213fb7f72b3b592bb75d588ef3f4",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "92e73fb7b2fea7bf4dfa9c762ffd233a01f598f07687539a28dd29f239ae37a8"
     },
     {
       "path": "codex-rs/app-server-transport/src/transport/remote_control/mod.rs",
       "testedSha256": "41314116753eab60be11385fcee81aef5c966c4bfbc2155ad48c452b4fdf56f4",
-      "publishedSha256": "bd48e1f20b81c81d1a53a66d1cac9e308cbe601b8afed20bf7601080fd7e9ed5",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "publishedSha256": "cba9af84c0350f91e0bd5a4848a5067a8555326a1f467352467848cc6d099d2d",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "0cef67fce89d979e45122dc2ce772fdd0f6ffcfad3551d586169659b7528f65e"
     },
     {
       "path": "codex-rs/app-server-transport/src/transport/remote_control/tests.rs",
       "testedSha256": "9368ee27e5757c8a87f253299eb88fed0f451d8afa2787a5c9bf05f7f337dc5a",
       "publishedSha256": "ae9d63e12b3536a70f5462f15a27e726432d267f266f0e02b4c80b5dac59163f",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "3531b857de4c2850b2c3a5a2b69d3ab968f44ed120f95f9aa11f1d68b9f8cf6f"
     },
     {
       "path": "codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs",
       "testedSha256": "3b76cd0dab0e09eef22ec37511f34dd090db325e8b420e0a401f1630facf7a11",
-      "publishedSha256": "c96d61c64b778e5e0bc93d3f42bcab16a4887c79ef22bcaa866ac5802d783269",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "publishedSha256": "b9e4e7d6c68e20060cd3adaa2d6e8784d0c2a00cd2e66e5bd05b1b89d310e49a",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "f7de504dcfe62c73152ae1e1256578091ce0fee802aaa53e5ca4ab59af46f6b3"
     },
     {
       "path": "codex-rs/app-server/src/lib.rs",
       "testedSha256": "be7166da37f49092ae4c48084fe576cbe9c56368346d3791c02b449bafd440aa",
       "publishedSha256": "eb63ca6c1af0b98958bd7c32f21d1e9cf0a5293182d92fdc1f5204d3196126bc",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "6f32d2f4925f4bad4d52257165a0c7c66b3058939c9162f5b51cfd95c3a4a9cb"
     },
     {
       "path": "codex-rs/app-server/src/main.rs",
       "testedSha256": "2063b07f0fff18df3c22e0c0411d03022011fc733218abb38c8b5d3fb4df7acf",
       "publishedSha256": "59d2b62caf88e87b09f0b81723a44230c012b92ede818ebf27e52852d5d2cee3",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "a5e4ce8601e94f3c75f2f1780f711466c12b9803f87c487c090d2a50f1256172"
     },
     {
       "path": "codex-rs/cli/src/main.rs",
       "testedSha256": "afd571e904db810d3b03458e148700544417c1c563b7a8ba7397f17d4d349590",
       "publishedSha256": "927b721a0fe166c9d0a9ae810e1287a7fbfb5d50a9a55a14ff8af64172974aa3",
-      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true,
+      "testedGitBlobSha256": "0458070cfddfee10125c36a38b556702c6ef1bba8abad933b950403289b743f9"
     }
   ],
   "tests": [
@@ -89,5 +97,15 @@
     "공개 통합 트리 전체를 다시 빌드한 결과가 아니다. 나열한 8개 파일의 제품 본문은 실제 시험한 소스와 동일하다.",
     "실제 원격 서비스 활성화·연결 코드·휴대전화 종단 제어는 시험하지 않았다.",
     "CLI 실행 파일과 사용자 인증·설정·로그 원문은 공개하지 않는다."
-  ]
+  ],
+  "publishedSource": "25424cfcd098b7eac8946eb6f6779a11d3492df3",
+  "sourceImport": {
+    "officialCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
+    "patchedCommit": "25424cfcd098b7eac8946eb6f6779a11d3492df3",
+    "patchedTree": "b40f70bd29475c8ccf2bce1cac01130eeb4d2db8",
+    "patchPath": "upstream/official-0.165.0.patch",
+    "patchSha256": "199f69a611e8be53ee09dd0057f8219c096f337aca5d6a4efbc0f23bc0ba74d3",
+    "sourceInventorySha256": "14c4361c5f7d0c00dcd12d37f978fab572b2541fbf0dc48c211a8469419e941f"
+  },
+  "testedSha256Representation": "시험한 Windows 작업 파일의 원시 바이트 해시이며 Git 원문 해시와 구분한다."
 }
