@@ -44220,7 +44220,7 @@ index a0efb3310..66b10d084 100644
      })
  }
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index ae4532818..e837f343c 100644
+index ae4532818..36392580f 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -64,10 +64,14 @@ mod pagination_completion_tests;
@@ -44247,7 +44247,7 @@ index ae4532818..e837f343c 100644
      const WORKER_THREADS: usize = 1;
      const TEST_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
  
-@@ -3032,18 +3036,140 @@ fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads
+@@ -3032,18 +3036,141 @@ fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads
              /*is_closed*/ false,
          );
  
@@ -44326,7 +44326,8 @@ index ae4532818..e837f343c 100644
 +            "unused preview",
 +            Some(&app.config.model_provider_id),
 +            None,
-+        )?;
++        )
++        .expect("metadata-only fallback rollout should be created");
 +        let path = app_test_support::rollout_path(
 +            app.config.codex_home.as_path(),
 +            filename_timestamp,
@@ -44390,7 +44391,7 @@ index ae4532818..e837f343c 100644
  }
  
  #[test]
-@@ -5519,6 +5645,23 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
+@@ -5519,6 +5646,23 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
          )
          .await?;
      }
@@ -44414,7 +44415,7 @@ index ae4532818..e837f343c 100644
      assert_eq!(
          app.side_threads
              .get(&side_thread_id)
-@@ -5546,6 +5689,22 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
+@@ -5546,6 +5690,22 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
          ),
      )
      .await?;
@@ -44437,7 +44438,7 @@ index ae4532818..e837f343c 100644
      assert_eq!(
          app.side_threads
              .get(&side_thread_id)
-@@ -6417,6 +6576,7 @@ async fn make_test_app() -> Box<App> {
+@@ -6417,6 +6577,7 @@ async fn make_test_app() -> Box<App> {
          file_search,
          transcript_cells: Vec::new(),
          native_history: Default::default(),
@@ -44445,7 +44446,7 @@ index ae4532818..e837f343c 100644
          turn_tips: Default::default(),
          transcript_view: Default::default(),
          last_rendered_history_tail: None,
-@@ -6500,6 +6660,7 @@ async fn make_test_app() -> Box<App> {
+@@ -6500,6 +6661,7 @@ async fn make_test_app() -> Box<App> {
          pending_plugin_enabled_writes: HashMap::new(),
          pending_hook_enabled_writes: HashMap::new(),
          recap: recap::RecapState::default(),
@@ -44453,7 +44454,7 @@ index ae4532818..e837f343c 100644
          _test_codex_home: test_codex_home,
      })
  }
-@@ -6543,6 +6704,7 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6543,6 +6705,7 @@ pub(super) async fn make_test_app_with_channels() -> (
              file_search,
              transcript_cells: Vec::new(),
              native_history: Default::default(),
@@ -44461,7 +44462,7 @@ index ae4532818..e837f343c 100644
              turn_tips: Default::default(),
              transcript_view: Default::default(),
              last_rendered_history_tail: None,
-@@ -6626,6 +6788,7 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6626,6 +6789,7 @@ pub(super) async fn make_test_app_with_channels() -> (
              pending_plugin_enabled_writes: HashMap::new(),
              pending_hook_enabled_writes: HashMap::new(),
              recap: recap::RecapState::default(),
@@ -44469,7 +44470,7 @@ index ae4532818..e837f343c 100644
              _test_codex_home: test_codex_home,
          }),
          rx,
-@@ -10060,6 +10223,8 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
+@@ -10060,6 +10224,8 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
      let notification = ThreadSettingsUpdatedNotification {
          thread_id: inactive_thread_id.to_string(),
          thread_settings: ThreadSettings {
