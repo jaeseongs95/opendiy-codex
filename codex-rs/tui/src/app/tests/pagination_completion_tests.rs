@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Older page completion preserves answer order, navigation intent, and pending request ownership.
 
 use super::session_lifecycle_requests::start_recording_app_server;
@@ -445,6 +446,8 @@ async fn stale_history_completions_preserve_the_current_request_and_failure_can_
         );
     }
     let failure = AppEvent::OlderThreadHistoryLoaded {
+        generation: app.history_window.generation,
+        token: None,
         thread_id,
         cursor: cursor.clone(),
         result: Err("current request failed".to_string()),

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use itertools::Either;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -28,6 +29,14 @@ pub(super) struct LiveCommandOutput {
 }
 
 impl LiveCommandOutput {
+    pub(super) fn retained_source_bytes(&self) -> usize {
+        self.full_output.capacity()
+            + self.head.iter().map(String::capacity).sum::<usize>()
+            + self.tail.iter().map(String::capacity).sum::<usize>()
+            + self.current.head.capacity()
+            + self.current.tail.capacity()
+    }
+
     /// Appends a delta, preserving `str::lines` semantics across arbitrary chunk boundaries.
     pub(super) fn push_str(&mut self, chunk: &str) {
         if !self.truncated {

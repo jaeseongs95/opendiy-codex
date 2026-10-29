@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Transcript consolidation for finalized streaming agent messages.
 //!
 //! During streaming, the chat widget emits transient `AgentMessageCell`s so it
@@ -86,6 +87,7 @@ impl App {
             self.maybe_finish_stream_reflow(tui)?;
         }
 
+        self.bound_history_window(/*prefer_older*/ false);
         Ok(())
     }
 

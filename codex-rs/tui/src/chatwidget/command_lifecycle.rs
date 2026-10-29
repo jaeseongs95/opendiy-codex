@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Command execution lifecycle handlers for `ChatWidget`.
 //!
 //! This module owns command start/output/completion rendering, including active
@@ -58,6 +59,14 @@ impl ChatWidget {
             return;
         }
 
+        if delta.len()
+            > crate::history_window::MAX_HISTORY_BYTES
+                .saturating_sub(self.transcript.active_group_display_bytes)
+        {
+            // The authoritative completion remains available through the normal lifecycle.
+            self.flush_active_cell();
+            return;
+        }
         let Some(cell) = self
             .transcript
             .active_cell
@@ -68,6 +77,7 @@ impl ChatWidget {
         };
 
         if cell.append_output(call_id, delta) {
+            self.transcript.active_group_display_bytes += delta.len();
             self.bump_active_cell_revision();
             self.request_redraw();
         }
@@ -241,6 +251,9 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_command_execution_started_now(&mut self, item: ThreadItem) {
+        let bytes = crate::history_window::payload_bytes(&item)
+            .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1);
+        self.prepare_active_display_item(bytes);
         let ThreadItem::CommandExecution {
             id,
             command,
@@ -308,6 +321,7 @@ impl ChatWidget {
             self.bump_active_cell_revision();
         }
 
+        self.enforce_active_display_window();
         self.request_redraw();
     }
 
@@ -320,6 +334,9 @@ impl ChatWidget {
     /// cell. If this method treated every unknown end as "complete the active cell", the UI could
     /// merge unrelated commands and hide still-running exploring work.
     pub(crate) fn handle_command_execution_completed_now(&mut self, item: ThreadItem) {
+        let bytes = crate::history_window::payload_bytes(&item)
+            .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1);
+        self.prepare_active_display_item(bytes);
         enum ExecEndTarget {
             // Normal case: the active exec cell already tracks this call id.
             ActiveTracked,
@@ -485,6 +502,7 @@ impl ChatWidget {
                 }
             }
         }
+        self.enforce_active_display_window();
         if is_user_shell {
             self.maybe_send_next_queued_input();
         }

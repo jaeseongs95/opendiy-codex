@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Retain hidden reasoning between activity calls without breaking their compact group.
 //!
 //! Positions count preceding calls. Prepending history shifts those positions while sharing the
@@ -26,6 +27,20 @@ impl ActivityDetails {
         }
         older.entries.append(&mut self.entries);
         *self = older;
+    }
+
+    pub(crate) fn retained_item_count(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|(_, cell)| cell.retained_item_count())
+            .sum()
+    }
+
+    pub(crate) fn retained_source_bytes(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|(_, cell)| cell.retained_source_bytes())
+            .sum()
     }
 
     pub(crate) fn lines_after(

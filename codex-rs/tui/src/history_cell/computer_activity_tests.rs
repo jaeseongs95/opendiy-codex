@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::*;
 use codex_protocol::mcp::CallToolResult;
 use pretty_assertions::assert_eq;
@@ -191,4 +192,25 @@ fn computer_activity_preview_handles_unicode_and_long_diagnostics() {
             .all(|line| line.width() <= 24)
     );
     assert!(cell.transcript_lines(/*width*/ 100).len() > 20);
+}
+
+#[test]
+fn hidden_reasoning_counts_toward_group_source_and_item_budgets() {
+    let mut group = ComputerActivityCell::default();
+    group.start(call("tool", "Inspect"));
+    let detail = crate::history_cell::new_reasoning_summary_block(
+        vec![format!("header\n{}", "r".repeat(1024 * 1024))],
+        std::path::Path::new("."),
+    );
+    group
+        .group
+        .push_detail(std::sync::Arc::from(detail as Box<dyn HistoryCell>));
+    assert_eq!(group.retained_item_count(), 2);
+    assert!(group.retained_source_bytes() >= 1024 * 1024);
+    assert!(
+        !group
+            .raw_lines()
+            .iter()
+            .any(|line| line.to_string().contains(&"r".repeat(80)))
+    );
 }

@@ -1248,6 +1248,32 @@ impl ChatWidget {
         }
     }
 
+    /// Group boundaries also bound active display payload; routing/lifecycle maps stay intact.
+    /// Full accounting happens at item boundaries. Output deltas charge only their new bytes.
+    fn prepare_active_display_item(&mut self, incoming_bytes: usize) {
+        let should_flush = self.transcript.active_cell.as_ref().is_some_and(|cell| {
+            cell.retained_item_count() >= crate::history_window::MAX_HISTORY_ITEMS
+                || cell.retained_source_bytes().saturating_add(incoming_bytes)
+                    > crate::history_window::MAX_HISTORY_BYTES
+        });
+        if should_flush {
+            self.flush_active_cell();
+        }
+    }
+
+    fn enforce_active_display_window(&mut self) {
+        let Some(cell) = self.transcript.active_cell.as_ref() else {
+            return;
+        };
+        let bytes = cell.retained_source_bytes();
+        let full = bytes >= crate::history_window::MAX_HISTORY_BYTES
+            || cell.retained_item_count() >= crate::history_window::MAX_HISTORY_ITEMS;
+        self.transcript.active_group_display_bytes = bytes;
+        if full {
+            self.flush_active_cell();
+        }
+    }
+
     fn flush_active_cell(&mut self) {
         if let Some(active) = self.transcript.take_active_cell() {
             self.app_event_tx.send(AppEvent::InsertHistoryCell(active));

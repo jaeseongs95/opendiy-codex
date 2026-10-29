@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Transcript/history cells for the Codex TUI.
 //!
 //! A `HistoryCell` is the unit of display in the conversation UI, representing both committed
@@ -211,6 +212,31 @@ pub(crate) trait HistoryCell: std::fmt::Debug + Send + Sync + Any {
     /// Stable diagnostic identities, independent of rendered wrapping and duplicate delivery.
     fn warning_keys(&self) -> Vec<WarningKey<'_>> {
         Vec::new()
+    }
+
+    /// Logical source held by a committed display cell. Called once when admitted to the
+    /// window, never per streaming delta. Source-backed cells override this to avoid rendering.
+    fn retained_source_bytes(&self) -> usize {
+        self.raw_lines()
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.len())
+                    .sum::<usize>()
+                    + 1
+            })
+            .sum()
+    }
+
+    /// Protocol-sized activity members, including hidden detail cells.
+    fn retained_item_count(&self) -> usize {
+        1
+    }
+
+    /// Mutable shared sources invalidate admission accounting only when their data changes.
+    fn retention_revision(&self) -> u64 {
+        0
     }
 
     /// Original Markdown for semantic copy targets, independent of presentation.

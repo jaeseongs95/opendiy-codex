@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Compose the owned transcript above the composer and route their selection gestures.
 //! Reserve a cleared row below activity and previews, immediately above the composer.
 //! Slash suggestions overlay already-painted rows so opening or closing them leaves transcript
@@ -705,6 +706,24 @@ impl App {
         tui: &mut tui::Tui,
         app_server: &mut AppServerSession,
     ) {
+        if let Some(thread_id) = self.chat_widget.thread_id() {
+            use crate::app_server_session::HistoryDirection;
+            if self.history_window.evicted
+                && self.transcript_view.history != TranscriptHistoryState::Failed
+                && self.transcript_view.is_following()
+                && self.request_history_page(app_server, thread_id, HistoryDirection::Latest)
+            {
+                return;
+            }
+            if self.transcript_view.history != TranscriptHistoryState::Failed
+                && !self.transcript_view.is_following()
+                && self.transcript_view.near_window_end(&self.transcript_cells)
+                && app_server.has_newer_history(thread_id)
+                && self.request_history_page(app_server, thread_id, HistoryDirection::Newer)
+            {
+                return;
+            }
+        }
         if !self.scrollback_has_older_history {
             return;
         }

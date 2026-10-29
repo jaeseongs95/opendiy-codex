@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Width-independent display content retained after an MCP call completes.
 //!
 //! The wire result can contain multi-megabyte image, audio, or resource bodies. Validate each
@@ -111,6 +112,14 @@ impl McpToolResult {
 }
 
 impl McpContentBlock {
+    pub(super) fn retained_source_bytes(&self) -> usize {
+        let display = match &self.display {
+            McpContentDisplay::Text(text) | McpContentDisplay::Json(text) => text.capacity(),
+            McpContentDisplay::Summary(summary) => summary.len(),
+        };
+        display + self.original_text.as_ref().map_or(0, String::capacity)
+    }
+
     /// Returns all retained text, with honest markers for media and embedded resource bodies.
     pub(super) fn render_full(&self) -> &str {
         if let Some(text) = &self.original_text {

@@ -1,3 +1,5 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+use super::CursorHistory;
 use super::HistoryHydrationScope;
 use super::HistoryLoadBudget;
 use super::advancing_cursor;
@@ -6,11 +8,10 @@ use crate::legacy_core::config::TerminalResizeReflowMaxRows;
 use crate::local_settings::LocalSettings;
 use codex_config::types::AltScreenMode;
 use pretty_assertions::assert_eq;
-use std::collections::HashSet;
 
 #[test]
 fn advancing_cursor_rejects_repeated_cursors() {
-    let mut seen_cursors = HashSet::new();
+    let mut seen_cursors = CursorHistory::default();
     assert_eq!(
         advancing_cursor(
             /*current*/ None,
@@ -91,4 +92,46 @@ async fn owned_initial_history_stops_after_viewport_or_scan_budget() {
             [Some(30), None],
         );
     }
+}
+
+#[test]
+fn cursor_loop_detection_does_not_retain_every_visited_page() {
+    let mut seen = CursorHistory::default();
+    let mut current = None;
+    for index in 0..2000 {
+        current = advancing_cursor(
+            current.as_deref(),
+            Some(format!("cursor-{index}")),
+            &mut seen,
+        );
+        assert!(current.is_some());
+        assert!(seen.len() <= crate::history_window::MAX_HISTORY_ITEMS + 1);
+    }
+    assert_eq!(
+        advancing_cursor(current.as_deref(), current.clone(), &mut seen),
+        None
+    );
+}
+
+#[test]
+fn cursor_history_still_rejects_cycles_larger_than_its_recent_cache() {
+    let mut seen = CursorHistory::default();
+    let mut current = None;
+    let mut stopped = false;
+    for index in 0..4096 {
+        current = advancing_cursor(
+            current.as_deref(),
+            Some(format!("cursor-{}", index % 513)),
+            &mut seen,
+        );
+        assert!(seen.len() <= crate::history_window::MAX_HISTORY_ITEMS + 1);
+        if current.is_none() {
+            stopped = true;
+            break;
+        }
+    }
+    assert!(
+        stopped,
+        "a cycle must terminate even after recent-cursor eviction"
+    );
 }

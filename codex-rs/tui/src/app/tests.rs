@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! App-level orchestration tests for the TUI.
 
 #[path = "tests/terminal_size_telemetry_tests.rs"]
@@ -6422,6 +6422,7 @@ async fn make_test_app() -> Box<App> {
         file_search,
         transcript_cells: Vec::new(),
         native_history: Default::default(),
+        history_window: Default::default(),
         turn_tips: Default::default(),
         transcript_view: Default::default(),
         last_rendered_history_tail: None,
@@ -6549,6 +6550,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             file_search,
             transcript_cells: Vec::new(),
             native_history: Default::default(),
+            history_window: Default::default(),
             turn_tips: Default::default(),
             transcript_view: Default::default(),
             last_rendered_history_tail: None,

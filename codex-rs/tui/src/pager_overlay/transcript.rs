@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Standalone transcript chrome around the same viewport used by the main conversation.
 //!
 //! Inline Ctrl+T and the resume preview own their cells here. The viewport exclusively owns
@@ -488,5 +489,19 @@ impl TranscriptOverlay {
             ));
         }
         render_key_hints(second, buf, &pairs);
+    }
+}
+
+impl TranscriptOverlay {
+    pub(crate) fn retain_window(&mut self, cells: &[Arc<dyn HistoryCell>]) {
+        self.cells = cells.to_vec();
+        self.view.retain_window(&self.cells);
+        self.highlight_cell = self
+            .highlight_cell
+            .filter(|index| *index < self.cells.len());
+        self.pending_highlight = self
+            .pending_highlight
+            .filter(|index| *index < self.cells.len());
+        self.view.set_highlight(self.highlight_cell);
     }
 }

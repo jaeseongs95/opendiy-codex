@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Assemble computer activity across hidden reasoning and repair history-page group boundaries.
 
 use super::tools::McpHistory;
@@ -19,6 +20,17 @@ pub(crate) fn join_computer_groups(
     newer: &Arc<dyn HistoryCell>,
     turns: &[Turn],
 ) -> Option<Arc<dyn HistoryCell>> {
+    if older
+        .retained_item_count()
+        .saturating_add(newer.retained_item_count())
+        > crate::history_window::MAX_HISTORY_ITEMS
+        || older
+            .retained_source_bytes()
+            .saturating_add(newer.retained_source_bytes())
+            > crate::history_window::MAX_HISTORY_BYTES
+    {
+        return None;
+    }
     let older = older.as_any().downcast_ref::<ComputerActivityCell>()?;
     let newer = newer.as_any().downcast_ref::<ComputerActivityCell>()?;
     let mut group = completed_group(adjacent_items(older, newer, turns)?)?;

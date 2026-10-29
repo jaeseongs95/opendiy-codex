@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Data model for grouped exec-call history cells in the TUI transcript.
 //!
 //! An `ExecCell` can represent either a single command or an "exploring" group of related read/
@@ -33,6 +34,14 @@ impl CommandOutput {
             aggregated_output,
             live_output: None,
         }
+    }
+
+    pub(super) fn retained_source_bytes(&self) -> usize {
+        self.aggregated_output.capacity()
+            + self
+                .live_output
+                .as_ref()
+                .map_or(0, LiveCommandOutput::retained_source_bytes)
     }
 
     /// Returns the total number of logical lines and the number retained for rendering.

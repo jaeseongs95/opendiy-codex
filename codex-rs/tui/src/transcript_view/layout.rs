@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Width-specific layouts retained only for recently displayed conversation entries.
 //!
 //! Mutable cells refresh each frame, then share that frame's layout across measurement and paint.
@@ -392,8 +393,8 @@ impl LayoutCache {
                     .map_or(0, |image| image.pixels.len())
         };
         let mut bytes = self.entries.iter().map(retained_bytes).sum::<usize>();
-        // Retain a single oversized entry rather than repeatedly laying it out while visible.
-        while self.entries.len() > 1
+        // Oversized visible layouts can be painted by their caller but are never cached.
+        while !self.entries.is_empty()
             && (self.entries.len() > MAX_CACHED_ENTRIES || bytes > MAX_CACHED_LAYOUT_BYTES)
         {
             bytes -= retained_bytes(&self.entries.remove(/*index*/ 0));

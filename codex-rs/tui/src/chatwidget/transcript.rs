@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Transcript and active-cell bookkeeping for `ChatWidget`.
 
 use super::HistoryCell;
@@ -67,6 +68,9 @@ pub(super) struct TranscriptState {
     pub(super) plan_delta_buffer: String,
     /// True while a plan item is streaming.
     pub(super) plan_item_active: bool,
+    pub(super) active_group_display_bytes: usize,
+    pub(super) live_display_bytes: [usize; 3],
+    pub(super) live_display_oversized: [bool; 3],
 }
 
 impl TranscriptState {
@@ -87,6 +91,7 @@ impl TranscriptState {
     /// Remove the active cell and invalidate its layout before its address can be reused.
     pub(super) fn take_active_cell(&mut self) -> Option<Box<dyn HistoryCell>> {
         let active_cell = self.active_cell.take();
+        self.active_group_display_bytes = 0;
         if active_cell.is_some() {
             self.active_cell_layout.set(None);
         }
@@ -109,6 +114,8 @@ impl TranscriptState {
     }
 
     pub(super) fn reset_turn_flags(&mut self) {
+        self.live_display_bytes = [0; 3];
+        self.live_display_oversized = [false; 3];
         self.saw_copy_source_this_turn = false;
         self.last_completed_agent_message = None;
         self.active_streamed_agent_message = None;

@@ -234,6 +234,7 @@ mod feedback_upload;
 mod file_change_approvals;
 mod history_pagination;
 mod history_ui;
+mod history_window;
 mod input;
 mod link_hover;
 mod loaded_threads;
@@ -568,6 +569,7 @@ pub(crate) struct App {
 
     pub(crate) transcript_cells: Vec<Arc<dyn HistoryCell>>,
     native_history: native_history::NativeHistory,
+    history_window: history_window::HistoryCellWindow,
     turn_tips: turn_tips::TurnTips,
     pub(crate) transcript_view: crate::transcript_view::TranscriptView,
     last_rendered_history_tail: Option<history_ui::RenderedHistoryTail>,

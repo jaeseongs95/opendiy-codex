@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 // Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
 // The standalone `codex-tui` binary prints a short help message before the
 // alternate‑screen mode starts; that file opts‑out locally via `allow`.
@@ -164,6 +164,7 @@ mod git_action_directives;
 mod goal_display;
 mod goal_files;
 mod history_cell;
+mod history_window;
 mod hooks_rpc;
 mod ide_context;
 mod inline_visualization;

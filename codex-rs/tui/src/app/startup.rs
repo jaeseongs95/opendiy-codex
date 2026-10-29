@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Startup bootstrap, draft handoff, and protected-input orchestration for the TUI app.
 //!
 //! Owns the main app run loop from app-server bootstrap through terminal shutdown. Startup input
@@ -984,6 +984,7 @@ See the Codex keymap documentation for supported actions and examples."
             routed_key_activation: None,
             transcript_cells: Vec::new(),
             native_history: Default::default(),
+            history_window: Default::default(),
             turn_tips: Default::default(),
             transcript_view: Default::default(),
             last_rendered_history_tail: None,
