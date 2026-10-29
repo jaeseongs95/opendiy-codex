@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::*;
 use crate::app_event::TranscriptExportDestination;
 use crate::bottom_pane::BottomPaneView;
@@ -5341,6 +5341,38 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
             LoaderOverrides::default(),
         )
         .await?;
+        if history_capabilities == HistoryCapabilities::ItemsListFails {
+            // 화면 보유 제한을 적용하기 전 서버의 최근 요약 100개를 정확히 보존한다.
+            let (viewed, notice) = Box::pin(server.read_thread_for_viewing(
+                &app.config,
+                &app.local_settings,
+                thread_id,
+            ))
+            .await?;
+            assert_eq!(
+                notice,
+                Some("Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable.")
+            );
+            assert_eq!(
+                viewed.turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
+                (saved_turn_count.saturating_sub(100)..saved_turn_count)
+                    .map(|index| format!("saved-turn-{index}"))
+                    .collect::<Vec<_>>()
+            );
+            assert!(viewed.turns.iter().all(|turn| {
+                turn.items.iter().any(|item| matches!(item,
+                    ThreadItem::UserMessage { content, .. }
+                        if content.iter().any(|input| matches!(input,
+                            UserInput::Text { text, .. } if text == "Locked task"))))
+                    && turn.items.iter().any(|item| matches!(item,
+                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer"))
+            }));
+            assert!(
+                recorded_params(&requests, "thread/read")
+                    .iter()
+                    .all(|params| !params["includeTurns"].as_bool().unwrap_or(false))
+            );
+        }
         app.app_server_target = AppServerTarget::LocalDaemon {
             allow_embedded_fallback: true,
             endpoint: crate::resolve_remote_addr("ws://127.0.0.1:4500")?,
@@ -5431,7 +5463,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                 assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                 assert_eq!(
                     turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
-                    (saved_turn_count.saturating_sub(100)..saved_turn_count)
+                    (saved_turn_count.saturating_sub(
+                        100usize.min(crate::history_window::MAX_HISTORY_TURNS),
+                    )..saved_turn_count)
                         .map(|index| format!("saved-turn-{index}"))
                         .collect::<Vec<_>>()
                 );

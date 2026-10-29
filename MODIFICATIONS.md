@@ -425,3 +425,12 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap`
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
 - `docs/native-cli-r27.ko.md`
+
+소스 갱신 `3a03cbdadf186d74af73fcc5825afc25d3d85f39` (통합 진행 중):
+
+- `codex-rs/diagnostics/Cargo.toml`
+- `codex-rs/diagnostics/src/batch_log.rs`
+- `codex-rs/tui/src/app/tests/session_lifecycle_requests.rs`
+- `codex-rs/tui/src/snapshots/codex_tui__app__tests__selected_unloaded_subagent_V2.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap`
+- `docs/native-cli-r27.ko.md`

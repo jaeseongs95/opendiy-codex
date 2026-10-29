@@ -520,27 +520,31 @@ fn export_ready(spool: &Path, destination: &Path, counters: &Counters) {
 }
 
 fn export_file(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::create_dir_all(
-        destination
-            .parent()
-            .ok_or_else(|| io::Error::other("destination has no parent"))?,
-    )?;
+    export_file_with_copy(source, destination, |input, target| {
+        io::copy(input, target).map(|_| ())
+    })
+}
+
+fn export_file_with_copy(
+    source: &Path,
+    destination: &Path,
+    copy: impl FnOnce(&mut fs::File, &mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let directory = destination
+        .parent()
+        .ok_or_else(|| io::Error::other("destination has no parent"))?;
+    fs::create_dir_all(directory)?;
     let mut input = fs::File::open(source)?;
-    // create_new: never append to or overwrite a published streaming-drive file.
-    let mut target = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)?;
-    let copied = (|| {
-        io::copy(&mut input, &mut target)?;
-        target.flush()?;
-        Ok::<_, io::Error>(())
-    })();
-    drop(target);
-    if let Err(error) = copied {
-        let _ = fs::remove_file(destination);
-        return Err(error);
-    }
+    let mut target = tempfile::NamedTempFile::new_in(directory)?;
+    copy(&mut input, target.as_file_mut())?;
+    target.as_file().sync_all()?;
+    drop(input);
+    // A killed exporter may leave a temporary file, never a partial final name.
+    // Close before publishing; persist_noclobber never replaces another export.
+    target
+        .into_temp_path()
+        .persist_noclobber(destination)
+        .map_err(|error| error.error)?;
     // This is a successful local filesystem copy, not a cloud upload ACK.
     fs::remove_file(source)
 }
@@ -548,6 +552,7 @@ fn export_file(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use tracing_subscriber::prelude::*;
 
     #[test]
@@ -745,15 +750,185 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "helper subprocess for competing_exporters_preserve_the_loser"]
+    #[ignore = "helper subprocess for exporter tests"]
     fn exporter_child() {
         let source = PathBuf::from(std::env::var_os("CODEX_TEST_EXPORT_SOURCE").unwrap());
         let target = PathBuf::from(std::env::var_os("CODEX_TEST_EXPORT_TARGET").unwrap());
-        match export_file(&source, &target) {
+        let result = if let Some(ready) = std::env::var_os("CODEX_TEST_EXPORT_COPY_PAUSED") {
+            export_file_with_copy(&source, &target, |input, output| {
+                io::copy(&mut input.take(8), output)?;
+                output.flush()?;
+                fs::write(ready, b"ready")?;
+                loop {
+                    thread::park();
+                }
+            })
+        } else {
+            export_file(&source, &target)
+        };
+        match result {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => panic!("export failed: {error}"),
         }
+    }
+
+    fn exporter_command(source: &Path, target: &Path) -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "batch_log::tests::exporter_child", "--ignored"])
+            .env("CODEX_TEST_EXPORT_SOURCE", source)
+            .env("CODEX_TEST_EXPORT_TARGET", target)
+            .stdout(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        command
+    }
+
+    #[test]
+    fn killed_exporter_leaves_no_partial_final_and_retry_publishes_complete_batch() {
+        let root = tempfile::tempdir().unwrap();
+        let source =
+            write_batch(root.path(), b"complete local batch\n", &Counters::default()).unwrap();
+        let expected = fs::read(&source).unwrap();
+        let target = root.path().join("drive/batch.jsonl");
+        let ready = root.path().join("copy-paused");
+        let mut child = exporter_command(&source, &target)
+            .env("CODEX_TEST_EXPORT_COPY_PAUSED", &ready)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() && Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let reached_copy_boundary = ready.exists();
+        // Only terminate the helper owned by this test, after its partial write.
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success());
+        assert!(
+            reached_copy_boundary,
+            "exporter did not reach the copy barrier"
+        );
+        assert!(!target.exists());
+        assert_eq!(fs::read(&source).unwrap(), expected);
+        let partials = fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(partials.len(), 1);
+        assert_eq!(fs::read(&partials[0]).unwrap(), expected[..8]);
+
+        export_file(&source, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), expected);
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_dir(target.parent().unwrap())
+                .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext == "jsonl"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn failed_export_copy_preserves_source_and_removes_temporary_file() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source.jsonl");
+        let target = root.path().join("drive/batch.jsonl");
+        fs::write(&source, b"complete batch\n").unwrap();
+        let error = export_file_with_copy(&source, &target, |input, output| {
+            io::copy(&mut input.take(8), output)?;
+            Err(io::Error::other("injected copy failure"))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(fs::read(&source).unwrap(), b"complete batch\n");
+        assert!(!target.exists());
+        assert_eq!(fs::read_dir(target.parent().unwrap()).unwrap().count(), 0);
+        export_file(&source, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"complete batch\n");
+    }
+
+    #[test]
+    fn racing_publish_preserves_existing_destination_and_local_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source.jsonl");
+        let target = root.path().join("drive/batch.jsonl");
+        fs::write(&source, b"local batch\n").unwrap();
+        let error = export_file_with_copy(&source, &target, |input, output| {
+            io::copy(input, output)?;
+            fs::write(&target, b"competing batch\n")
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&source).unwrap(), b"local batch\n");
+        assert_eq!(fs::read(&target).unwrap(), b"competing batch\n");
+        assert_eq!(fs::read_dir(target.parent().unwrap()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn source_equal_to_destination_is_never_removed() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source.jsonl");
+        fs::write(&source, b"local batch\n").unwrap();
+        assert_eq!(
+            export_file(&source, &source).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"local batch\n");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn competing_exporters_of_same_source_publish_once() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source.jsonl");
+        let target = root.path().join("drive/batch.jsonl");
+        fs::write(&source, b"shared batch\n").unwrap();
+        let copied = AtomicU64::new(0);
+        let results = thread::scope(|scope| {
+            let start = || {
+                export_file_with_copy(&source, &target, |input, output| {
+                    io::copy(input, output)?;
+                    copied.fetch_add(1, Ordering::AcqRel);
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    while copied.load(Ordering::Acquire) < 2 {
+                        if Instant::now() >= deadline {
+                            return Err(io::Error::new(io::ErrorKind::TimedOut, "copy barrier"));
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                })
+            };
+            let first = scope.spawn(start);
+            let second = scope.spawn(start);
+            [first.join().unwrap(), second.join().unwrap()]
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result
+                    .as_ref()
+                    .is_err_and(|error| error.kind() == io::ErrorKind::AlreadyExists))
+                .count(),
+            1
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"shared batch\n");
+        assert!(!source.exists());
+        assert_eq!(fs::read_dir(target.parent().unwrap()).unwrap().count(), 1);
     }
 
     #[test]
@@ -766,18 +941,7 @@ mod tests {
         }
         let mut children = Vec::new();
         for source in &sources {
-            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-            command
-                .args(["--exact", "batch_log::tests::exporter_child", "--ignored"])
-                .env("CODEX_TEST_EXPORT_SOURCE", source)
-                .env("CODEX_TEST_EXPORT_TARGET", &target)
-                .stdout(std::process::Stdio::null());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                command.creation_flags(0x08000000);
-            }
-            children.push(command.spawn().unwrap());
+            children.push(exporter_command(source, &target).spawn().unwrap());
         }
         for mut child in children {
             assert!(child.wait().unwrap().success());
