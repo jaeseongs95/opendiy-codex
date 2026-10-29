@@ -69,7 +69,8 @@ impl CronState {
             *self.epochs.entry(owner).or_default() += 1;
         }
         self.unsupported.clear();
-        self.model_calls.clear();
+        // Pausing execution for reconnect does not end other live connections' turns.
+        // Accepted call identities live until their turn or owning connection ends.
         for (_, (_, cancellation, task)) in self.tool_tasks.drain() {
             cancellation.cancel();
             task.abort();
@@ -87,8 +88,7 @@ impl CronState {
     }
 
     pub(super) fn invalidate_backend(&mut self, backend: BackendId, reason: &str) {
-        *self.epochs.entry(backend).or_default() += 1;
-        self.unsupported.remove(&backend);
+        self.invalidate_schedules(backend, reason);
         self.model_calls
             .retain(|(owner, _, _, _, _), _| *owner != backend);
         self.tool_tasks
@@ -101,6 +101,12 @@ impl CronState {
                     true
                 }
             });
+    }
+
+    // Scheduler support can end while model calls on the same connection remain valid.
+    fn invalidate_schedules(&mut self, backend: BackendId, reason: &str) {
+        *self.epochs.entry(backend).or_default() += 1;
+        self.unsupported.remove(&backend);
         self.scheduler
             .invalidate(|target| target.backend == backend, reason);
         self.cancel_tasks.retain(|_, (owner, task)| {
@@ -615,7 +621,7 @@ impl App {
                     .map(|job| job.target.thread)
                     .collect();
                 self.cron
-                    .invalidate_backend(reply.target.backend, "turn/startIfIdle 미지원");
+                    .invalidate_schedules(reply.target.backend, "turn/startIfIdle 미지원");
                 self.cron.unsupported.insert(reply.target.backend);
                 self.cron
                     .scheduler
@@ -1012,6 +1018,175 @@ mod tests {
         }
         session.shutdown().await?;
         worker.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_unsupported_scheduler_preserves_live_call_arguments_and_reply()
+    -> color_eyre::Result<()> {
+        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (session, _observed, worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let caller = ThreadId::new();
+        app.active_thread_id = Some(caller);
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        for prompt in ["보존할 수동 예약", "미지원 응답 대상"] {
+            app.cron_command(
+                &session,
+                Some(caller),
+                &format!("add --every 1m -- {prompt}"),
+            )
+            .await
+            .expect("valid manual scheduler fixture");
+        }
+        let preserved = app.cron.scheduler.jobs[0].id;
+        let unsupported = app.cron.scheduler.jobs[1].id;
+        let connection = session.cron_tool_connection();
+        let (request, response) =
+            model_request(connection.clone(), caller, "live-call-key", "list");
+        app.handle_cron_tool_call(&session, request).await;
+        let original = response.await?;
+        assert!(original.success);
+        let now = MonotonicInstant::now();
+        app.cron.scheduler.jobs[1].next_due = Some(now);
+        let dispatch = app
+            .cron
+            .scheduler
+            .due(now)
+            .into_iter()
+            .find(|dispatch| dispatch.id == unsupported)
+            .expect("pending unsupported scheduler attempt");
+        app.handle_cron_reply(
+            &session,
+            CronReply {
+                target: dispatch.target,
+                id: dispatch.id,
+                attempt: dispatch.attempt,
+                result: CronResult::Unsupported,
+            },
+        )
+        .await;
+        assert!(connection.live.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(
+            app.active_turn_id_for_thread(caller).await.as_deref(),
+            Some("caller-turn")
+        );
+        assert!(app.cron.unsupported.contains(&connection.backend));
+        assert!(
+            app.cron
+                .scheduler
+                .jobs
+                .iter()
+                .all(|job| matches!(job.phase, Phase::BlockedUnsupported(_)))
+        );
+        let (request, response) = model_request(
+            connection.clone(),
+            caller,
+            "live-call-key",
+            &format!("remove {preserved}"),
+        );
+        app.handle_cron_tool_call(&session, request).await;
+        assert!(!response.await?.success);
+        assert_eq!(app.cron.scheduler.jobs.len(), 2);
+        assert!(
+            app.cron
+                .scheduler
+                .jobs
+                .iter()
+                .any(|job| job.id == preserved && !job.removed)
+        );
+        let (request, response) = model_request(connection, caller, "live-call-key", "list");
+        app.handle_cron_tool_call(&session, request).await;
+        assert_eq!(
+            serde_json::to_value(response.await?)?,
+            serde_json::to_value(original)?
+        );
+        app.cron.stop();
+        session.shutdown().await?;
+        worker.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_cron_reconnect_stop_preserves_other_live_connection_calls()
+    -> color_eyre::Result<()> {
+        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (replaced, _observed_a, worker_a) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let (surviving, _observed_b, worker_b) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let caller_a = ThreadId::new();
+        let caller_b = ThreadId::new();
+        app.active_thread_id = Some(caller_b);
+        for caller in [caller_a, caller_b] {
+            app.ensure_thread_channel(caller)
+                .store
+                .lock()
+                .await
+                .set_active_turn_id("caller-turn".into());
+        }
+        let connection_a = replaced.cron_tool_connection();
+        let connection_b = surviving.cron_tool_connection();
+        app.cron_command(
+            &surviving,
+            Some(caller_b),
+            "add --every 1m -- 보존할 수동 예약",
+        )
+        .await
+        .expect("valid manual scheduler fixture");
+        let preserved = app.cron.scheduler.jobs[0].id;
+        let (request, response) = model_request(connection_a.clone(), caller_a, "same-key", "list");
+        app.handle_cron_tool_call(&replaced, request).await;
+        assert!(response.await?.success);
+        let (request, response) = model_request(connection_b.clone(), caller_b, "same-key", "list");
+        app.handle_cron_tool_call(&surviving, request).await;
+        let original = response.await?;
+        assert!(original.success);
+        app.active_thread_id = Some(caller_a);
+        app.app_server_target = AppServerTarget::Remote {
+            endpoint: crate::resolve_remote_addr("ws://127.0.0.1:9")?,
+        };
+        assert!(app.begin_reconnect());
+        assert!(app.reconnect.offline);
+        assert_eq!(app.cron.model_calls.len(), 2);
+        assert!(connection_b.live.load(std::sync::atomic::Ordering::Acquire));
+        // Match finish_reconnect: retire A while preserving the surviving B.
+        connection_a
+            .live
+            .store(false, std::sync::atomic::Ordering::Release);
+        app.cron
+            .invalidate_backend(connection_a.backend, "원래 연결 교체");
+        assert_eq!(app.cron.model_calls.len(), 1);
+        // Selection/attachment may restore B after reconnect without ending its active turn.
+        app.reconnect.offline = false;
+        app.active_thread_id = Some(caller_b);
+        assert_eq!(
+            app.active_turn_id_for_thread(caller_b).await.as_deref(),
+            Some("caller-turn")
+        );
+        let (request, response) = model_request(
+            connection_b.clone(),
+            caller_b,
+            "same-key",
+            &format!("remove {preserved}"),
+        );
+        app.handle_cron_tool_call(&surviving, request).await;
+        assert!(!response.await?.success);
+        assert!(!app.cron.scheduler.jobs[0].removed);
+        let (request, response) = model_request(connection_b, caller_b, "same-key", "list");
+        app.handle_cron_tool_call(&surviving, request).await;
+        assert_eq!(
+            serde_json::to_value(response.await?)?,
+            serde_json::to_value(original)?
+        );
+        replaced.shutdown().await?;
+        surviving.shutdown().await?;
+        worker_a.await??;
+        worker_b.await??;
         Ok(())
     }
 
