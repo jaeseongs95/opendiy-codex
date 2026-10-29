@@ -373,6 +373,7 @@ pub(super) enum HistoryCapabilities {
     LegacyDynamicToolsAndHistory,
     ForkHydrationFails,
     ReadAfterResumeFails,
+    ResumeFails,
     ItemsListFails,
     ItemsAndSummaryTurnsFail,
     ThreadListFails,
@@ -626,6 +627,17 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                         JSONRPCMessage::Response(JSONRPCResponse {
                             id: request_id,
                             result: serde_json::json!({}),
+                        })
+                    } else if history_capabilities == HistoryCapabilities::ResumeFails
+                        && request.method == "thread/resume"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32603,
+                                data: None,
+                                message: "live resume unavailable".to_string(),
+                            },
                         })
                     } else if history_capabilities
                         == HistoryCapabilities::ItemsProjectionUnavailable
