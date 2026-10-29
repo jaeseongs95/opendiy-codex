@@ -353,3 +353,9 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/core/src/session/step_activation_tests.rs`
 - `codex-rs/ext/memories/src/prompts_tests.rs`
 - `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`
+
+소스 갱신 `11776c706192892fa932db3bca7cc2d8d5b4ecb6` (통합 진행 중):
+
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+- `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts`
