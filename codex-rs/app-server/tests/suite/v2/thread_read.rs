@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use anyhow::Result;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
@@ -1710,6 +1711,195 @@ async fn thread_turns_list_rejects_unmaterialized_loaded_thread() -> Result<()> 
         read_err.error.message
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn paginated_history_payload_admission_keeps_shells_and_cursors() -> Result<()> {
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let codex_home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri()).write(codex_home.path())?;
+    let thread_id = codex_protocol::ThreadId::default();
+    let sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
+    let state_db =
+        codex_state::StateRuntime::init(sqlite.clone(), "mock_provider".to_string()).await?;
+    let store = LocalThreadStore::new(
+        LocalThreadStoreConfig {
+            codex_home: codex_home.path().to_path_buf(),
+            sqlite,
+            default_model_provider_id: "mock_provider".to_string(),
+        },
+        Some(state_db),
+    );
+    store
+        .create_thread(CreateThreadParams {
+            attached_thread: false,
+            creator_user_id: None,
+            creator_account_id: None,
+            session_id: thread_id.into(),
+            thread_id,
+            extra_config: None,
+            forked_from_id: None,
+            parent_thread_id: None,
+            source: ProtocolSessionSource::Cli,
+            thread_source: None,
+            originator: "test_originator".to_string(),
+            base_instructions: BaseInstructions::default(),
+            dynamic_tools: Vec::new(),
+            selected_capability_roots: Vec::new(),
+            multi_agent_version: None,
+            history_mode: codex_protocol::protocol::ThreadHistoryMode::Paginated,
+            history_base: None,
+            subagent_history_start_ordinal: None,
+            initial_window_id: Uuid::now_v7().to_string(),
+            runtime_workspace_roots: None,
+            metadata: ThreadPersistenceMetadata {
+                cwd: Some(codex_home.path().to_path_buf()),
+                model_provider: "mock_provider".to_string(),
+                memory_mode: ThreadMemoryMode::Enabled,
+            },
+        })
+        .await?;
+    store
+        .persist_thread(thread_id, PersistContext::Standard)
+        .await?;
+    let mut items = Vec::new();
+    for (turn_id, item_ids, size) in [
+        (
+            "large-turn",
+            vec!["large-agent"],
+            codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1,
+        ),
+        (
+            "normal-turn",
+            vec!["agent-1", "agent-2", "agent-3"],
+            3 * 1024 * 1024,
+        ),
+    ] {
+        items.push(paginated_turn_started(turn_id));
+        for item_id in item_ids {
+            items.push(paginated_completed_item(
+                thread_id,
+                turn_id,
+                CoreTurnItem::AgentMessage(AgentMessageItem {
+                    id: item_id.to_string(),
+                    content: vec![AgentMessageContent::Text {
+                        text: "x".repeat(size),
+                    }],
+                    phase: None,
+                    memory_citation: None,
+                    delivery: None,
+                    questions: None,
+                }),
+            ));
+        }
+        items.push(paginated_turn_completed(turn_id));
+    }
+    store
+        .append_items(AppendThreadItemsParams { thread_id, items })
+        .await?;
+    store.shutdown_thread(thread_id).await?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
+    let shells = read_turns_page(
+        &mut mcp,
+        thread_id,
+        None,
+        Some(10),
+        SortDirection::Desc,
+        Some(TurnItemsView::NotLoaded),
+    )
+    .await?;
+    assert_eq!(shells.data.len(), 2);
+    assert!(shells.data.iter().all(|turn| turn.items.is_empty()));
+    let first = read_items_page(
+        &mut mcp,
+        thread_id,
+        Some("normal-turn"),
+        None,
+        Some(100),
+        SortDirection::Asc,
+    )
+    .await?;
+    assert_eq!(first.data.len(), 2);
+    assert!(
+        serde_json::to_vec(&first)?.len() <= codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES
+    );
+    let second = read_items_page(
+        &mut mcp,
+        thread_id,
+        Some("normal-turn"),
+        first.next_cursor,
+        Some(100),
+        SortDirection::Asc,
+    )
+    .await?;
+    assert_eq!(second.data.len(), 1);
+    assert!(second.next_cursor.is_none());
+    let id = mcp
+        .send_thread_items_list_request(ThreadItemsListParams {
+            thread_id: thread_id.to_string(),
+            turn_id: Some("large-turn".to_string()),
+            cursor: None,
+            limit: Some(100),
+            sort_direction: Some(SortDirection::Asc),
+        })
+        .await?;
+    let error: JSONRPCError = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(id)),
+    )
+    .await??;
+    assert_eq!(error.error.code, -32600);
+    let data = error.error.data.expect("numeric size classification");
+    assert_eq!(data["kind"], "historyItemTooLarge");
+    assert_eq!(
+        data["maxBytes"],
+        codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES
+    );
+    assert!(
+        data["actualBytes"].as_u64().unwrap()
+            > codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES as u64
+    );
+    assert_eq!(data.as_object().unwrap().len(), 3);
+    // A failed payload does not prevent browsing another turn's metadata.
+    let shells_after = read_turns_page(
+        &mut mcp,
+        thread_id,
+        None,
+        Some(10),
+        SortDirection::Desc,
+        Some(TurnItemsView::NotLoaded),
+    )
+    .await?;
+    assert_eq!(shells_after.data, shells.data);
+    let sqlite = codex_state::SqliteConfig::new_for_testing(codex_home.path().abs());
+    let pool = codex_state::open_thread_history_db(&sqlite).await?;
+    sqlx::query("DELETE FROM thread_history_projection_state WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(&pool)
+        .await?;
+    let id = mcp
+        .send_thread_turns_list_request(ThreadTurnsListParams {
+            thread_id: thread_id.to_string(),
+            cursor: None,
+            limit: Some(10),
+            sort_direction: Some(SortDirection::Desc),
+            items_view: Some(TurnItemsView::NotLoaded),
+        })
+        .await?;
+    let error: JSONRPCError = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(id)),
+    )
+    .await??;
+    assert_eq!(
+        error.error.data,
+        Some(json!({ "kind": "historyProjectionUnavailable" }))
+    );
     Ok(())
 }
 

@@ -247,3 +247,17 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/cli/src/localization.rs`
 - `codex-rs/tui/src/onboarding/trust_directory.rs`
 - `codex-rs/tui/src/status_indicator_widget.rs`
+
+소스 갱신 `b34fa5a1aab69b1e0044a23d34b153099b33813b` (통합 진행 중):
+
+- `codex-rs/app-server/src/request_processors/thread_processor.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_read.rs`
+- `codex-rs/core/src/session_rollout_init_error.rs`
+- `codex-rs/core/src/session_rollout_init_error_tests.rs`
+- `codex-rs/core/src/thread_manager/shutdown.rs`
+- `codex-rs/thread-store/src/error.rs`
+- `codex-rs/thread-store/src/lib.rs`
+- `codex-rs/thread-store/src/local/thread_history/read.rs`
+- `codex-rs/thread-store/src/local/thread_history/read_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history/segment_paging.rs`
+- `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`

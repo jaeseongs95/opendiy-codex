@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::io::ErrorKind;
 use std::path::Path;
 
@@ -18,6 +19,10 @@ pub(crate) fn map_session_init_error(err: &anyhow::Error, codex_home: &Path) -> 
                 return CodexErr::InvalidRequest(message.clone());
             }
             ThreadStoreError::ThreadNotFound { .. }
+            // Display-only admission errors must never turn a failed model-session
+            // initialization into a retry or a successful partial initialization.
+            | ThreadStoreError::HistoryProjectionUnavailable
+            | ThreadStoreError::HistoryPayloadTooLarge { .. }
             | ThreadStoreError::InvalidRequest { .. }
             | ThreadStoreError::Retryable { .. }
             | ThreadStoreError::OutcomeUnknown { .. }

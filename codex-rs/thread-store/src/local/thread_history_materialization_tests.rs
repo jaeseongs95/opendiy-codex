@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::cell::Cell;
 use std::fs;
 use std::io::Write;
@@ -445,6 +446,83 @@ WHERE thread_id = ?
     .await
     .expect("read projection state");
     assert_eq!(projection_state, (rollout_len, 5));
+}
+
+#[tokio::test]
+async fn unavailable_projection_recovers_without_rewriting_rollout_or_partial_line() {
+    let home = TempDir::new().unwrap();
+    let store = projection_store(home.path()).await;
+    let thread_id = ThreadId::default();
+    create_paginated_thread(&store, thread_id).await;
+    store
+        .persist_thread(thread_id, PersistContext::Standard)
+        .await
+        .unwrap();
+    store
+        .append_items(AppendThreadItemsParams {
+            thread_id,
+            items: vec![
+                turn_started("turn-1"),
+                completed_item(
+                    thread_id,
+                    "turn-1",
+                    agent_message("agent-1", MessagePhase::FinalAnswer),
+                ),
+            ],
+        })
+        .await
+        .unwrap();
+    let path = store.live_rollout_path(thread_id).await.unwrap();
+    let before = fs::read(&path).unwrap();
+    let pool = store.thread_history_db().await.unwrap();
+    for table in [
+        "thread_turns",
+        "thread_items",
+        "thread_history_projection_state",
+    ] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE thread_id = ?"))
+            .bind(thread_id.to_string())
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let params = ListTurnsParams {
+        thread_id,
+        include_archived: false,
+        cursor: None,
+        page_size: 10,
+        sort_direction: crate::SortDirection::Desc,
+        items_view: StoredTurnItemsView::NotLoaded,
+    };
+    assert!(matches!(
+        store.list_turns(params.clone()).await,
+        Err(crate::ThreadStoreError::HistoryProjectionUnavailable)
+    ));
+    super::materialize_to_sqlite(&store, thread_id, &path)
+        .await
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let page = store.list_turns(params.clone()).await.unwrap();
+    assert_eq!(page.turns.len(), 1);
+    assert_eq!(page.turns[0].turn_id, "turn-1");
+    let checkpoint = projection_state(pool, thread_id).await;
+    let suffix = rollout_line(Some(3), RolloutItem::EventMsg(EventMsg::ShutdownComplete));
+    let (first, last) = suffix.split_at(suffix.len() / 2);
+    append_suffix(&path, first);
+    super::materialize_to_sqlite(&store, thread_id, &path)
+        .await
+        .unwrap();
+    assert_eq!(projection_state(pool, thread_id).await, checkpoint);
+    assert_eq!(
+        store.list_turns(params.clone()).await.unwrap().turns.len(),
+        1
+    );
+    append_suffix(&path, &format!("{last}\n"));
+    super::materialize_to_sqlite(&store, thread_id, &path)
+        .await
+        .unwrap();
+    assert!(projection_state(pool, thread_id).await.0 > checkpoint.0);
+    assert_eq!(store.list_turns(params).await.unwrap().turns.len(), 1);
 }
 
 #[tokio::test]

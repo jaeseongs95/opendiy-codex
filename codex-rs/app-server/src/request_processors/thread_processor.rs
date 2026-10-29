@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #[path = "daemon_continuation.rs"]
 mod daemon_continuation;
 
@@ -3471,6 +3471,10 @@ impl ThreadRequestProcessor {
             })
             .await
             .map_err(|err| match err {
+                err @ (ThreadStoreError::HistoryPayloadTooLarge { .. }
+                | ThreadStoreError::HistoryProjectionUnavailable) => {
+                    paginated_history_list_error(err)
+                }
                 ThreadStoreError::InvalidRequest { message } => invalid_request(message),
                 ThreadStoreError::Unsupported { operation } => {
                     unsupported_thread_store_operation(operation)
@@ -3489,6 +3493,9 @@ impl ThreadRequestProcessor {
                     .await?;
             }
             turns.push(turn);
+            if matches!(items_view, TurnItemsView::Full) {
+                check_history_response_bytes(&turns)?;
+            }
         }
         let loaded_thread = self.thread_manager.get_thread(thread_id).await.ok();
         let has_live_running_thread = match loaded_thread.as_ref() {
@@ -3502,11 +3509,13 @@ impl ThreadRequestProcessor {
                 .await,
             has_live_running_thread,
         );
-        Ok(ThreadTurnsListResponse {
+        let response = ThreadTurnsListResponse {
             data: turns,
             next_cursor: page.next_cursor,
             backwards_cursor: page.backwards_cursor,
-        })
+        };
+        check_history_response_bytes(&response)?;
+        Ok(response)
     }
 
     // Older clients still request `itemsView: "full"` from turn pages. Keep this
@@ -3537,6 +3546,7 @@ impl ThreadRequestProcessor {
             for item in page.items {
                 items.push(deserialize_stored_thread_item(item)?);
             }
+            check_history_response_bytes(&items)?;
             let Some(next_cursor) = page.next_cursor else {
                 return Ok(items);
             };
@@ -3568,6 +3578,7 @@ impl ThreadRequestProcessor {
                 )
                 .await?;
             turns.extend(page.data);
+            check_history_response_bytes(&turns)?;
             let Some(next_cursor) = page.next_cursor else {
                 return Ok(turns);
             };
@@ -3701,6 +3712,10 @@ impl ThreadRequestProcessor {
             })
             .await
             .map_err(|err| match err {
+                err @ (ThreadStoreError::HistoryPayloadTooLarge { .. }
+                | ThreadStoreError::HistoryProjectionUnavailable) => {
+                    paginated_history_list_error(err)
+                }
                 ThreadStoreError::InvalidRequest { message } if has_anchor => {
                     invalid_params(message)
                 }
@@ -3719,11 +3734,13 @@ impl ThreadRequestProcessor {
             .map(stored_thread_item_to_entry)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(ThreadItemsListResponse {
+        let response = ThreadItemsListResponse {
             data,
             next_cursor: page.next_cursor,
             backwards_cursor: page.backwards_cursor,
-        })
+        };
+        check_history_response_bytes(&response)?;
+        Ok(response)
     }
 
     async fn thread_items_read_response_inner(
@@ -3762,6 +3779,10 @@ impl ThreadRequestProcessor {
                 ThreadStoreError::Unsupported { .. } => {
                     method_not_found("thread/items/read is not supported yet")
                 }
+                err @ (ThreadStoreError::HistoryPayloadTooLarge { .. }
+                | ThreadStoreError::HistoryProjectionUnavailable) => {
+                    paginated_history_list_error(err)
+                }
                 ThreadStoreError::ThreadNotFound { thread_id } => {
                     invalid_request(format!("no rollout found for thread id {thread_id}"))
                 }
@@ -3773,7 +3794,9 @@ impl ThreadRequestProcessor {
             .map(stored_thread_item_to_entry)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(ThreadItemsReadResponse { data })
+        let response = ThreadItemsReadResponse { data };
+        check_history_response_bytes(&response)?;
+        Ok(response)
     }
 
     async fn load_thread_turns_list_history(
@@ -6372,8 +6395,28 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
     }
 }
 
-fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
+pub(super) fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
     match err {
+        ThreadStoreError::HistoryProjectionUnavailable => {
+            let mut error = internal_error(
+                "display history projection is unavailable; retry after history persistence",
+            );
+            error.data = Some(serde_json::json!({ "kind": "historyProjectionUnavailable" }));
+            error
+        }
+        ThreadStoreError::HistoryPayloadTooLarge {
+            max_bytes,
+            actual_bytes,
+            item,
+        } => {
+            let mut error = invalid_request("history payload exceeds serialized byte limit");
+            error.data = Some(serde_json::json!({
+                "kind": if item { "historyItemTooLarge" } else { "historyPageTooLarge" },
+                "maxBytes": max_bytes,
+                "actualBytes": actual_bytes,
+            }));
+            error
+        }
         ThreadStoreError::InvalidRequest { message } => invalid_request(message),
         ThreadStoreError::Unsupported { operation } => {
             unsupported_thread_store_operation(operation)
@@ -6383,6 +6426,24 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
         }
         err => internal_error(format!("failed to list thread history: {err}")),
     }
+}
+
+pub(super) fn check_history_response_bytes<T: serde::Serialize + ?Sized>(
+    response: &T,
+) -> Result<(), JSONRPCErrorError> {
+    let actual_bytes = serde_json::to_vec(response)
+        .map_err(|_| internal_error("failed to serialize history response"))?
+        .len();
+    if actual_bytes > codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES {
+        return Err(paginated_history_list_error(
+            ThreadStoreError::HistoryPayloadTooLarge {
+                max_bytes: codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES,
+                actual_bytes,
+                item: false,
+            },
+        ));
+    }
+    Ok(())
 }
 
 fn deserialize_stored_thread_item(

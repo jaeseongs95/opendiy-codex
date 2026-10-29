@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::ThreadHistoryMode;
 use serde::Deserialize;
@@ -6,6 +7,9 @@ use sqlx::Row;
 
 use super::super::LocalThreadStore;
 use super::super::rollout_lineage::RolloutLineage;
+use super::segment_paging::ItemPageByteBudget;
+use super::segment_paging::finish_page_with_more;
+use super::segment_paging::load_admitted_item;
 use super::segment_paging::page_item_rows;
 use super::segment_paging::page_turn_rows;
 use super::segment_paging::validate_page_size;
@@ -50,6 +54,7 @@ pub(super) struct RolloutHistoryPosition {
 }
 
 pub(super) struct StoredTurnRow {
+    pub rollout_id: ThreadId,
     pub position: RolloutHistoryPosition,
     pub turn_id: String,
     pub root_turn_id: Option<String>,
@@ -61,37 +66,6 @@ pub(super) struct StoredTurnRow {
     pub first_user_item_id: Option<String>,
     pub final_agent_item_id: Option<String>,
     pub summary_items: Vec<StoredThreadItem>,
-}
-
-#[derive(sqlx_macros::FromRow)]
-pub(super) struct StoredSummaryColumns {
-    summary_first_user_turn_id: Option<String>,
-    summary_first_user_item_id: Option<String>,
-    summary_first_user_rollout_ordinal: Option<i64>,
-    summary_first_user_updated_at_ordinal: Option<i64>,
-    summary_first_user_created_at_ms: Option<i64>,
-    summary_first_user_started_at_ms: Option<i64>,
-    summary_first_user_completed_at_ms: Option<i64>,
-    summary_first_user_item_json: Option<String>,
-    summary_final_agent_turn_id: Option<String>,
-    summary_final_agent_item_id: Option<String>,
-    summary_final_agent_rollout_ordinal: Option<i64>,
-    summary_final_agent_updated_at_ordinal: Option<i64>,
-    summary_final_agent_created_at_ms: Option<i64>,
-    summary_final_agent_started_at_ms: Option<i64>,
-    summary_final_agent_completed_at_ms: Option<i64>,
-    summary_final_agent_item_json: Option<String>,
-}
-
-struct StoredSummaryItemColumns {
-    turn_id: Option<String>,
-    item_id: Option<String>,
-    rollout_ordinal: Option<i64>,
-    updated_at_ordinal: Option<i64>,
-    created_at_ms: Option<i64>,
-    started_at_ms: Option<i64>,
-    completed_at_ms: Option<i64>,
-    item_json: Option<String>,
 }
 
 pub(super) struct StoredThreadItemRow {
@@ -125,33 +99,54 @@ pub(in crate::local) async fn list_turns(
         params.items_view,
     )
     .await?;
-    let mut turns = Vec::with_capacity(page.rows.len());
-    for turn in page.rows {
-        let items = match params.items_view {
-            StoredTurnItemsView::NotLoaded => Vec::new(),
-            StoredTurnItemsView::Summary
-                if matches!(turn.status, StoredTurnStatus::Interrupted)
-                    && turn.first_user_item_id.is_none()
-                    && turn.final_agent_item_id.is_none() =>
-            {
-                // Synthetic fork-boundary rows are interrupted without local summary IDs.
-                // Load their summary from the earliest visible source turn.
-                load_inherited_summary_items(pool, &lineage, &turn).await?
+    let mut budget = ItemPageByteBudget::new(params.thread_id)?;
+    let mut rows = Vec::with_capacity(page.rows.len());
+    let mut has_more = page.next_cursor.is_some();
+    for mut turn in page.rows {
+        if matches!(params.items_view, StoredTurnItemsView::Summary) {
+            match load_summary_items(pool, &lineage, &turn, &mut budget).await {
+                Ok(items) => turn.summary_items = items,
+                Err(error)
+                    if !rows.is_empty()
+                        && matches!(error, ThreadStoreError::HistoryPayloadTooLarge { .. }) =>
+                {
+                    has_more = true;
+                    break;
+                }
+                Err(error) => return Err(error),
             }
-            StoredTurnItemsView::Summary => turn.summary_items,
-        };
-        turns.push(StoredTurn {
+        }
+        if !budget.admit_turn(&turn, params.items_view)? {
+            if rows.is_empty() {
+                return Err(budget.page_too_large());
+            }
+            has_more = true;
+            break;
+        }
+        rows.push(turn);
+    }
+    let page = finish_page_with_more(
+        params.thread_id,
+        CursorScope::Turns,
+        rows,
+        params.page_size,
+        has_more,
+    )?;
+    let turns = page
+        .rows
+        .into_iter()
+        .map(|turn| StoredTurn {
             turn_id: turn.turn_id,
             root_turn_id: turn.root_turn_id,
-            items,
+            items: turn.summary_items,
             items_view: params.items_view,
             status: turn.status,
             error: turn.error,
             started_at: turn.started_at,
             completed_at: turn.completed_at,
             duration_ms: turn.duration_ms,
-        });
-    }
+        })
+        .collect();
 
     Ok(TurnPage {
         turns,
@@ -230,47 +225,68 @@ pub(super) async fn validate_thread_for_paginated_reads(
     }
 }
 
-async fn load_inherited_summary_items(
+async fn load_summary_items(
     pool: &sqlx::SqlitePool,
     lineage: &RolloutLineage,
     turn: &StoredTurnRow,
+    page_budget: &mut ItemPageByteBudget,
 ) -> ThreadStoreResult<Vec<StoredThreadItem>> {
-    let source = find_source_turn(pool, lineage, turn.turn_id.as_str()).await?;
+    // A synthetic fork boundary inherits the earliest visible source's summary.
+    let (rollout_id, first_user, final_agent) =
+        if matches!(turn.status, StoredTurnStatus::Interrupted)
+            && turn.first_user_item_id.is_none()
+            && turn.final_agent_item_id.is_none()
+        {
+            let source = find_source_turn(pool, lineage, &turn.turn_id).await?;
+            (
+                source.rollout_id,
+                source.first_user_item_id,
+                source.final_agent_item_id,
+            )
+        } else {
+            (
+                turn.rollout_id,
+                turn.first_user_item_id.clone(),
+                turn.final_agent_item_id.clone(),
+            )
+        };
     let Some(segment) = lineage
         .segments()
         .iter()
-        .find(|segment| segment.rollout_id() == source.rollout_id)
+        .find(|segment| segment.rollout_id() == rollout_id)
     else {
         return Ok(Vec::new());
     };
-    let start_ordinal = sqlite_integer(segment.start_ordinal(), "rollout ordinal")?;
-    let end_ordinal = segment
+    let start = sqlite_integer(segment.start_ordinal(), "rollout ordinal")?;
+    let end = segment
         .end_ordinal()
         .map(|ordinal| sqlite_integer(ordinal, "rollout ordinal"))
         .transpose()?;
-    let rows = sqlx::query(
-        r#"
-SELECT turn_id, item_id, updated_at_ordinal, created_at_ms, started_at_ms, completed_at_ms, item_json
-FROM thread_items
-WHERE thread_id = ?
-  AND turn_id = ?
-  AND rollout_ordinal >= ?
-  AND (? IS NULL OR rollout_ordinal < ?)
-  AND (item_id = ? OR item_id = ?)
-ORDER BY rollout_ordinal ASC
-        "#,
-    )
-    .bind(source.rollout_id.to_string())
-    .bind(turn.turn_id.as_str())
-    .bind(start_ordinal)
-    .bind(end_ordinal)
-    .bind(end_ordinal)
-    .bind(source.first_user_item_id)
-    .bind(source.final_agent_item_id)
-    .fetch_all(pool)
-    .await
-    .map_err(super::thread_history_error)?;
-    rows.into_iter().map(stored_thread_item).collect()
+    let mut transaction = pool.begin().await.map_err(super::thread_history_error)?;
+    let candidates = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ? AND turn_id = ? AND rollout_ordinal >= ? AND (? IS NULL OR rollout_ordinal < ?) AND (item_id = ? OR item_id = ?) ORDER BY rollout_ordinal ASC")
+        .bind(rollout_id.to_string()).bind(&turn.turn_id).bind(start).bind(end).bind(end)
+        .bind(first_user).bind(final_agent).fetch_all(&mut *transaction).await.map_err(super::thread_history_error)?;
+    let mut raw_bytes = 0usize;
+    for candidate in &candidates {
+        let bytes = usize::try_from(candidate.try_get::<i64, _>("item_json_bytes")?)
+            .map_err(super::thread_history_error)?;
+        super::segment_paging::check_item_bytes(bytes)?;
+        raw_bytes = raw_bytes.saturating_add(bytes);
+    }
+    if !page_budget.preflight_raw_bytes(raw_bytes) {
+        return Err(page_budget.page_too_large());
+    }
+    let mut budget = ItemPageByteBudget::new(rollout_id)?;
+    let mut items = Vec::new();
+    for candidate in candidates {
+        let Some(row) =
+            load_admitted_item(&mut transaction, rollout_id, candidate, &mut budget).await?
+        else {
+            return Err(budget.page_too_large());
+        };
+        items.push(row.item);
+    }
+    Ok(items)
 }
 
 pub(super) fn parse_cursor(
@@ -306,7 +322,11 @@ pub(super) fn serialize_cursor(
     .map_err(super::thread_history_error)
 }
 
-pub(super) fn stored_turn_row(row: sqlx::sqlite::SqliteRow) -> ThreadStoreResult<StoredTurnRow> {
+pub(super) fn stored_turn_row(
+    row: sqlx::sqlite::SqliteRow,
+    rollout_id: ThreadId,
+    error_json: Option<String>,
+) -> ThreadStoreResult<StoredTurnRow> {
     let status = match row.try_get::<String, _>("status")?.as_str() {
         "completed" => StoredTurnStatus::Completed,
         "interrupted" => StoredTurnStatus::Interrupted,
@@ -318,13 +338,13 @@ pub(super) fn stored_turn_row(row: sqlx::sqlite::SqliteRow) -> ThreadStoreResult
             });
         }
     };
-    let error_json = row.try_get::<Option<String>, _>("error_json")?;
     let error = error_json
         .as_deref()
         .map(serde_json::from_str)
         .transpose()
         .map_err(super::thread_history_error)?;
     Ok(StoredTurnRow {
+        rollout_id,
         position: RolloutHistoryPosition {
             rollout_ordinal: row.try_get("rollout_ordinal")?,
         },
@@ -339,78 +359,6 @@ pub(super) fn stored_turn_row(row: sqlx::sqlite::SqliteRow) -> ThreadStoreResult
         final_agent_item_id: row.try_get("final_agent_item_id")?,
         summary_items: Vec::new(),
     })
-}
-
-impl StoredSummaryColumns {
-    pub(super) fn into_stored_items(self) -> ThreadStoreResult<Vec<StoredThreadItem>> {
-        let mut summary_items = [
-            StoredSummaryItemColumns {
-                turn_id: self.summary_first_user_turn_id,
-                item_id: self.summary_first_user_item_id,
-                rollout_ordinal: self.summary_first_user_rollout_ordinal,
-                updated_at_ordinal: self.summary_first_user_updated_at_ordinal,
-                created_at_ms: self.summary_first_user_created_at_ms,
-                started_at_ms: self.summary_first_user_started_at_ms,
-                completed_at_ms: self.summary_first_user_completed_at_ms,
-                item_json: self.summary_first_user_item_json,
-            }
-            .into_stored_item()?,
-            StoredSummaryItemColumns {
-                turn_id: self.summary_final_agent_turn_id,
-                item_id: self.summary_final_agent_item_id,
-                rollout_ordinal: self.summary_final_agent_rollout_ordinal,
-                updated_at_ordinal: self.summary_final_agent_updated_at_ordinal,
-                created_at_ms: self.summary_final_agent_created_at_ms,
-                started_at_ms: self.summary_final_agent_started_at_ms,
-                completed_at_ms: self.summary_final_agent_completed_at_ms,
-                item_json: self.summary_final_agent_item_json,
-            }
-            .into_stored_item()?,
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-        summary_items.sort_by_key(|(rollout_ordinal, _)| *rollout_ordinal);
-        Ok(summary_items.into_iter().map(|(_, item)| item).collect())
-    }
-}
-
-impl StoredSummaryItemColumns {
-    fn into_stored_item(self) -> ThreadStoreResult<Option<(i64, StoredThreadItem)>> {
-        let Some(item_id) = self.item_id else {
-            return Ok(None);
-        };
-        let (
-            Some(turn_id),
-            Some(rollout_ordinal),
-            Some(updated_at_ordinal),
-            Some(created_at_ms),
-            Some(item_json),
-        ) = (
-            self.turn_id,
-            self.rollout_ordinal,
-            self.updated_at_ordinal,
-            self.created_at_ms,
-            self.item_json,
-        )
-        else {
-            return Err(ThreadStoreError::Internal {
-                message: "stored summary item is missing joined columns".to_string(),
-            });
-        };
-        Ok(Some((
-            rollout_ordinal,
-            StoredThreadItem {
-                turn_id,
-                item_id,
-                updated_at_ordinal: stored_updated_at_ordinal(updated_at_ordinal)?,
-                created_at_ms,
-                started_at_ms: self.started_at_ms,
-                completed_at_ms: self.completed_at_ms,
-                item_json: item_json.into_bytes(),
-            },
-        )))
-    }
 }
 
 pub(super) fn stored_thread_item_row(

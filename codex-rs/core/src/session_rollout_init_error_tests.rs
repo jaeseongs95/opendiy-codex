@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Checks that storage classifications retain the existing session startup failure policy.
 
 use super::map_session_init_error;
@@ -10,6 +11,12 @@ use std::path::Path;
 #[test]
 fn storage_failures_remain_fatal_during_session_initialization() {
     for error in [
+        ThreadStoreError::HistoryProjectionUnavailable,
+        ThreadStoreError::HistoryPayloadTooLarge {
+            max_bytes: 8,
+            actual_bytes: 9,
+            item: true,
+        },
         ThreadStoreError::ThreadNotFound {
             thread_id: ThreadId::new(),
         },

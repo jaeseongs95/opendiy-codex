@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::fs;
 use std::time::Duration;
 
@@ -332,6 +333,335 @@ async fn item_anchors_page_exclusively_while_the_turn_grows() {
         assert!(page.items.is_empty());
         assert_eq!((page.next_cursor, page.backwards_cursor), (None, None));
     }
+}
+
+#[tokio::test]
+async fn item_byte_pages_preserve_prefix_and_reverse_cursors() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    for (id, ordinal) in [("agent-1", 11), ("agent-2", 12), ("agent-3", 13)] {
+        insert_item(db, thread_id, "turn", id, ordinal).await;
+        set_agent_payload(db, thread_id, id, &"x".repeat(3 * 1024 * 1024)).await;
+    }
+    let first = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            None,
+            100,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect("byte-bounded first page");
+    assert_eq!(item_ids(&first), vec!["agent-1", "agent-2"]);
+    let second = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            first.next_cursor,
+            100,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect("remaining prefix");
+    assert_eq!(item_ids(&second), vec!["agent-3"]);
+    assert!(second.next_cursor.is_none());
+    let reverse = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            second.backwards_cursor,
+            100,
+            SortDirection::Desc,
+        ))
+        .await
+        .expect("reverse byte page");
+    assert_eq!(item_ids(&reverse), vec!["agent-3", "agent-2"]);
+    let last = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            reverse.next_cursor,
+            100,
+            SortDirection::Desc,
+        ))
+        .await
+        .expect("reverse continuation");
+    assert_eq!(item_ids(&last), vec!["agent-1"]);
+
+    // An ID lookup has no continuation cursor: it must fail rather than silently
+    // returning only the first two requested IDs.
+    let error = store
+        .list_items(item_lookup_params(
+            thread_id,
+            "turn",
+            &["agent-1", "agent-2", "agent-3"],
+        ))
+        .await
+        .expect_err("lookup cannot be partial");
+    assert!(matches!(
+        error,
+        ThreadStoreError::HistoryPayloadTooLarge { item: false, .. }
+    ));
+}
+
+#[tokio::test]
+async fn oversized_utf8_item_is_not_skipped_or_deserialized() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    insert_item(db, thread_id, "turn", "agent-1", 11).await;
+    insert_item(db, thread_id, "turn", "agent-2", 12).await;
+    let bytes = set_agent_payload(
+        db,
+        thread_id,
+        "agent-2",
+        &"한".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES / 3 + 1),
+    )
+    .await;
+    let first = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            None,
+            100,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect("prefix before giant item");
+    assert_eq!(item_ids(&first), vec!["agent-1"]);
+    let error = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            first.next_cursor,
+            100,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect_err("giant UTF-8 item");
+    assert!(
+        matches!(error, ThreadStoreError::HistoryPayloadTooLarge { max_bytes: crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES, actual_bytes, item: true } if actual_bytes == bytes)
+    );
+
+    // Invalid JSON larger than the limit proves admission precedes deserialization.
+    sqlx::query("UPDATE thread_items SET item_json = CAST(zeroblob(?) AS TEXT) WHERE thread_id = ? AND item_id = 'agent-1'")
+        .bind(i64::try_from(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1).unwrap()).bind(thread_id.to_string()).execute(db).await.unwrap();
+    let error = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            None,
+            1,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect_err("preflight precedes JSON parse");
+    assert!(matches!(
+        error,
+        ThreadStoreError::HistoryPayloadTooLarge { item: true, .. }
+    ));
+    let lineage = store
+        .resolve_rollout_lineage_for_history_page(thread_id)
+        .await
+        .unwrap();
+    let single = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_lazy_with((*db.connect_options()).clone());
+    super::super::segment_paging::page_item_rows(
+        &single,
+        &lineage,
+        &item_params(thread_id, Some("turn"), None, 1, SortDirection::Asc),
+    )
+    .await
+    .err()
+    .expect("oversized read releases transaction");
+    timeout_for_connection(&single).await;
+}
+
+#[tokio::test]
+async fn update_order_byte_cursor_keeps_appended_items() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    for (id, ordinal) in [("agent-1", 11), ("agent-2", 12), ("agent-3", 13)] {
+        insert_item(db, thread_id, "turn", id, ordinal).await;
+        set_agent_payload(db, thread_id, id, &"x".repeat(3 * 1024 * 1024)).await;
+    }
+    let mut params = updated_item_params(thread_id, 0);
+    params.page_size = 100;
+    let first = store.list_items(params.clone()).await.unwrap();
+    assert_eq!(item_ids(&first), vec!["agent-1", "agent-2"]);
+    insert_item(db, thread_id, "turn", "agent-4", 14).await;
+    params.position = first.next_cursor.map(ListItemsPosition::Cursor);
+    let next = store.list_items(params).await.unwrap();
+    assert_eq!(item_ids(&next), vec!["agent-3", "agent-4"]);
+    assert!(next.next_cursor.is_none());
+}
+
+#[tokio::test]
+async fn item_size_probe_and_payload_share_update_snapshot() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    insert_item(db, thread_id, "turn", "agent-1", 11).await;
+    let mut transaction = db.begin().await.unwrap();
+    let candidate = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ?")
+        .bind(thread_id.to_string()).fetch_one(&mut *transaction).await.unwrap();
+    set_agent_payload(
+        db,
+        thread_id,
+        "agent-1",
+        &"x".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1),
+    )
+    .await;
+    let mut budget = ItemPageByteBudget::new(thread_id).unwrap();
+    let row = load_admitted_item(&mut transaction, thread_id, candidate, &mut budget)
+        .await
+        .unwrap()
+        .expect("old snapshot remains admitted");
+    assert_eq!(row.item, expected_item("turn", "agent-1", 11));
+    drop(transaction);
+    assert!(matches!(
+        store
+            .list_items(item_params(
+                thread_id,
+                Some("turn"),
+                None,
+                1,
+                SortDirection::Asc
+            ))
+            .await,
+        Err(ThreadStoreError::HistoryPayloadTooLarge { item: true, .. })
+    ));
+}
+
+#[tokio::test]
+async fn serialized_entry_limit_includes_wire_metadata() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    insert_item(db, thread_id, "turn", "agent-1", 11).await;
+    let base = set_agent_payload(db, thread_id, "agent-1", "").await;
+    let bytes = set_agent_payload(
+        db,
+        thread_id,
+        "agent-1",
+        &"x".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES - base - 1),
+    )
+    .await;
+    assert!(bytes < crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES);
+    let error = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            None,
+            1,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect_err("wire metadata also counts");
+    assert!(
+        matches!(error, ThreadStoreError::HistoryPayloadTooLarge { max_bytes: crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES, actual_bytes, item: true } if actual_bytes > crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES)
+    );
+}
+
+#[tokio::test]
+async fn summary_byte_pages_and_missing_projection_are_explicit() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    for (turn, item, ordinal) in [
+        ("turn-1", "agent-1", 10),
+        ("turn-2", "agent-2", 20),
+        ("turn-3", "agent-3", 30),
+    ] {
+        insert_turn(
+            db,
+            thread_id,
+            turn,
+            ordinal,
+            "completed",
+            None,
+            None,
+            Some(item),
+        )
+        .await;
+        insert_item(db, thread_id, turn, item, ordinal + 1).await;
+        set_agent_payload(db, thread_id, item, &"x".repeat(3 * 1024 * 1024)).await;
+    }
+    let first = store
+        .list_turns(turn_params(
+            thread_id,
+            None,
+            100,
+            SortDirection::Asc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(turn_ids(&first), vec!["turn-1", "turn-2"]);
+    let second = store
+        .list_turns(turn_params(
+            thread_id,
+            first.next_cursor,
+            100,
+            SortDirection::Asc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(turn_ids(&second), vec!["turn-3"]);
+    sqlx::query("DELETE FROM thread_history_projection_state WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(db)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .list_turns(turn_params(
+                thread_id,
+                None,
+                10,
+                SortDirection::Desc,
+                StoredTurnItemsView::NotLoaded
+            ))
+            .await,
+        Err(ThreadStoreError::HistoryProjectionUnavailable)
+    ));
+    assert!(matches!(
+        store
+            .list_items(item_params(
+                thread_id,
+                Some("turn-1"),
+                None,
+                10,
+                SortDirection::Asc
+            ))
+            .await,
+        Err(ThreadStoreError::HistoryProjectionUnavailable)
+    ));
+}
+
+async fn timeout_for_connection(pool: &sqlx::SqlitePool) {
+    let _connection = tokio::time::timeout(Duration::from_secs(2), pool.acquire())
+        .await
+        .expect("transaction returns its only pool slot")
+        .unwrap();
+}
+
+async fn set_agent_payload(
+    db: &sqlx::SqlitePool,
+    thread_id: ThreadId,
+    item_id: &str,
+    text: &str,
+) -> usize {
+    let json =
+        serde_json::json!({ "type": "agentMessage", "id": item_id, "text": text }).to_string();
+    let bytes = json.len();
+    sqlx::query("UPDATE thread_items SET item_json = ? WHERE thread_id = ? AND item_id = ?")
+        .bind(json)
+        .bind(thread_id.to_string())
+        .bind(item_id)
+        .execute(db)
+        .await
+        .unwrap();
+    bytes
 }
 
 #[tokio::test]
@@ -1656,6 +1986,7 @@ async fn insert_turn(
     first_user_item_id: Option<&str>,
     final_agent_item_id: Option<&str>,
 ) {
+    seed_projection_checkpoint(db, thread_id).await;
     sqlx::query(
         r#"
 INSERT INTO thread_turns (
@@ -1688,6 +2019,7 @@ async fn insert_item(
     item_id: &str,
     rollout_ordinal: i64,
 ) {
+    seed_projection_checkpoint(db, thread_id).await;
     let (item_type, item_json) = fixture_item(item_id);
     sqlx::query(
         "INSERT INTO thread_items (thread_id, turn_id, item_id, rollout_ordinal, updated_at_ordinal, created_at_ms, item_type, item_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1703,6 +2035,13 @@ async fn insert_item(
     .execute(db)
     .await
     .expect("insert item fixture");
+}
+
+async fn seed_projection_checkpoint(db: &sqlx::SqlitePool, thread_id: ThreadId) {
+    // These tests insert projected rows directly rather than replaying a durable
+    // rollout. Supply the companion checkpoint explicitly as part of that fixture.
+    sqlx::query("INSERT OR IGNORE INTO thread_history_projection_state (thread_id, next_rollout_byte_offset, next_rollout_ordinal) VALUES (?, 0, 1)")
+        .bind(thread_id.to_string()).execute(db).await.expect("seed projection checkpoint");
 }
 
 fn turn_params(
