@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
 [package]
 name = "codex-app-server-transport"
 version.workspace = true
@@ -52,7 +53,7 @@ tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 url = { workspace = true }
-uuid = { workspace = true, features = ["serde", "v7"] }
+uuid = { workspace = true, features = ["serde", "v5", "v7"] }
 zstd = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -288,6 +288,7 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
 
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url: TEST_REMOTE_CONTROL_URL.to_string(),
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -363,6 +364,7 @@ async fn managed_disable_overrides_startup_and_persisted_enablement() {
 
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::DisabledByRequirements,
@@ -814,6 +816,7 @@ async fn remote_control_transport_manages_virtual_clients_and_routes_messages() 
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1110,6 +1113,7 @@ async fn remote_control_transport_reconnects_after_disconnect() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1213,6 +1217,7 @@ async fn remote_control_transport_refreshes_server_token_after_websocket_unautho
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1295,6 +1300,7 @@ async fn remote_control_start_allows_remote_control_invalid_url_when_disabled() 
     let shutdown_token = CancellationToken::new();
     let (remote_task, _remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url: "https://internal.example.com/backend-api/".to_string(),
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1338,6 +1344,7 @@ async fn remote_control_start_allows_missing_auth_when_enabled() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, _remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1374,6 +1381,7 @@ async fn remote_control_start_reports_missing_state_db_as_disabled_when_enabled(
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1434,6 +1442,7 @@ async fn remote_control_handle_enable_disable_stops_and_restarts_connections() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1554,6 +1563,7 @@ async fn remote_control_transport_clears_outgoing_buffer_when_backend_acks() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -1740,6 +1750,7 @@ async fn remote_control_http_mode_enrolls_before_connecting() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2004,6 +2015,7 @@ async fn remote_control_http_mode_refreshes_persisted_enrollment_before_connecti
     let shutdown_token = CancellationToken::new();
     let (remote_task, _remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2089,6 +2101,161 @@ async fn remote_control_http_mode_refreshes_persisted_enrollment_before_connecti
 }
 
 #[tokio::test]
+async fn explicit_client_names_isolate_enrollment_pairing_and_preference() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let url = remote_control_url_for_listener(&listener);
+    let target = normalize_remote_control_url(&url).expect("target");
+    let home = TempDir::new().expect("home");
+    let state_db = remote_control_state_runtime(&home).await;
+    let original = RemoteControlEnrollmentRecord {
+        websocket_url: target.websocket_url.clone(),
+        account_id: "account_id".to_string(),
+        app_server_client_name: None,
+        server_id: "daemon-server".to_string(),
+        environment_id: "daemon-environment".to_string(),
+        server_name: "daemon".to_string(),
+        remote_control_enabled: Some(true),
+    };
+    state_db
+        .upsert_remote_control_enrollment(&original)
+        .await
+        .expect("seed daemon");
+    let mut installation_ids = Vec::new();
+    for (index, name) in ["session-a", "session-b", "session-a"]
+        .into_iter()
+        .enumerate()
+    {
+        let (events, _receiver) = mpsc::channel(CHANNEL_CAPACITY);
+        let shutdown = CancellationToken::new();
+        let (stdio_name_tx, stdio_name_rx) = oneshot::channel();
+        let (task, handle) = start_remote_control(
+            RemoteControlStartConfig {
+                client_name: Some(name.to_string()),
+                remote_control_url: url.clone(),
+                installation_id: TEST_INSTALLATION_ID.to_string(),
+                policy: RemoteControlPolicy::Allowed,
+            },
+            Some(state_db.clone()),
+            remote_control_auth_manager_with_home(&home),
+            events,
+            shutdown.clone(),
+            Some(stdio_name_rx),
+            RemoteControlStartupMode::ResolvePersisted,
+        )
+        .await
+        .expect("start");
+        // The namespace is fixed before any spawned task can run or an RPC supplies a name.
+        assert_eq!(
+            handle
+                .inner
+                .session()
+                .pairing_persistence_key(Some("rpc-client"))
+                .expect("key")
+                .as_deref(),
+            Some(name)
+        );
+        let _ = stdio_name_tx.send("stdio-client".to_string());
+        assert!(
+            !handle
+                .resolve_persisted_preference(None)
+                .await
+                .expect("isolated preference")
+        );
+        handle.enable_ephemeral().expect("ephemeral enable");
+        let installation_id = handle.status().installation_id;
+        assert_ne!(installation_id, TEST_INSTALLATION_ID);
+        assert_eq!(
+            uuid::Uuid::parse_str(&installation_id)
+                .expect("uuid")
+                .get_version_num(),
+            5
+        );
+        installation_ids.push(installation_id.clone());
+        let request = accept_http_request(&listener).await;
+        assert!(request.request_line.contains(if index < 2 {
+            "/server/enroll "
+        } else {
+            "/server/refresh "
+        }));
+        let body: serde_json::Value = serde_json::from_str(&request.body).expect("json");
+        assert_eq!(body["installation_id"], installation_id);
+        assert_eq!(
+            request.headers.get(REMOTE_CONTROL_INSTALLATION_ID_HEADER),
+            Some(&installation_id)
+        );
+        let server_id = format!("server-{name}");
+        let environment_id = format!("environment-{name}");
+        let token = format!("token-{name}");
+        respond_with_json(
+            request.stream,
+            remote_control_server_token_response(&server_id, &environment_id, &token),
+        )
+        .await;
+        let (handshake, _websocket) = accept_remote_control_backend_connection(&listener).await;
+        assert_eq!(handshake.headers.get("x-codex-server-id"), Some(&server_id));
+        assert_eq!(
+            handshake.headers.get("authorization"),
+            Some(&format!("Bearer {token}"))
+        );
+        let pairing_handle = handle.clone();
+        let pairing = tokio::spawn(async move {
+            pairing_handle
+                .start_pairing(
+                    RemoteControlPairingStartParams { manual_code: true },
+                    Some("rpc-client"),
+                )
+                .await
+        });
+        let request = accept_http_request(&listener).await;
+        assert!(request.request_line.contains("/server/pair "));
+        assert_eq!(
+            request.headers.get("authorization"),
+            Some(&format!("Bearer {token}"))
+        );
+        respond_with_json(
+            request.stream,
+            json!({
+                "pairing_code": "pairing-code", "manual_pairing_code": "ABCD-EFGH",
+                "server_id": server_id, "environment_id": environment_id,
+                "expires_at": "2099-01-01T00:00:00Z",
+            }),
+        )
+        .await;
+        assert_eq!(
+            pairing.await.expect("join").expect("pair").environment_id,
+            environment_id
+        );
+        handle.disable(Some("rpc-client")).await.expect("disable");
+        shutdown.cancel();
+        task.await.expect("shutdown");
+        let saved = state_db
+            .get_remote_control_enrollment(&target.websocket_url, "account_id", Some(name))
+            .await
+            .expect("read")
+            .expect("saved namespace survives shutdown");
+        assert_eq!(saved.server_id, server_id);
+        assert_eq!(saved.remote_control_enabled, Some(false));
+    }
+    assert_ne!(installation_ids[0], installation_ids[1]);
+    assert_eq!(installation_ids[0], installation_ids[2]);
+    let saved = state_db
+        .get_remote_control_enrollment(&target.websocket_url, "account_id", None)
+        .await
+        .expect("read")
+        .expect("daemon preserved");
+    assert_eq!(saved, original);
+    for other in ["rpc-client", "stdio-client"] {
+        assert!(
+            state_db
+                .get_remote_control_enrollment(&target.websocket_url, "account_id", Some(other))
+                .await
+                .expect("read")
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
 async fn remote_control_stdio_mode_waits_for_client_name_before_connecting() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -2126,6 +2293,7 @@ async fn remote_control_stdio_mode_waits_for_client_name_before_connecting() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, _remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2213,6 +2381,7 @@ async fn remote_control_waits_for_account_id_before_enrolling() {
     let shutdown_token = CancellationToken::new();
     let (remote_task, _remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2320,6 +2489,7 @@ async fn persisted_enable_does_not_follow_auth_to_an_account_without_a_preferenc
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2441,6 +2611,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2566,6 +2737,7 @@ async fn remote_control_http_mode_reenrolls_after_explicit_missing_server_404() 
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2707,6 +2879,7 @@ async fn remote_control_http_mode_preserves_stale_enrollment_when_reenrollment_f
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -2832,6 +3005,7 @@ async fn remote_control_http_mode_preserves_enrollment_after_generic_websocket_4
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url,
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,

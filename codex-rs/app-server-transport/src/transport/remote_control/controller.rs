@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
 //! Owns the current login's relay session and the process-facing handle.
 //! Replacement happens before cleanup; retired sessions cannot publish into their replacements.
 
@@ -263,7 +264,7 @@ impl RemoteControlHandle {
 }
 
 pub async fn start_remote_control(
-    config: RemoteControlStartConfig,
+    mut config: RemoteControlStartConfig,
     state_db: Option<Arc<StateRuntime>>,
     auth_manager: Arc<AuthManager>,
     transport_event_tx: mpsc::Sender<TransportEvent>,
@@ -271,6 +272,22 @@ pub async fn start_remote_control(
     app_server_client_name_rx: Option<oneshot::Receiver<String>>,
     startup_mode: RemoteControlStartupMode,
 ) -> io::Result<(JoinHandle<()>, RemoteControlHandle)> {
+    // Seed the key before exposing a session: an early RPC must never select another namespace.
+    let client_name = config.client_name.clone();
+    if let Some(name) = client_name.as_deref() {
+        // Keep relay identity stable for this namespace without changing the host installation ID.
+        config.installation_id = uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_OID,
+            format!("remote-control-client\0{}\0{name}", config.installation_id).as_bytes(),
+        )
+        .to_string();
+    }
+    let app_server_client_name_rx = if client_name.is_some() {
+        None
+    } else {
+        app_server_client_name_rx
+    };
+    let requires_client_name = client_name.is_some() || app_server_client_name_rx.is_some();
     let startup =
         if config.policy == RemoteControlPolicy::DisabledByRequirements || state_db.is_none() {
             RemoteControlDesiredState::Disabled
@@ -302,8 +319,8 @@ pub async fn start_remote_control(
         current: StdMutex::new(None),
         startup,
         persistence: RemoteControlPersistence::default(),
-        client_name: watch::channel(None).0,
-        requires_client_name: app_server_client_name_rx.is_some(),
+        client_name: watch::channel(client_name).0,
+        requires_client_name,
         status,
         session_changed: watch::channel(()).0,
     });

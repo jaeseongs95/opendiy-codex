@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
 //! Exercises overload deadlines and automatic reconnect backoff over real connections.
 //! Auth reloads must respect the deadline; shutdown must remain prompt.
 
@@ -49,6 +50,7 @@ async fn assert_overload_retry_after(status: &str, reject_enrollment: bool) {
     auth_manager.reload().await;
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url: remote_control_url_for_listener(&listener),
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,
@@ -212,6 +214,7 @@ async fn reconnect_backoff_covers_refresh_and_resets_after_healthy_connection() 
     let shutdown_token = CancellationToken::new();
     let (remote_task, remote_handle) = start_remote_control(
         RemoteControlStartConfig {
+            client_name: None,
             remote_control_url: remote_control_url_for_listener(&listener),
             installation_id: TEST_INSTALLATION_ID.to_string(),
             policy: RemoteControlPolicy::Allowed,

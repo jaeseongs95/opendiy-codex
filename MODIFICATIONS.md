@@ -436,3 +436,7 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/snapshots/codex_tui__app__tests__selected_unloaded_subagent_V2.snap`
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap`
 - `docs/native-cli-r27.ko.md`
+
+## 데스크톱 원격 등록 격리 (2026-10-29)
+
+선택적 `--remote-control-client-name`으로 원격 저장 키와 설치 UUID를 서버 이름별로 분리했습니다. 수정 대상 8개와 실제 시험 범위는 `docs/desktop-remote-control-evidence.json`에 기록했습니다. 기존 저작권·라이선스와 다른 기능의 변경은 보존했습니다. 전체 공개 통합 트리의 새 빌드나 실계정·휴대전화 연결 성공을 주장하지 않습니다.

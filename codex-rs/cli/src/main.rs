@@ -622,6 +622,10 @@ struct AppServerCommand {
     )]
     no_remote_control: bool,
 
+    /// Isolate remote-control registrations for this server process (1-128 ASCII letters, digits, '-', '_' or '.').
+    #[arg(long, value_name = "NAME", value_parser = codex_app_server::parse_remote_control_client_name)]
+    remote_control_client_name: Option<String>,
+
     /// Save loaded threads during managed daemon shutdown.
     #[arg(long, hide = true)]
     managed_daemon: bool,
@@ -1272,6 +1276,7 @@ async fn cli_main(
                 stdio,
                 remote_control,
                 no_remote_control,
+                remote_control_client_name,
                 managed_daemon,
                 analytics_default_enabled,
                 auth,
@@ -1279,6 +1284,10 @@ async fn cli_main(
             let strict_config = app_server_strict_config || root_strict_config;
             reject_no_remote_control_for_app_server_subcommand(
                 no_remote_control,
+                subcommand.as_ref(),
+            )?;
+            reject_remote_control_client_name_for_app_server_subcommand(
+                remote_control_client_name.as_deref(),
                 subcommand.as_ref(),
             )?;
             reject_strict_config_for_app_server_subcommand(strict_config, subcommand.as_ref())?;
@@ -1319,6 +1328,7 @@ async fn cli_main(
                         let _ = codex_app_server_daemon::maintain_stderr_log();
                     }
                     let runtime_options = codex_app_server::AppServerRuntimeOptions {
+                        remote_control_client_name,
                         cloud_skills_snapshot,
                         code_mode_host_transport: code_mode_host.into(),
                         managed_daemon,
@@ -2422,6 +2432,17 @@ fn reject_no_remote_control_for_app_server_subcommand(
             "`--no-remote-control` only applies when starting app-server; it is not supported for `codex {subcommand}`"
         );
     }
+    Ok(())
+}
+
+fn reject_remote_control_client_name_for_app_server_subcommand(
+    client_name: Option<&str>,
+    subcommand: Option<&AppServerSubcommand>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        client_name.is_none() || subcommand.is_none(),
+        "`--remote-control-client-name` only applies when starting app-server"
+    );
     Ok(())
 }
 
@@ -4379,6 +4400,58 @@ enabled = true
         let enabled = app_server_from_args(["codex", "app-server", "--remote-control"].as_ref());
         assert!(enabled.remote_control);
         assert!(!enabled.no_remote_control);
+    }
+
+    #[test]
+    fn app_server_remote_control_client_name_is_explicit_and_validated() {
+        assert!(
+            app_server_from_args(&["codex", "app-server"])
+                .remote_control_client_name
+                .is_none()
+        );
+        let name = "server-5f093fb2_7c43.4af7";
+        let server =
+            app_server_from_args(&["codex", "app-server", "--remote-control-client-name", name]);
+        assert_eq!(server.remote_control_client_name.as_deref(), Some(name));
+        assert!(!server.remote_control);
+        assert!(
+            reject_remote_control_client_name_for_app_server_subcommand(Some(name), None).is_ok()
+        );
+        let daemon = app_server_from_args(&["codex", "app-server", "daemon", "version"]);
+        assert!(
+            reject_remote_control_client_name_for_app_server_subcommand(
+                Some(name),
+                daemon.subcommand.as_ref()
+            )
+            .is_err()
+        );
+        assert!(
+            reject_remote_control_client_name_for_app_server_subcommand(
+                None,
+                daemon.subcommand.as_ref()
+            )
+            .is_ok()
+        );
+        for invalid in ["", " ", "server/name", "서버", "name\n", &"a".repeat(129)] {
+            assert!(
+                MultitoolCli::try_parse_from([
+                    "codex",
+                    "app-server",
+                    "--remote-control-client-name",
+                    invalid,
+                ])
+                .is_err()
+            );
+        }
+        assert!(
+            MultitoolCli::try_parse_from([
+                "codex",
+                "app-server",
+                "--remote-control-client-name",
+                &"a".repeat(128),
+            ])
+            .is_ok()
+        );
     }
 
     #[test]

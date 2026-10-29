@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "testedSource": "64eddac48043abbb8defeb39fbcfd4b0301b7341",
+  "runtimeBase": "3a03cbdadf186d74af73fcc5825afc25d3d85f39",
+  "publicationBase": "f17cb44dd601a81d8b142f3f9af4559b6d22c8e7",
+  "patchSha256": "0aef0dba5ada9c15ae4691a474c94377a49724c9f1e1cd92960ad3b42c8cb315",
+  "files": [
+    {
+      "path": "codex-rs/app-server-transport/Cargo.toml",
+      "testedSha256": "478ec3b281e77b311a8ab30231ff18fe371e04bdc4e330314f71d189f279cd71",
+      "publishedSha256": "0bbd9d7c291cec46465287b82549984f4658a717f7a360482f31d3d2a908c558",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/controller.rs",
+      "testedSha256": "e5eb26a4f12fe11d7dddf3693f6d2d79d845509d83650c0cb9b4d3a2cb16256e",
+      "publishedSha256": "2df289eb0b92adeed3f7ca8e7881627b6625fec20f13ad2e6a1767f02ded088a",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/mod.rs",
+      "testedSha256": "41314116753eab60be11385fcee81aef5c966c4bfbc2155ad48c452b4fdf56f4",
+      "publishedSha256": "bd48e1f20b81c81d1a53a66d1cac9e308cbe601b8afed20bf7601080fd7e9ed5",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/tests.rs",
+      "testedSha256": "9368ee27e5757c8a87f253299eb88fed0f451d8afa2787a5c9bf05f7f337dc5a",
+      "publishedSha256": "ae9d63e12b3536a70f5462f15a27e726432d267f266f0e02b4c80b5dac59163f",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/tests/retry_tests.rs",
+      "testedSha256": "3b76cd0dab0e09eef22ec37511f34dd090db325e8b420e0a401f1630facf7a11",
+      "publishedSha256": "c96d61c64b778e5e0bc93d3f42bcab16a4887c79ef22bcaa866ac5802d783269",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server/src/lib.rs",
+      "testedSha256": "be7166da37f49092ae4c48084fe576cbe9c56368346d3791c02b449bafd440aa",
+      "publishedSha256": "eb63ca6c1af0b98958bd7c32f21d1e9cf0a5293182d92fdc1f5204d3196126bc",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/app-server/src/main.rs",
+      "testedSha256": "2063b07f0fff18df3c22e0c0411d03022011fc733218abb38c8b5d3fb4df7acf",
+      "publishedSha256": "59d2b62caf88e87b09f0b81723a44230c012b92ede818ebf27e52852d5d2cee3",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    },
+    {
+      "path": "codex-rs/cli/src/main.rs",
+      "testedSha256": "afd571e904db810d3b03458e148700544417c1c563b7a8ba7397f17d4d349590",
+      "publishedSha256": "927b721a0fe166c9d0a9ae810e1287a7fbfb5d50a9a55a14ff8af64172974aa3",
+      "bodyEqualsTestedAfterNoticeAndLineEndingNormalization": true
+    }
+  ],
+  "tests": [
+    {
+      "name": "namespace isolation",
+      "passed": 1,
+      "exitCode": 0
+    },
+    {
+      "name": "remote transport",
+      "passed": 140,
+      "exitCode": 0
+    },
+    {
+      "name": "CLI app-server options",
+      "passed": 32,
+      "exitCode": 0
+    }
+  ],
+  "logs": [
+    {
+      "name": "remote-namespace-transport-test-r2.log",
+      "sha256": "57e7f39311c1eb1cd7718631ee87e0be8f34d6acffb7ac38cdc11a1ae6953f2f"
+    },
+    {
+      "name": "remote-namespace-transport-all.log",
+      "sha256": "2039110586679723764736c1b0d919f48d917440bffde16b43b3482734514199"
+    },
+    {
+      "name": "remote-namespace-cli-tests-r2.log",
+      "sha256": "3bdb66240d4d4a7e44b908c0c30fcbba3da6d5a4bcb1cbd4d04f3efc8230b30b"
+    }
+  ],
+  "limitations": [
+    "공개 통합 트리 전체를 다시 빌드한 결과가 아니다. 나열한 8개 파일의 제품 본문은 실제 시험한 소스와 동일하다.",
+    "실제 원격 서비스 활성화·연결 코드·휴대전화 종단 제어는 시험하지 않았다.",
+    "CLI 실행 파일과 사용자 인증·설정·로그 원문은 공개하지 않는다."
+  ]
+}

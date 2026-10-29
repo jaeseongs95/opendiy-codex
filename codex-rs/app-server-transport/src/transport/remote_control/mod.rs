@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex desktop remote-control isolation (2026-10-29); see MODIFICATIONS.md.
 mod auth;
 mod client_tracker;
 mod clients;
@@ -67,6 +68,8 @@ pub struct RemoteControlStartConfig {
     pub remote_control_url: String,
     pub installation_id: String,
     pub policy: RemoteControlPolicy,
+    /// Explicit process namespace; takes precedence over transport client identification.
+    pub client_name: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

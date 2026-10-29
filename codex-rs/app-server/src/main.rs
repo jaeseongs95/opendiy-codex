@@ -83,6 +83,10 @@ struct AppServerArgs {
     #[arg(long = "no-remote-control", conflicts_with = "remote_control")]
     no_remote_control: bool,
 
+    /// Isolate remote-control registrations for this server process (1-128 ASCII letters, digits, '-', '_' or '.').
+    #[arg(long, value_name = "NAME", value_parser = codex_app_server::parse_remote_control_client_name)]
+    remote_control_client_name: Option<String>,
+
     /// Save loaded threads during managed daemon shutdown.
     #[arg(long, hide = true)]
     managed_daemon: bool,
@@ -103,6 +107,7 @@ fn main() -> anyhow::Result<()> {
             disable_plugin_startup_tasks_for_tests,
             remote_control,
             no_remote_control,
+            remote_control_client_name,
             managed_daemon,
         } = AppServerArgs::parse();
         let loader_overrides = if disable_managed_config_from_debug_env() {
@@ -115,6 +120,7 @@ fn main() -> anyhow::Result<()> {
         let transport = listen;
         let auth = auth.try_into_settings()?;
         let mut runtime_options = AppServerRuntimeOptions {
+            remote_control_client_name,
             cloud_skills_snapshot,
             code_mode_host_transport: code_mode_host.into(),
             managed_daemon,

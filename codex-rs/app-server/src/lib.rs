@@ -488,6 +488,8 @@ pub struct AppServerRuntimeOptions {
     pub code_mode_host_transport: CodeModeHostTransport,
     pub plugin_startup_tasks: PluginStartupTasks,
     pub remote_control_startup_mode: RemoteControlStartupMode,
+    /// Process-owned persistence namespace, overriding transport client identification.
+    pub remote_control_client_name: Option<String>,
     pub install_shutdown_signal_handler: bool,
     pub managed_daemon: bool,
 }
@@ -499,6 +501,7 @@ impl Default for AppServerRuntimeOptions {
             code_mode_host_transport: CodeModeHostTransport::Local,
             plugin_startup_tasks: PluginStartupTasks::Start,
             remote_control_startup_mode: RemoteControlStartupMode::ResolvePersisted,
+            remote_control_client_name: None,
             install_shutdown_signal_handler: true,
             managed_daemon: false,
         }
@@ -517,6 +520,10 @@ pub async fn run_main_with_transport_options(
     auth: WebsocketAuthSettings,
     runtime_options: AppServerRuntimeOptions,
 ) -> IoResult<AppServerExit> {
+    if let Some(name) = runtime_options.remote_control_client_name.as_deref() {
+        parse_remote_control_client_name(name)
+            .map_err(|err| std::io::Error::new(ErrorKind::InvalidInput, err))?;
+    }
     let cloud_skill_provider = match runtime_options.cloud_skills_snapshot {
         Some(path) => {
             let provider = tokio::task::spawn_blocking(move || {
@@ -896,6 +903,7 @@ pub async fn run_main_with_transport_options(
             remote_control_url: config.chatgpt_base_url.clone(),
             installation_id: installation_id.clone(),
             policy: remote_control_policy,
+            client_name: runtime_options.remote_control_client_name,
         },
         state_db.clone(),
         auth_manager.clone(),
@@ -1568,6 +1576,22 @@ fn loader_overrides_with_test_user_config_file(
     let _ = test_user_config_file;
 
     Ok(loader_overrides)
+}
+
+/// Parse an explicit remote-control persistence namespace without normalizing its identity.
+pub fn parse_remote_control_client_name(name: &str) -> Result<String, String> {
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(
+            "remote-control client name must be 1-128 ASCII letters, digits, '-', '_' or '.'"
+                .to_string(),
+        );
+    }
+    Ok(name.to_string())
 }
 
 fn analytics_rpc_transport(transport: &AppServerTransport) -> AppServerRpcTransport {
