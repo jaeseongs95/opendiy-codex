@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "a3edca405d1eddf138f549764459394603576804",
+  "sourceCommit": "b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -62648,10 +62648,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/session_lifecycle_requests.rs",
       "gitMode": "100644",
-      "gitBlob": "4f6f94e3c93b00f1dfba5433908d36151b15c2aa",
-      "sourceSha256": "24999507bad0db8a58f0d03b27a2c3b5c971abae4a81c9ee0a0c9377b2ebb123",
-      "publishedSha256": "e104eccf8492c0ea363beebccb7cc1b40250fa35259203ed2e87628d464e2f94",
-      "bytes": 226031,
+      "gitBlob": "3faed0b96689e1cec9b645e63c9a2bde2db21893",
+      "sourceSha256": "086cafc679d5a5df504633c1d7507fdbb0643d901703ba3c8d6c221b9e764b22",
+      "publishedSha256": "2bbb4fdb1e44fbb56f21a8b7ed64faa411159e9d825099ff7f8a6bd866174dd5",
+      "bytes": 226323,
       "modified": true,
       "noticeOnly": true
     },
@@ -78388,12 +78388,12 @@
     {
       "path": "codex-rs/tui/src/managed_worktree_tools_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "d799c52dd3b20b961160beb3a1f543d83eb52f9f",
-      "sourceSha256": "b6018fbf22d7525ecb0b84675d26213935be774b6e4b2165e8f37bfd19a41f02",
-      "publishedSha256": "b6018fbf22d7525ecb0b84675d26213935be774b6e4b2165e8f37bfd19a41f02",
-      "bytes": 14311,
-      "modified": false,
-      "noticeOnly": false
+      "gitBlob": "9e51c57a27b488e6ca8d4a5245eeb80392b7cd72",
+      "sourceSha256": "73da8ab1e1cc84401755ae5beea5eec81f360fd0d982a15c55c7bfd75f721199",
+      "publishedSha256": "5b70d10d864a42f6eedb6e57879beacdb5f94bfb2cd071892bf92181d87c6306",
+      "bytes": 16452,
+      "modified": true,
+      "noticeOnly": true
     },
     {
       "path": "codex-rs/tui/src/markdown.rs",

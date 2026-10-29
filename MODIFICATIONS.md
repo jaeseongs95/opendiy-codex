@@ -1,14 +1,14 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `a3edca405d1eddf138f549764459394603576804`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
-`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 367 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
+`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 368 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
 The changes cover MCP request cancellation and process ownership/cleanup, configuration and reload boundaries, capacity retry/trace ownership, background terminal startup yielding, cache observation, scheduled TUI work, terminal controls and related regression tests. `tools/windows-cli` contains packaging source and its disposable test fixture. This is a source export, not an installable desktop release or a claim that live-app latency, resource growth or all regressions are resolved.
 
 예약 도구 연결은 위 고정 커밋의 검증 중인 소스 후보입니다. 기존 R28 실행 파일에 설치되지 않았으며, 실제 모델이 자연어 요청에서 도구를 선택하는 평가는 실행하지 않았습니다. 기존 예약 실행기를 재사용하고 취소·중복 전달 경계를 보강하는 변경과 사용 안내는 [CLI 예약 실행](docs/native-cli-cron.ko.md)에 정리했습니다. 후속 검증과 수정 전에는 설치·배포 완료로 해석하면 안 됩니다.
 
-The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 367-file modification/provenance list.
+The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 368-file modification/provenance list.
 
 Modified Rust, TOML/lock, Python and tool configuration files carry a dated OpenDIY modification comment. Markdown notices are limited to documentation under `docs/`; runtime prompt templates keep their exact source bytes. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
 
@@ -428,7 +428,7 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
 - `docs/native-cli-r27.ko.md`
 
-소스 갱신 `a3edca405d1eddf138f549764459394603576804` (통합 진행 중):
+소스 갱신 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609` (통합 진행 중):
 
 - `codex-rs/diagnostics/Cargo.toml`
 - `codex-rs/diagnostics/src/batch_log.rs`
@@ -439,15 +439,19 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 
 ## 공유 로컬 서버 재접속·기본 프록시 — 2026-10-30
 
-고정 소스 `a3edca405d1eddf138f549764459394603576804`는 기존 자연어 예약 연결에 다음 수정을 더한다. 이번 소스 후보의 컴파일·제품 회귀시험·독립감사·설치는 아직 실행하지 않았다. 아래 시험은 작성된 코드이며 통과 기록이 아니다. 기존 R28 실행 파일이나 앞선 후보의 결과를 이번 후보의 검증 근거로 사용하지 않는다.
+고정 소스 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`는 기존 자연어 예약 연결에 다음 수정을 더한다. 새 후보의 빌드·제품 시험은 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다. 아래 시험은 작성된 코드이며 통과 기록이 아니다. 기존 R28 실행 파일이나 앞선 후보의 결과를 이번 후보의 검증 근거로 사용하지 않는다.
 
 - 실제로 로드된 미저장 로컬 대화는 `excludeTurns=true`이고 초기 이력 페이지를 요구하지 않을 때 현재 작성자 런타임과 세션 식별자·설정을 유지해 다른 연결에서 재개할 수 있다. 저장 이력이 필요한 요청, 로드되지 않은 대화와 임의 UUID는 이 예외에 포함하지 않는다. 저장소가 이력이 없다고 판정한 `None` 경로에서는 이미 저장된 작성자를 새 미저장 작성자용 대체 경로로 흡수하지 않는다. SQLite 메타데이터가 `Some`인 로드된 대화의 메타데이터 전용 재개는 파일 삭제 여부와 별개로 허용하던 기존 조회 계약을 유지한다.
 - 소켓 경로를 생략한 기본 `app-server proxy`는 Windows에서 기존 비공개 연결 경로 검증과 비상승 권한 상대 검사를 수행한 뒤에만 데이터를 전달한다. 경로 검증 핸들은 접속·상대 인증이 끝날 때까지 유지한다. 명시적 소켓 경로와 Windows 이외 경로의 기존 동작은 유지한다.
 - 작성한 회귀는 프록시 3개 함수의 3사례, 재개 4개 함수의 10사례로 총 13사례다. 실제 실행은 0건이며 명령과 범위는 [시험 안내](docs/TESTING.md#공유-로컬-서버-후속-회귀시험미실행)에 적었다.
 
-이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `a3edca405d1eddf138f549764459394603576804`는 그 판정을 이어받지 않으며 아직 독립감사·컴파일·제품 실행시험·설치 전이다. 이 갱신은 제품 코드를 더 바꾸지 않고 SQLite 설정별 회귀와 MCP 시험 요청·판정을 보강한다.
+이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`는 그 판정을 이어받지 않는다. 빌드·제품 시험이 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다. 후속 갱신은 제품 코드를 더 바꾸지 않고 SQLite 설정별 회귀·MCP 시험 요청·판정 및 예약 도구 노출 기대값을 보강한다.
 
 MCP 회귀 요청에는 필수 `io.modelcontextprotocol/protocolVersion`·`io.modelcontextprotocol/clientCapabilities` 메타데이터를 넣어 전송 계층 거부를 예약 큐 검사로 오인하지 않도록 했다. 부정 응답은 정확한 오류 코드·메시지를 검사하고, 요청이 큐에 도착하기 전에 응답되면 본문을 표시하도록 시험을 보강했다. 이 시험 보강도 아직 실행하지 않았다.
+
+이전 자연어 예약 후보 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 건너뜀으로 종료 코드 101이었다. 실패 중 2개는 MCP 요청의 필수 메타데이터 누락으로 `a3edca405d1eddf138f549764459394603576804`에서 보강했다. 나머지 2개는 새 `cron` 노출을 빠뜨린 도구 목록·`deferLoading` 기대값으로 이번 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`에서 보강했다. 새 후보의 빌드·제품 시험은 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다.
+
+이번 시험 보강은 기존 작업트리 MCP에 `cron` 하나와 작업트리 도구 3개만 노출되는지, 원래 이름 공간과 입력 인자 제한을 유지하는지, 일반 작업 생성 호출은 정확한 오류로 거부되는지 검사한다. 외부 전달 방식은 `cron`만 `deferLoading=false`, 기존 비위임 도구 6개는 `true`로 남고 위임 도구는 포함하지 않도록 검사한다.
 
 관련 소스·시험 경로:
 
@@ -459,3 +463,6 @@ MCP 회귀 요청에는 필수 `io.modelcontextprotocol/protocolVersion`·`io.mo
 - `codex-rs/app-server/tests/suite/v2/thread_resume.rs`
 - `codex-rs/tui/src/app/cron_jobs.rs`
 - `codex-rs/tui/src/app/tests/active_reconnect_tests.rs`
+
+- `codex-rs/tui/src/app/tests/session_lifecycle_requests.rs`
+- `codex-rs/tui/src/managed_worktree_tools_tests.rs`

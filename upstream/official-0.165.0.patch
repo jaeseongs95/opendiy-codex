@@ -45437,7 +45437,7 @@ index 000000000..c52c04af1
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 787c7e086..4f6f94e3c 100644
+index 787c7e086..3faed0b96 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -378,6 +378,13 @@ pub(super) enum HistoryCapabilities {
@@ -45536,16 +45536,40 @@ index 787c7e086..4f6f94e3c 100644
                      } else if history_capabilities == HistoryCapabilities::ConfigReadFails
                          && request.method == "config/read"
                      {
-@@ -1235,7 +1310,7 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
+@@ -1235,17 +1310,23 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
          assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
          assert_eq!(
              params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
 -            Some(6)
 +            Some(7)
          );
-         assert!(
-             params["dynamicTools"][0]["tools"]
-@@ -1535,7 +1610,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+-        assert!(
+-            params["dynamicTools"][0]["tools"]
+-                .as_array()
+-                .is_some_and(|tools| tools.iter().all(|tool| {
+-                    tool["deferLoading"] == true
+-                        && !crate::dynamic_tools::DELEGATION_TOOLS
+-                            .contains(&tool["name"].as_str().unwrap_or_default())
+-                }))
++        let tools = params["dynamicTools"][0]["tools"].as_array().unwrap();
++        assert_eq!(
++            tools
++                .iter()
++                .filter(|tool| tool["name"] == crate::cron_tools::NAME)
++                .count(),
++            1
+         );
++        for tool in tools {
++            let name = tool["name"].as_str().unwrap();
++            // Cron must be visible without a tool search so ordinary scheduling
++            // requests can select it. Existing non-delegation tools stay deferred.
++            assert_eq!(tool["deferLoading"], name != crate::cron_tools::NAME);
++            assert!(!crate::dynamic_tools::DELEGATION_TOOLS.contains(&name));
++        }
+     }
+     let target_id = started.session.thread_id;
+     app_server
+@@ -1535,7 +1616,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
          .find(|server| server.name == "codex_tui")
          .expect("local daemon must connect to the TUI MCP server")
          .tools;
@@ -45555,7 +45579,7 @@ index 787c7e086..4f6f94e3c 100644
      for tool in crate::dynamic_tools::DELEGATION_TOOLS {
          assert!(tools.contains_key(tool));
      }
-@@ -1678,7 +1754,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+@@ -1678,7 +1760,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
      drop(events);
      let mut events = new_rx;
      assert!(app.app_event_tx.app_event_tx.is_closed());
@@ -45568,7 +45592,7 @@ index 787c7e086..4f6f94e3c 100644
      let previous = std::mem::replace(
          &mut app_server,
          replacement.with_thread_tool_transport(transport),
-@@ -1869,7 +1949,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
+@@ -1869,7 +1955,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
          } else {
              assert_eq!(
                  start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
@@ -45577,7 +45601,7 @@ index 787c7e086..4f6f94e3c 100644
              );
              assert!(start["config"]["mcp_servers.codex_tui"].is_null());
          }
-@@ -5265,6 +5345,47 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -5265,6 +5351,47 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
              LoaderOverrides::default(),
          )
          .await?;
@@ -45625,7 +45649,7 @@ index 787c7e086..4f6f94e3c 100644
          app.app_server_target = AppServerTarget::LocalDaemon {
              allow_embedded_fallback: true,
              endpoint: crate::resolve_remote_addr("ws://127.0.0.1:4500")?,
-@@ -5355,7 +5476,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -5355,7 +5482,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                  assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                  assert_eq!(
                      turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
@@ -53995,6 +54019,144 @@ index c31c2d4da..7af2f37df 100644
      system_motion::initialize().await;
      startup_recovery::scope(async move {
          // Startup retains a large future for the whole session. Keep it off callers' stacks,
+diff --git a/codex-rs/tui/src/managed_worktree_tools_tests.rs b/codex-rs/tui/src/managed_worktree_tools_tests.rs
+index d799c52dd..9e51c57a2 100644
+--- a/codex-rs/tui/src/managed_worktree_tools_tests.rs
++++ b/codex-rs/tui/src/managed_worktree_tools_tests.rs
+@@ -37,6 +37,29 @@ fn value(response: DynamicToolCallResponse) -> Value {
+     serde_json::from_str(text).unwrap()
+ }
+ 
++async fn mcp_request(config: &Value, payload: Value) -> color_eyre::Result<Value> {
++    let mut request = codex_http_client::HttpClientBuilder::new()
++        .build_direct()?
++        .post(config["url"].as_str().unwrap())
++        .header(
++            "Authorization",
++            config["http_headers"]["Authorization"].as_str().unwrap(),
++        )
++        .header("Accept", "application/json, text/event-stream")
++        .header("MCP-Protocol-Version", "2026-07-28")
++        .header("MCP-Method", payload["method"].as_str().unwrap());
++    if let Some(name) = payload["params"]["name"].as_str() {
++        request = request.header("MCP-Name", name);
++    }
++    let response = request.json(&payload).send().await?.text().await?;
++    Ok(serde_json::from_str(
++        response
++            .lines()
++            .find_map(|line| line.strip_prefix("data: "))
++            .unwrap_or(&response),
++    )?)
++}
++
+ async fn start_server(
+     config: &Config,
+ ) -> color_eyre::Result<crate::app_server_session::AppServerSession> {
+@@ -50,39 +73,78 @@ async fn start_server(
+             status,
+         )
+         .await?;
+-    let mut overrides = None;
+-    server.thread_tool_transport().configure_mcp(&mut overrides);
+-    let overrides = overrides.unwrap();
+-    assert!(!overrides.contains_key("mcp_servers.codex_tui"));
++    // Existing worktree MCP carries cron; do not also inject native tools.
++    let mut params = codex_app_server_protocol::ThreadStartParams {
++        dynamic_tools: Some(crate::cron_tools::specs()),
++        ..Default::default()
++    };
++    server.thread_tool_transport().configure(&mut params);
++    assert_eq!(params.dynamic_tools, None);
++    let overrides = params.config.unwrap();
++    assert_eq!(
++        overrides.keys().map(String::as_str).collect::<Vec<_>>(),
++        vec!["mcp_servers.codex_worktrees"]
++    );
+     let mcp = &overrides["mcp_servers.codex_worktrees"];
+-    let response = codex_http_client::HttpClientBuilder::new().build_direct()?
+-        .post(mcp["url"].as_str().unwrap())
+-        .header("Authorization", mcp["http_headers"]["Authorization"].as_str().unwrap())
+-        .header("Accept", "application/json, text/event-stream")
+-        .header("MCP-Protocol-Version", "2026-07-28")
+-        .header("MCP-Method", "tools/list")
+-        .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{
+-            "io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}))
+-        .send().await?.text().await?;
+-    let result: Value = serde_json::from_str(
+-        response
+-            .lines()
+-            .find_map(|line| line.strip_prefix("data: "))
+-            .unwrap_or(&response),
+-    )?;
++    let metadata = json!({
++        "io.modelcontextprotocol/protocolVersion":"2026-07-28",
++        "io.modelcontextprotocol/clientCapabilities":{}
++    });
++    let result = mcp_request(
++        mcp,
++        json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":metadata}}),
++    )
++    .await?;
++    let tools = result["result"]["tools"].as_array().unwrap();
++    let names = tools
++        .iter()
++        .map(|tool| tool["name"].as_str().unwrap())
++        .collect::<Vec<_>>();
+     assert_eq!(
+-        result["result"]["tools"]
+-            .as_array()
+-            .unwrap()
+-            .iter()
+-            .map(|tool| tool["name"].as_str().unwrap())
+-            .collect::<Vec<_>>(),
++        names,
+         vec![
++            "cron",
+             "create_worktree",
+             "get_worktree_creation_status",
+             "list_worktrees"
+         ]
+     );
++    assert_eq!(
++        names
++            .iter()
++            .collect::<std::collections::BTreeSet<_>>()
++            .len(),
++        names.len()
++    );
++    let schema = &tools.iter().find(|tool| tool["name"] == "cron").unwrap()["inputSchema"];
++    assert_eq!(schema["additionalProperties"], json!(false));
++    let mut arguments = schema["properties"]
++        .as_object()
++        .unwrap()
++        .keys()
++        .map(String::as_str)
++        .collect::<Vec<_>>();
++    arguments.sort_unstable();
++    assert_eq!(arguments, vec!["action", "at", "every", "id", "prompt"]);
++
++    // Valid protocol and caller metadata must reach the task-tools feature gate.
++    let mut metadata = metadata;
++    metadata["threadId"] = json!(Uuid::new_v4().to_string());
++    metadata["turnId"] = json!("worktree-tools-turn");
++    metadata["callId"] = json!("worktree-tools-create-thread");
++    let rejected = mcp_request(
++        mcp,
++        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
++            "name":"create_thread","arguments":{"prompt":"Create a task"},"_meta":metadata
++        }}),
++    )
++    .await?;
++    assert_eq!(rejected["error"]["code"], json!(-32602), "{rejected}");
++    assert_eq!(
++        rejected["error"]["message"],
++        json!("Task tools are unavailable on this connection"),
++        "{rejected}"
++    );
+     Ok(server)
+ }
+ 
 diff --git a/codex-rs/tui/src/onboarding/auth.rs b/codex-rs/tui/src/onboarding/auth.rs
 index 2cdc98ca6..c6cfea94b 100644
 --- a/codex-rs/tui/src/onboarding/auth.rs

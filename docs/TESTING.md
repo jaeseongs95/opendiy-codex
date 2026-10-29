@@ -108,9 +108,11 @@ Historical r22 Windows testing passed a locked/offline CLI and App Server all-ta
 
 ## 공유 로컬 서버 후속 회귀시험—미실행
 
-고정 소스 `a3edca405d1eddf138f549764459394603576804`의 후속 후보는 컴파일·제품 회귀시험·독립감사·설치 전이다. 프록시 3개 시험 함수의 3사례와 재개 4개 함수의 10사례, 총 13사례를 작성했으며 새 제품 시험 실행은 0건이다. 아래는 실행할 시험 필터이며 통과 기록이 아니다. 소스 내보내기 검증기와 검증기 자체 시험은 제품 시험과 별개다.
+고정 소스 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`의 후속 후보는 빌드·제품 시험 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다. 프록시 3개 시험 함수의 3사례와 재개 4개 함수의 10사례, 총 13사례를 작성했으며 새 제품 시험 실행은 0건이다. 아래는 실행할 시험 필터이며 통과 기록이 아니다. 소스 내보내기 검증기와 검증기 자체 시험은 제품 시험과 별개다.
 
-이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `a3edca405d1eddf138f549764459394603576804`는 그 판정을 이어받지 않으며 아직 독립감사·컴파일·제품 실행시험·설치 전이다. 이 갱신은 제품 코드를 더 바꾸지 않고 SQLite 설정별 회귀와 MCP 시험 요청·판정을 보강한다.
+이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`는 그 판정을 이어받지 않는다. 빌드·제품 시험이 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다. 후속 갱신은 제품 코드를 더 바꾸지 않고 SQLite 설정별 회귀·MCP 시험 요청·판정 및 예약 도구 노출 기대값을 보강한다.
+
+이전 자연어 예약 후보 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 건너뜀으로 종료 코드 101이었다. 실패 중 2개는 MCP 요청의 필수 메타데이터 누락으로 `a3edca405d1eddf138f549764459394603576804`에서 보강했다. 나머지 2개는 새 `cron` 노출을 빠뜨린 도구 목록·`deferLoading` 기대값으로 이번 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`에서 보강했다. 새 후보의 빌드·제품 시험은 진행 중이며 통과 확인·독립감사·설치는 완료하지 않았다.
 
 MCP 큐 회귀는 필수 `io.modelcontextprotocol/protocolVersion`·`io.modelcontextprotocol/clientCapabilities` 메타데이터, 정확한 부정 응답 코드·메시지, 큐 도착 전 응답 본문 판정을 보강했다. 제품 전달 성공이나 새 후보의 시험 통과를 주장하지 않는다.
 
@@ -136,4 +138,6 @@ cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thr
 cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_metadata_does_not_create_missing_runtime
 cargo test --locked -p codex-tui --lib model_cron_mcp_metadata_and_cancelled_queue_fail_closed
 cargo test --locked -p codex-tui --lib reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue
+cargo test --locked -p codex-tui --lib external_transport_registers_dynamic_tools_and_finds_task_mentions
+cargo test --locked -p codex-tui --lib creation_attaches_to_original_task_and_survives_service_restart
 ```
