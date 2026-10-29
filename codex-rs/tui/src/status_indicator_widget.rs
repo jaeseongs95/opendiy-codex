@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! A live task status row rendered above the composer while the agent is busy.
 //!
 //! The row renders a separately owned clock, the optional interrupt hint, and short inline
@@ -96,7 +97,7 @@ impl StatusIndicatorWidget {
         effects: codex_config::types::TuiEffects,
     ) -> Self {
         Self {
-            header: String::from("Working"),
+            header: String::from(crate::i18n::text("Working")),
             header_started_at: Instant::now(),
             details: None,
             details_max_lines: STATUS_DETAILS_DEFAULT_MAX_LINES,
@@ -259,7 +260,7 @@ impl StatusIndicator<'_> {
         {
             spans.push(format!("({pretty_elapsed} • ").dim());
             spans.extend(interrupt_binding.spans());
-            spans.push(" to interrupt)".dim());
+            spans.push(crate::i18n::text(" to interrupt)").dim());
         } else {
             spans.push(format!("({pretty_elapsed})").dim());
         }
@@ -322,6 +323,60 @@ impl Renderable for StatusIndicator<'_> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn korean_status_renders_in_real_terminal_buffer() {
+        crate::i18n::with_locale(crate::i18n::Locale::Korean, || {
+            let (tx, _rx) = unbounded_channel();
+            let row = StatusIndicatorWidget::new(
+                AppEventSender::new(tx),
+                FrameRequester::test_dummy(),
+                false,
+                Default::default(),
+            );
+            let mut terminal = Terminal::new(TestBackend::new(60, 1)).expect("terminal");
+            let timer = StatusTimer::default();
+            terminal
+                .draw(|frame| {
+                    row.with_timer(&timer)
+                        .render(frame.area(), frame.buffer_mut())
+                })
+                .expect("draw");
+            let rendered = terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert_eq!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .cell((0, 0))
+                    .expect("first cell")
+                    .symbol(),
+                "작"
+            );
+            assert_eq!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .cell((2, 0))
+                    .expect("second character")
+                    .symbol(),
+                "업"
+            );
+            assert!(rendered.contains("esc"), "{rendered}");
+            assert!(
+                rendered
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("esc중단)"),
+                "{rendered}"
+            );
+        });
+    }
     use super::*;
     use crate::app_event::AppEvent;
     use crate::app_event_sender::AppEventSender;

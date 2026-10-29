@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #[path = "daemon_continuation.rs"]
 mod daemon_continuation;
 
@@ -3471,6 +3471,9 @@ impl ThreadRequestProcessor {
             })
             .await
             .map_err(|err| match err {
+                err @ ThreadStoreError::HistoryProjectionUnavailable => {
+                    paginated_history_list_error(err)
+                }
                 ThreadStoreError::InvalidRequest { message } => invalid_request(message),
                 ThreadStoreError::Unsupported { operation } => {
                     unsupported_thread_store_operation(operation)
@@ -3478,7 +3481,12 @@ impl ThreadRequestProcessor {
                 ThreadStoreError::ThreadNotFound { thread_id } => {
                     invalid_request(format!("no rollout found for thread id {thread_id}"))
                 }
-                err => internal_error(format!("failed to list thread history: {err}")),
+                err @ (ThreadStoreError::Conflict { .. }
+                | ThreadStoreError::Retryable { .. }
+                | ThreadStoreError::OutcomeUnknown { .. }
+                | ThreadStoreError::Internal { .. }) => {
+                    internal_error(format!("failed to list thread history: {err}"))
+                }
             })?;
         let mut turns = Vec::with_capacity(page.turns.len());
         for turn in page.turns {
@@ -3701,6 +3709,9 @@ impl ThreadRequestProcessor {
             })
             .await
             .map_err(|err| match err {
+                err @ ThreadStoreError::HistoryProjectionUnavailable => {
+                    paginated_history_list_error(err)
+                }
                 ThreadStoreError::InvalidRequest { message } if has_anchor => {
                     invalid_params(message)
                 }
@@ -3761,6 +3772,9 @@ impl ThreadRequestProcessor {
                 ThreadStoreError::InvalidRequest { message } => invalid_request(message),
                 ThreadStoreError::Unsupported { .. } => {
                     method_not_found("thread/items/read is not supported yet")
+                }
+                err @ ThreadStoreError::HistoryProjectionUnavailable => {
+                    paginated_history_list_error(err)
                 }
                 ThreadStoreError::ThreadNotFound { thread_id } => {
                     invalid_request(format!("no rollout found for thread id {thread_id}"))
@@ -6372,8 +6386,15 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
     }
 }
 
-fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
+pub(super) fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
     match err {
+        ThreadStoreError::HistoryProjectionUnavailable => {
+            let mut error = internal_error(
+                "display history projection is unavailable; retry after history persistence",
+            );
+            error.data = Some(serde_json::json!({ "kind": "historyProjectionUnavailable" }));
+            error
+        }
         ThreadStoreError::InvalidRequest { message } => invalid_request(message),
         ThreadStoreError::Unsupported { operation } => {
             unsupported_thread_store_operation(operation)
@@ -6381,7 +6402,12 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
         ThreadStoreError::ThreadNotFound { thread_id } => {
             invalid_request(format!("no rollout found for thread id {thread_id}"))
         }
-        err => internal_error(format!("failed to list thread history: {err}")),
+        err @ (ThreadStoreError::Conflict { .. }
+        | ThreadStoreError::Retryable { .. }
+        | ThreadStoreError::OutcomeUnknown { .. }
+        | ThreadStoreError::Internal { .. }) => {
+            internal_error(format!("failed to list thread history: {err}"))
+        }
     }
 }
 

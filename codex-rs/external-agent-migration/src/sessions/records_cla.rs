@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::ConversationMessage;
 use super::ExternalAgentSessionMigration;
 use super::MessageRole;
@@ -22,7 +23,13 @@ use std::path::PathBuf;
 
 pub fn summarize_session(path: &Path) -> io::Result<Option<SessionSummary>> {
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    summarize_session_from_reader(path, BufReader::new(file))
+}
+
+pub(crate) fn summarize_session_from_reader(
+    path: &Path,
+    reader: impl BufRead,
+) -> io::Result<Option<SessionSummary>> {
     let mut cwd = None;
     let mut custom_title = None;
     let mut ai_title = None;

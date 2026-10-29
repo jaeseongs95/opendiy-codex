@@ -1,14 +1,14 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `f665ccc64aaf6baee8fd137d8054f1daaae4a398`. The source version is `0.165.0+native-r26.20261028`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `3a03cbdadf186d74af73fcc5825afc25d3d85f39`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
-`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 148 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
+`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 357 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
 The changes cover MCP request cancellation and process ownership/cleanup, configuration and reload boundaries, capacity retry/trace ownership, background terminal startup yielding, cache observation, scheduled TUI work, terminal controls and related regression tests. `tools/windows-cli` contains packaging source and its disposable test fixture. This is a source export, not an installable desktop release or a claim that live-app latency, resource growth or all regressions are resolved.
 
-The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 148-file modification/provenance list.
+The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 357-file modification/provenance list.
 
-Modified Rust, TOML/lock, Python, Markdown and tool configuration files carry a dated OpenDIY modification comment. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
+Modified Rust, TOML/lock, Python and tool configuration files carry a dated OpenDIY modification comment. Markdown notices are limited to documentation under `docs/`; runtime prompt templates keep their exact source bytes. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
 
 - `codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts`
 - `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts`
@@ -57,3 +57,380 @@ On 2026-10-26, a prominent one-line OpenDIY Codex modification notice was added 
 `sourceSha256` identifies the frozen Git blob bytes; `publishedSha256` includes the notice prefix. `builtSourceSha256` separately identifies the recorded r22 Windows build input, which uses CRLF in 19 of the files. These hashes intentionally describe different byte representations. The published tree is not presented as byte-identical to the old build input or as a reproduced binary.
 
 Unmodified third-party source remains under its existing license. `upstream/NOTICE` includes the original Ratatui attribution. The vendored bubblewrap license and copyright notices, including its `COPYING` text, are preserved unchanged.
+
+## R27 work branch — 2026-10-29
+
+Source implementation: `10d9ef1e0d80f379f4c0fc1dc343924f609dae66`. Adds opt-in buffered diagnostics, thread-owned context limits and Korean UI. This work branch is under integration testing; it is not a verified release or installation. Generated protocol fixtures are regenerated from the changed Rust definitions. Existing upstream notices and licenses are retained.
+
+Changed source and generated fixture files:
+
+- `codex-rs/Cargo.lock`
+- `codex-rs/Cargo.toml`
+- `codex-rs/app-server-protocol/schema/json/ServerNotification.json`
+- `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json`
+- `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json`
+- `codex-rs/app-server-protocol/schema/json/v2/ThreadSettingsUpdatedNotification.json`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts`
+- `codex-rs/app-server-protocol/src/export.rs`
+- `codex-rs/app-server-protocol/src/protocol/common.rs`
+- `codex-rs/app-server-protocol/src/protocol/v2/tests.rs`
+- `codex-rs/app-server-protocol/src/protocol/v2/thread.rs`
+- `codex-rs/app-server/src/lib.rs`
+- `codex-rs/app-server/src/request_processors/persisted_resume_settings_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_summary.rs`
+- `codex-rs/app-server/src/request_processors/turn_processor.rs`
+- `codex-rs/app-server/src/thread_state.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_settings_update.rs`
+- `codex-rs/cli/src/config_override_args.rs`
+- `codex-rs/cli/src/localization.rs`
+- `codex-rs/cli/src/main.rs`
+- `codex-rs/core/src/agent/control_tests.rs`
+- `codex-rs/core/src/codex_thread.rs`
+- `codex-rs/core/src/session/handlers.rs`
+- `codex-rs/core/src/session/mod.rs`
+- `codex-rs/core/src/session/session.rs`
+- `codex-rs/core/src/session/step_activation.rs`
+- `codex-rs/core/src/session/step_activation_tests.rs`
+- `codex-rs/core/src/session/tests.rs`
+- `codex-rs/core/src/session/thread_settings.rs`
+- `codex-rs/core/src/session/turn_context.rs`
+- `codex-rs/core/src/session/turn_input.rs`
+- `codex-rs/core/tests/suite/settings_constraints.rs`
+- `codex-rs/diagnostics/Cargo.toml`
+- `codex-rs/diagnostics/src/batch_log.rs`
+- `codex-rs/diagnostics/src/lib.rs`
+- `codex-rs/exec/Cargo.toml`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/protocol/src/protocol.rs`
+- `codex-rs/state/src/extract.rs`
+- `codex-rs/thread-store/src/thread_metadata_sync.rs`
+- `codex-rs/tui/Cargo.toml`
+- `codex-rs/tui/src/app/app_server_event_targets.rs`
+- `codex-rs/tui/src/app/event_dispatch.rs`
+- `codex-rs/tui/src/app/tests.rs`
+- `codex-rs/tui/src/app/thread_settings.rs`
+- `codex-rs/tui/src/app_event.rs`
+- `codex-rs/tui/src/app_server_session.rs`
+- `codex-rs/tui/src/bottom_pane/approval_overlay.rs`
+- `codex-rs/tui/src/bottom_pane/experimental_features_view.rs`
+- `codex-rs/tui/src/bottom_pane/footer.rs`
+- `codex-rs/tui/src/bottom_pane/popup_consts.rs`
+- `codex-rs/tui/src/chatwidget.rs`
+- `codex-rs/tui/src/chatwidget/model_popups.rs`
+- `codex-rs/tui/src/chatwidget/permissions_menu.rs`
+- `codex-rs/tui/src/chatwidget/settings.rs`
+- `codex-rs/tui/src/chatwidget/settings_popups.rs`
+- `codex-rs/tui/src/chatwidget/slash_dispatch.rs`
+- `codex-rs/tui/src/chatwidget/tests/app_server.rs`
+- `codex-rs/tui/src/chatwidget/tests/slash_commands.rs`
+- `codex-rs/tui/src/config_panel/config_panel_tests.rs`
+- `codex-rs/tui/src/config_panel/mod.rs`
+- `codex-rs/tui/src/config_panel/render.rs`
+- `codex-rs/tui/src/i18n.rs`
+- `codex-rs/tui/src/lib.rs`
+- `codex-rs/tui/src/onboarding/auth.rs`
+- `codex-rs/tui/src/onboarding/auth/headless_chatgpt_login.rs`
+- `codex-rs/tui/src/onboarding/trust_directory.rs`
+- `codex-rs/tui/src/onboarding/welcome.rs`
+- `codex-rs/tui/src/slash_command.rs`
+- `codex-rs/tui/src/startup_orchestration.rs`
+- `codex-rs/tui/src/status_indicator_widget.rs`
+- `docs/native-cli-r27.ko.md`
+
+Source update `da5893f12d012899c29336db426868d94942ec3a` (integration in progress):
+
+- `codex-rs/app-server/src/lib.rs`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/tui/src/startup_orchestration.rs`
+
+Source update `012b105ff548caa7bbd64e67e6fb86d192320077` (integration in progress):
+
+- `tools/windows-cli/README.md`
+- `tools/windows-cli/package_cli.py`
+- `tools/windows-cli/test_package_cli.py`
+
+Source update `6b4628988df39ae5995f0f3706687d73e9d89ea9` (integration in progress):
+
+- `codex-rs/Cargo.lock`
+- `codex-rs/Cargo.toml`
+- `codex-rs/app-server-daemon/Cargo.toml`
+- `codex-rs/app-server-daemon/src/lib.rs`
+- `codex-rs/app-server-daemon/src/remote_control_client.rs`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+- `codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts`
+- `codex-rs/app-server-protocol/src/protocol/common.rs`
+- `codex-rs/app-server-protocol/src/protocol/v2/memory.rs`
+- `codex-rs/app-server-transport/src/transport/remote_control/tests.rs`
+- `codex-rs/app-server/src/main.rs`
+- `codex-rs/app-server/src/main_tests.rs`
+- `codex-rs/app-server/src/message_processor.rs`
+- `codex-rs/app-server/src/request_processors/persisted_resume_settings_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_memory.rs`
+- `codex-rs/app-server/tests/suite/v2/memory_read.rs`
+- `codex-rs/app-server/tests/suite/v2/remote_control.rs`
+- `codex-rs/cli/src/localization.rs`
+- `codex-rs/cli/src/main.rs`
+- `codex-rs/cli/src/remote_control_cmd.rs`
+- `codex-rs/cloud-tasks/src/cli.rs`
+- `codex-rs/cloud-tasks/src/env_detect.rs`
+- `codex-rs/cloud-tasks/src/env_detect_tests.rs`
+- `codex-rs/cloud-tasks/src/lib.rs`
+- `codex-rs/cloud-tasks/src/util.rs`
+- `codex-rs/config/src/lib.rs`
+- `codex-rs/config/src/memory_scope.rs`
+- `codex-rs/config/src/types.rs`
+- `codex-rs/core/src/agent/control_tests.rs`
+- `codex-rs/core/src/config/config_tests.rs`
+- `codex-rs/core/src/config/mod.rs`
+- `codex-rs/core/src/session/mod.rs`
+- `codex-rs/core/src/session/session.rs`
+- `codex-rs/ext/memories/src/extension.rs`
+- `codex-rs/ext/memories/src/prompts.rs`
+- `codex-rs/ext/memories/src/prompts_tests.rs`
+- `codex-rs/ext/memories/src/tests.rs`
+- `codex-rs/ext/memories/templates/memories/read_path.md`
+- `codex-rs/ext/memories/templates/memories/read_path_v2.md`
+- `codex-rs/external-agent-migration/src/memory.rs`
+- `codex-rs/external-agent-migration/src/memory_import.rs`
+- `codex-rs/external-agent-migration/src/memory_import_tests.rs`
+- `codex-rs/external-agent-migration/src/memory_tests.rs`
+- `codex-rs/external-agent-migration/src/sessions/records_cla.rs`
+- `codex-rs/memories/write/src/lib.rs`
+- `codex-rs/memories/write/src/notes.rs`
+- `codex-rs/memories/write/src/phase1.rs`
+- `codex-rs/memories/write/src/phase2.rs`
+- `codex-rs/memories/write/src/rollout_input.rs`
+- `codex-rs/memories/write/src/runtime.rs`
+- `codex-rs/memories/write/src/start.rs`
+- `codex-rs/memories/write/src/startup_tests.rs`
+- `codex-rs/protocol/src/memory_version.rs`
+- `codex-rs/protocol/src/protocol.rs`
+- `codex-rs/state/src/extract.rs`
+- `codex-rs/state/src/runtime/memories.rs`
+- `codex-rs/state/src/runtime/memory_versions.rs`
+- `codex-rs/state/src/runtime/memory_versions_tests.rs`
+- `codex-rs/state/src/sqlite.rs`
+- `codex-rs/state/src/sqlite_tests.rs`
+- `codex-rs/thread-store/src/thread_metadata_sync.rs`
+- `codex-rs/tui/src/app.rs`
+- `codex-rs/tui/src/app/agent_navigation.rs`
+- `codex-rs/tui/src/app/agent_picker.rs`
+- `codex-rs/tui/src/app/config_persistence.rs`
+- `codex-rs/tui/src/app/event_dispatch.rs`
+- `codex-rs/tui/src/app/memory.rs`
+- `codex-rs/tui/src/app/subagent_status_tests.rs`
+- `codex-rs/tui/src/app/tests/local_command_scroll_tests.rs`
+- `codex-rs/tui/src/app/thread_routing.rs`
+- `codex-rs/tui/src/app_event.rs`
+- `codex-rs/tui/src/app_server_session.rs`
+- `codex-rs/tui/src/bottom_pane/memories_settings_view.rs`
+- `codex-rs/tui/src/bottom_pane/memories_settings_view_tests.rs`
+- `codex-rs/tui/src/bottom_pane/mod.rs`
+- `codex-rs/tui/src/bottom_pane/subagent_status.rs`
+- `codex-rs/tui/src/chatwidget.rs`
+- `codex-rs/tui/src/chatwidget/slash_dispatch.rs`
+- `codex-rs/tui/src/chatwidget/status_controls.rs`
+- `codex-rs/tui/src/i18n.rs`
+- `codex-rs/tui/src/slash_command.rs`
+
+Source update `a7bd64a5888e7a6ccc58b175c4363584bd7ecc61` (integration in progress):
+
+- `codex-rs/core/config.schema.json`
+- `codex-rs/diagnostics/src/batch_log.rs`
+
+Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progress):
+
+- `codex-rs/cli/src/localization.rs`
+- `codex-rs/tui/src/onboarding/trust_directory.rs`
+- `codex-rs/tui/src/status_indicator_widget.rs`
+
+소스 갱신 `b34fa5a1aab69b1e0044a23d34b153099b33813b` (통합 진행 중):
+
+- `codex-rs/app-server/src/request_processors/thread_processor.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_read.rs`
+- `codex-rs/core/src/session_rollout_init_error.rs`
+- `codex-rs/core/src/session_rollout_init_error_tests.rs`
+- `codex-rs/core/src/thread_manager/shutdown.rs`
+- `codex-rs/thread-store/src/error.rs`
+- `codex-rs/thread-store/src/lib.rs`
+- `codex-rs/thread-store/src/local/thread_history/read.rs`
+- `codex-rs/thread-store/src/local/thread_history/read_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history/segment_paging.rs`
+- `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`
+
+소스 갱신 `7af94cabdab420bc52f43c152b900bf345279aee` (통합 진행 중):
+
+- `codex-rs/app-server/src/request_processors/thread_processor.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`
+- `codex-rs/tui/src/app.rs`
+- `codex-rs/tui/src/app/agent_message_consolidation.rs`
+- `codex-rs/tui/src/app/event_dispatch.rs`
+- `codex-rs/tui/src/app/history_pagination.rs`
+- `codex-rs/tui/src/app/history_pagination_tests.rs`
+- `codex-rs/tui/src/app/history_ui.rs`
+- `codex-rs/tui/src/app/history_window.rs`
+- `codex-rs/tui/src/app/owned_transcript.rs`
+- `codex-rs/tui/src/app/session_lifecycle.rs`
+- `codex-rs/tui/src/app/startup.rs`
+- `codex-rs/tui/src/app/test_support.rs`
+- `codex-rs/tui/src/app/tests.rs`
+- `codex-rs/tui/src/app/tests/history_hydration_tests.rs`
+- `codex-rs/tui/src/app/tests/pagination_completion_tests.rs`
+- `codex-rs/tui/src/app/thread_event_buffer.rs`
+- `codex-rs/tui/src/app/thread_event_buffer_tests.rs`
+- `codex-rs/tui/src/app/thread_events.rs`
+- `codex-rs/tui/src/app/thread_routing.rs`
+- `codex-rs/tui/src/app_event.rs`
+- `codex-rs/tui/src/app_server_session.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/app_server_session/history_tests.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history_tests.rs`
+- `codex-rs/tui/src/chatwidget.rs`
+- `codex-rs/tui/src/chatwidget/activity_groups.rs`
+- `codex-rs/tui/src/chatwidget/command_lifecycle.rs`
+- `codex-rs/tui/src/chatwidget/dynamic_activity.rs`
+- `codex-rs/tui/src/chatwidget/streaming.rs`
+- `codex-rs/tui/src/chatwidget/tests/reasoning_status_tests.rs`
+- `codex-rs/tui/src/chatwidget/tool_lifecycle.rs`
+- `codex-rs/tui/src/chatwidget/transcript.rs`
+- `codex-rs/tui/src/exec_cell/live_output.rs`
+- `codex-rs/tui/src/exec_cell/model.rs`
+- `codex-rs/tui/src/exec_cell/render.rs`
+- `codex-rs/tui/src/history_cell/activity_details.rs`
+- `codex-rs/tui/src/history_cell/base.rs`
+- `codex-rs/tui/src/history_cell/computer_activity.rs`
+- `codex-rs/tui/src/history_cell/computer_activity_tests.rs`
+- `codex-rs/tui/src/history_cell/dynamic.rs`
+- `codex-rs/tui/src/history_cell/mcp.rs`
+- `codex-rs/tui/src/history_cell/mcp_result.rs`
+- `codex-rs/tui/src/history_cell/messages.rs`
+- `codex-rs/tui/src/history_cell/mod.rs`
+- `codex-rs/tui/src/history_window.rs`
+- `codex-rs/tui/src/lib.rs`
+- `codex-rs/tui/src/pager_overlay/transcript.rs`
+- `codex-rs/tui/src/thread_transcript/computer_groups.rs`
+- `codex-rs/tui/src/thread_transcript/exploration_groups.rs`
+- `codex-rs/tui/src/transcript_view/layout.rs`
+- `codex-rs/tui/src/transcript_view/snapshot.rs`
+
+소스 갱신 `8dfe79b00aeb9f950a86f2baaad9ea81b45b8921` (통합 진행 중):
+
+- `codex-rs/app-server/src/request_processors/thread_attachments.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_sections.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_read.rs`
+- `codex-rs/core/src/session_rollout_init_error.rs`
+- `codex-rs/core/src/session_rollout_init_error_tests.rs`
+- `codex-rs/core/src/thread_manager/shutdown.rs`
+- `codex-rs/thread-store/src/error.rs`
+- `codex-rs/thread-store/src/lib.rs`
+- `codex-rs/thread-store/src/local/thread_history/read.rs`
+- `codex-rs/thread-store/src/local/thread_history/read_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history/segment_paging.rs`
+- `codex-rs/tui/src/app/history_pagination.rs`
+- `codex-rs/tui/src/app/history_window.rs`
+- `codex-rs/tui/src/app/native_history.rs`
+- `codex-rs/tui/src/app/native_history_tests.rs`
+- `codex-rs/tui/src/app/tests/history_hydration_tests.rs`
+- `codex-rs/tui/src/app/thread_event_buffer.rs`
+- `codex-rs/tui/src/app/thread_event_buffer_tests.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/chatwidget/streaming.rs`
+- `codex-rs/tui/src/chatwidget/tests/copy_export_picker_tests.rs`
+- `codex-rs/tui/src/chatwidget/transcript.rs`
+- `codex-rs/tui/src/history_window.rs`
+
+소스 갱신 `d10723ca45f45db13539865ac13d6892660fb788` (통합 진행 중):
+
+- `codex-rs/app-server-protocol/src/protocol/v2/mcp.rs`
+- `codex-rs/core/src/session/step_activation_tests.rs`
+- `codex-rs/ext/memories/src/prompts_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`
+
+소스 갱신 `11776c706192892fa932db3bca7cc2d8d5b4ecb6` (통합 진행 중):
+
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+- `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts`
+
+소스 갱신 `68eb12b9f5eaaf084ec6cf9d97809394d27f714a` (통합 진행 중):
+
+- `codex-rs/tui/src/app/agents_overview_tests.rs`
+- `codex-rs/tui/src/app/history_pagination.rs`
+- `codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap`
+- `codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap`
+- `codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap`
+- `codex-rs/tui/src/app/tests.rs`
+- `codex-rs/tui/src/app/tests/history_hydration_tests.rs`
+- `codex-rs/tui/src/app/tests/local_command_scroll_tests.rs`
+- `codex-rs/tui/src/app/tests/safety_buffering.rs`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__active_reconnect__unavailable_conversation.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__session_lifecycle_requests__new_session_tests__widget_replacement_preserves_mention_usage_with_history_disabled.snap`
+- `codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap`
+- `codex-rs/tui/src/app/thread_events.rs`
+- `codex-rs/tui/src/app/thread_routing.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history_tests.rs`
+- `codex-rs/tui/src/chatwidget/slash_dispatch.rs`
+- `codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__memories_settings_popup.snap`
+- `codex-rs/tui/src/chatwidget/tests/slash_commands.rs`
+- `codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__pnpm_update_available_history_cell_snapshot.snap`
+- `codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap`
+- `codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap`
+- `codex-rs/tui/src/pets/mod.rs`
+- `codex-rs/tui/src/snapshots/codex_tui__app__agents_overview__tests__agents_overview_directory_grouping.snap`
+- `codex-rs/tui/src/snapshots/codex_tui__app__tests__selected_unloaded_subagent_V1.snap`
+- `codex-rs/tui/src/snapshots/codex_tui__startup_draft__layout__tests__owned_startup_layout.snap`
+- `codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_picker_selected_28x12.snap`
+- `codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_prompt_modal.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap`
+
+소스 갱신 `d686f8d2d2eec5d4f625a90709efec209a0adee7` (통합 진행 중):
+
+- `codex-rs/app-server-daemon/src/remote_control_client.rs`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history_tests.rs`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
+- `docs/native-cli-r27.ko.md`
+
+소스 갱신 `3a03cbdadf186d74af73fcc5825afc25d3d85f39` (통합 진행 중):
+
+- `codex-rs/diagnostics/Cargo.toml`
+- `codex-rs/diagnostics/src/batch_log.rs`
+- `codex-rs/tui/src/app/tests/session_lifecycle_requests.rs`
+- `codex-rs/tui/src/snapshots/codex_tui__app__tests__selected_unloaded_subagent_V2.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap`
+- `docs/native-cli-r27.ko.md`

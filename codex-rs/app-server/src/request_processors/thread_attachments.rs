@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Attachment RPC handling; committed mutations respond before broadcasting updates.
 
 use super::thread_processor::THREAD_LIST_DEFAULT_LIMIT;
@@ -287,7 +288,8 @@ fn thread_attachment_store_error(
         error @ (ThreadStoreError::Conflict { .. }
         | ThreadStoreError::Retryable { .. }
         | ThreadStoreError::OutcomeUnknown { .. }
-        | ThreadStoreError::Internal { .. }) => {
+        | ThreadStoreError::Internal { .. }
+        | ThreadStoreError::HistoryProjectionUnavailable) => {
             internal_error(format!("failed to process {operation}: {error}"))
         }
     }

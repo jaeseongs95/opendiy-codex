@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 [package]
 name = "codex-tui"
 version.workspace = true
@@ -37,6 +38,7 @@ codex-backend-client = { workspace = true }
 codex-install-context = { workspace = true }
 codex-cloud-config = { workspace = true }
 codex-config = { workspace = true }
+codex-diagnostics = { workspace = true }
 codex-context-fragments = { workspace = true }
 codex-connectors = { workspace = true }
 codex-core-plugins = { workspace = true }

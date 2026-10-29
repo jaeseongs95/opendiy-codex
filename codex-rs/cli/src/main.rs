@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
@@ -69,6 +70,7 @@ mod exec_server_auth;
 mod exec_server_command;
 mod exec_server_credential;
 mod exec_server_telemetry;
+mod localization;
 mod marketplace_cmd;
 mod mcp_cmd;
 mod mcp_login;
@@ -606,8 +608,19 @@ struct AppServerCommand {
     stdio: bool,
 
     /// Enable remote control for this app-server process without changing persistence.
-    #[arg(long = "remote-control", hide = true)]
+    #[arg(
+        long = "remote-control",
+        hide = true,
+        conflicts_with = "no_remote_control"
+    )]
     remote_control: bool,
+
+    /// Start with remote control disabled, preserving saved registrations and settings.
+    #[arg(
+        long = "no-remote-control",
+        conflicts_with_all = ["remote_control", "print_startup_config"]
+    )]
+    no_remote_control: bool,
 
     /// Save loaded threads during managed daemon shutdown.
     #[arg(long, hide = true)]
@@ -1054,6 +1067,7 @@ async fn cli_main(
     arg0_paths: Arg0DispatchPaths,
     remote_control_disabled: bool,
 ) -> anyhow::Result<()> {
+    codex_tui::i18n::initialize_from_env().map_err(anyhow::Error::msg)?;
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,
@@ -1257,11 +1271,16 @@ async fn cli_main(
                 listen,
                 stdio,
                 remote_control,
+                no_remote_control,
                 managed_daemon,
                 analytics_default_enabled,
                 auth,
             } = app_server_cli;
             let strict_config = app_server_strict_config || root_strict_config;
+            reject_no_remote_control_for_app_server_subcommand(
+                no_remote_control,
+                subcommand.as_ref(),
+            )?;
             reject_strict_config_for_app_server_subcommand(strict_config, subcommand.as_ref())?;
             reject_remote_mode_for_app_server_subcommand(
                 root_remote.as_deref(),
@@ -1303,8 +1322,10 @@ async fn cli_main(
                         cloud_skills_snapshot,
                         code_mode_host_transport: code_mode_host.into(),
                         managed_daemon,
-                        remote_control_startup_mode: match (remote_control, remote_control_disabled)
-                        {
+                        remote_control_startup_mode: match (
+                            remote_control,
+                            no_remote_control || remote_control_disabled,
+                        ) {
                             (true, _) => {
                                 codex_app_server::RemoteControlStartupMode::EnabledEphemeral
                             }
@@ -2389,6 +2410,19 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::Features(_)) => Some("features"),
         Some(Subcommand::TcpTunnel(_)) => Some("tcp-tunnel"),
     }
+}
+
+fn reject_no_remote_control_for_app_server_subcommand(
+    no_remote_control: bool,
+    subcommand: Option<&AppServerSubcommand>,
+) -> anyhow::Result<()> {
+    if no_remote_control && subcommand.is_some() {
+        let subcommand = app_server_subcommand_name(subcommand);
+        anyhow::bail!(
+            "`--no-remote-control` only applies when starting app-server; it is not supported for `codex {subcommand}`"
+        );
+    }
+    Ok(())
 }
 
 fn reject_strict_config_for_app_server_subcommand(
@@ -4333,6 +4367,7 @@ enabled = true
         let app_server = app_server_from_args(["codex", "app-server"].as_ref());
         assert!(!app_server.analytics_default_enabled);
         assert!(!app_server.remote_control);
+        assert!(!app_server.no_remote_control);
         assert_eq!(
             app_server.listen,
             codex_app_server::AppServerTransport::Stdio
@@ -4343,6 +4378,114 @@ enabled = true
     fn app_server_remote_control_startup_flag_enables_remote_control() {
         let enabled = app_server_from_args(["codex", "app-server", "--remote-control"].as_ref());
         assert!(enabled.remote_control);
+        assert!(!enabled.no_remote_control);
+    }
+
+    #[test]
+    fn app_server_no_remote_control_is_process_scoped_and_conflicts_with_enable() {
+        let disabled =
+            app_server_from_args(["codex", "app-server", "--no-remote-control"].as_ref());
+        assert!(disabled.no_remote_control);
+        assert!(!disabled.remote_control);
+        for flags in [
+            ["--remote-control", "--no-remote-control"],
+            ["--no-remote-control", "--remote-control"],
+        ] {
+            let error = MultitoolCli::try_parse_from(["codex", "app-server", flags[0], flags[1]])
+                .expect_err("remote control startup flags must conflict");
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn app_server_no_remote_control_rejects_tooling_dispatch() {
+        for tooling in [
+            vec!["daemon", "restart"],
+            vec!["daemon", "enable-remote-control"],
+            vec!["proxy"],
+            vec!["generate-ts", "--out", "schema-output"],
+            vec!["generate-json-schema", "--out", "schema-output"],
+            vec!["generate-internal-json-schema", "--out", "schema-output"],
+        ] {
+            let mut args = vec!["codex", "app-server", "--no-remote-control"];
+            args.extend(tooling.iter().copied());
+            let app_server = app_server_from_args(&args);
+            let error = reject_no_remote_control_for_app_server_subcommand(
+                app_server.no_remote_control,
+                app_server.subcommand.as_ref(),
+            )
+            .expect_err("the startup flag must not be silently ignored by tooling");
+            assert!(
+                error
+                    .to_string()
+                    .contains("only applies when starting app-server")
+            );
+            assert!(
+                error
+                    .to_string()
+                    .contains(app_server_subcommand_name(app_server.subcommand.as_ref()))
+            );
+
+            let mut args = vec!["codex", "app-server"];
+            args.extend(tooling);
+            let app_server = app_server_from_args(&args);
+            reject_no_remote_control_for_app_server_subcommand(
+                app_server.no_remote_control,
+                app_server.subcommand.as_ref(),
+            )
+            .expect("tooling without the new startup flag keeps its existing behavior");
+        }
+        let error = MultitoolCli::try_parse_from([
+            "codex",
+            "app-server",
+            "daemon",
+            "restart",
+            "--no-remote-control",
+        ])
+        .expect_err("the startup flag after a tooling subcommand must also be rejected");
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn app_server_no_remote_control_accepts_startup_and_preserves_other_modes() {
+        for args in [
+            vec!["codex", "app-server", "--no-remote-control"],
+            vec![
+                "codex",
+                "app-server",
+                "--no-remote-control",
+                "--listen",
+                "ws://127.0.0.1:0",
+            ],
+            vec![
+                "codex",
+                "app-server",
+                "--remote-control",
+                "daemon",
+                "restart",
+            ],
+            vec!["codex", "app-server", "--print-startup-config"],
+        ] {
+            let app_server = app_server_from_args(&args);
+            reject_no_remote_control_for_app_server_subcommand(
+                app_server.no_remote_control,
+                app_server.subcommand.as_ref(),
+            )
+            .expect("real startup and modes without the new flag remain supported");
+        }
+    }
+
+    #[test]
+    fn app_server_no_remote_control_conflicts_with_startup_config_dry_run() {
+        // Printing configuration starts no server, so no runtime can be disabled by this flag.
+        for flags in [
+            ["--no-remote-control", "--print-startup-config"],
+            ["--print-startup-config", "--no-remote-control"],
+        ] {
+            let error = MultitoolCli::try_parse_from(["codex", "app-server", flags[0], flags[1]])
+                .expect_err("a dry run cannot apply a remote-control startup flag");
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
     }
 
     #[test]

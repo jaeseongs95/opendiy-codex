@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::io;
 use std::io::Read;
@@ -299,6 +300,55 @@ async fn list_requests_exact_repository_and_global_endpoints_and_merges_results(
         http.requested_urls(),
         vec![BY_REPO_URL.to_string(), GLOBAL_URL.to_string()]
     );
+}
+
+#[tokio::test]
+async fn global_list_distinguishes_empty_from_http_and_decode_failures() {
+    let headers = HeaderMap::from_iter([(AUTHORIZATION, HeaderValue::from_static("Bearer test"))]);
+    let empty = FakeHttp::new(HashMap::from([(
+        GLOBAL_URL.to_string(),
+        json_response("[]"),
+    )]));
+    assert!(
+        list_environments_with_origins(&empty, BASE_URL, &headers, &[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(empty.requested_urls(), vec![GLOBAL_URL.to_string()]);
+    assert_eq!(empty.requests()[0].headers, headers);
+
+    for status in [
+        StatusCode::UNAUTHORIZED,
+        StatusCode::FORBIDDEN,
+        StatusCode::INTERNAL_SERVER_ERROR,
+    ] {
+        let http = FakeHttp::new(HashMap::from([(
+            GLOBAL_URL.to_string(),
+            EnvironmentResponse {
+                status,
+                content_type: "application/json".to_string(),
+                body: "sensitive-backend-response".to_string(),
+            },
+        )]));
+        let error = list_environments_with_origins(&http, BASE_URL, &headers, &[])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&status.as_u16().to_string()), "{error}");
+        assert!(!error.contains("sensitive-backend-response"));
+    }
+
+    let http = FakeHttp::new(HashMap::from([(
+        GLOBAL_URL.to_string(),
+        json_response(r#"[{"id":"sensitive-value","label":42}]"#),
+    )]));
+    let error = list_environments_with_origins(&http, BASE_URL, &headers, &[])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Invalid environment response"), "{error}");
+    assert!(!error.contains("sensitive-value"));
 }
 
 struct FakeHttp {

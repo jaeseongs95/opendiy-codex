@@ -1,7 +1,10 @@
-<!-- Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md. -->
 # Windows CLI packaging tool
 
-Creates a **new local package** with the built CLI and matching official helper resources. It preserves the official installation and uses `--no-daemon` to select the patched embedded backend. It does not change PATH, authentication, daemon state, or user configuration.
+Creates a **new local package** with the built CLI and matching official helper resources. Packaging does not change PATH, authentication, daemon state, or user configuration.
+
+`codex-patched.cmd` forwards arguments unchanged to the adjacent executable, including `remote-control` and its global options. Its interactive mode uses the normal managed-backend selection. The executable version alone does not prove that the managed server is patched: a previously installed server may still be selected. Installing and checking the matching backend is a separate explicit step (`bin\codex.exe app-server daemon update --from-cli`) that can restart a shared server and interrupt other clients. Verify the running server path and binary hash before claiming patch activation or mobile interoperability.
+
+`codex-local.cmd` explicitly adds `--no-daemon` for an isolated embedded backend. It cannot be used for managed `remote-control` commands or as evidence that a mobile client and local TUI share a live backend. Packaging does not perform enrollment, pairing, or installation. Agent Grid's panel-owned WebSocket servers also require a separate backend-identity and lifecycle check; sharing a profile directory is not sufficient.
 
 ```text
 python package_cli.py --source CHECKOUT --freeze source-freeze.json --binary BUILT_CODEX_EXE --vendor OFFICIAL_VENDOR_DIRECTORY --output NEW_DIRECTORY --version PATCHED_VERSION

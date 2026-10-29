@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! App-level orchestration tests for the TUI.
 
 #[path = "tests/terminal_size_telemetry_tests.rs"]
@@ -5528,6 +5528,23 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
         app.side_threads
             .get(&side_thread_id)
             .and_then(|state| state.parent_status),
+        Some(SideParentStatus::NeedsInput)
+    );
+    // Display eviction must not answer operational input. Only the server resolution does.
+    app.enqueue_thread_notification(
+        parent_thread_id,
+        ServerNotification::ServerRequestResolved(
+            codex_app_server_protocol::ServerRequestResolvedNotification {
+                thread_id: parent_thread_id.to_string(),
+                request_id: AppServerRequestId::Integer(2),
+            },
+        ),
+    )
+    .await?;
+    assert_eq!(
+        app.side_threads
+            .get(&side_thread_id)
+            .and_then(|state| state.parent_status),
         Some(SideParentStatus::NeedsApproval)
     );
     let approval_footer = side_footer(&app);
@@ -5548,6 +5565,22 @@ async fn side_parent_status_prioritizes_input_over_approval() -> Result<()> {
             "turn-eviction",
             "item-eviction",
             &chunk,
+        ),
+    )
+    .await?;
+    assert_eq!(
+        app.side_threads
+            .get(&side_thread_id)
+            .and_then(|state| state.parent_status),
+        Some(SideParentStatus::NeedsApproval)
+    );
+    app.enqueue_thread_notification(
+        parent_thread_id,
+        ServerNotification::ServerRequestResolved(
+            codex_app_server_protocol::ServerRequestResolvedNotification {
+                thread_id: parent_thread_id.to_string(),
+                request_id: AppServerRequestId::Integer(1),
+            },
         ),
     )
     .await?;
@@ -6422,6 +6455,7 @@ async fn make_test_app() -> Box<App> {
         file_search,
         transcript_cells: Vec::new(),
         native_history: Default::default(),
+        history_window: Default::default(),
         turn_tips: Default::default(),
         transcript_view: Default::default(),
         last_rendered_history_tail: None,
@@ -6549,6 +6583,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             file_search,
             transcript_cells: Vec::new(),
             native_history: Default::default(),
+            history_window: Default::default(),
             turn_tips: Default::default(),
             transcript_view: Default::default(),
             last_rendered_history_tail: None,
@@ -10067,6 +10102,8 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
     let notification = ThreadSettingsUpdatedNotification {
         thread_id: inactive_thread_id.to_string(),
         thread_settings: ThreadSettings {
+            model_context_window: None,
+            effective_context_window: None,
             disabled_plugin_ids: Vec::new(),
             cwd: test_absolute_path("/tmp/thread-settings"),
             approval_policy: AskForApproval::OnRequest,

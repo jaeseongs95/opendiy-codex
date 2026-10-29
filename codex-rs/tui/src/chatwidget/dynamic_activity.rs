@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Retain dynamic tool state in either renderer; the app emits only finished rows to terminal history.
 
 use super::*;
@@ -43,6 +44,7 @@ impl ChatWidget {
             }
             self.add_to_history(cell);
         }
+        self.app_event_tx.send(AppEvent::RefreshHistoryRetention);
         self.request_redraw();
     }
 

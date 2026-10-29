@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Native output preserves ordering, quota warning visibility, and replay consistency.
 
 use super::*;
@@ -73,6 +74,18 @@ async fn settled_tool_precedes_queued_output_and_is_not_emitted_twice() -> Resul
     app.insert_history_cell(&mut tui, Box::new(cell.clone()));
     app.flush_native_history(&mut tui);
     assert!(tui.pending_history_lines_for_test().is_empty());
+    assert!(
+        app.render_transcript_lines_for_reflow(/*width*/ 80)
+            .lines
+            .iter()
+            .any(|line| line.line.to_string().contains("past context"))
+    );
+    let historical = app.render_transcript_lines_for_reflow(/*width*/ 80).lines;
+    assert!(
+        historical
+            .iter()
+            .any(|line| line.line.to_string().contains("Calling lookup"))
+    );
     // A long-lived tool must not lose output queued behind it.
     for index in 0..4097 {
         app.insert_history_cell(
@@ -85,17 +98,10 @@ async fn settled_tool_precedes_queued_output_and_is_not_emitted_twice() -> Resul
     app.flush_native_history(&mut tui);
     assert!(tui.pending_history_lines_for_test().is_empty());
     app.native_history.replayed();
+    assert!(app.transcript_cells.len() <= crate::history_window::MAX_HISTORY_ITEMS);
     assert!(
-        app.render_transcript_lines_for_reflow(/*width*/ 80)
-            .lines
-            .iter()
-            .any(|line| line.line.to_string().contains("past context"))
-    );
-    let historical = app.render_transcript_lines_for_reflow(/*width*/ 80).lines;
-    assert!(
-        historical
-            .iter()
-            .any(|line| line.line.to_string().contains("Calling lookup"))
+        app.render_transcript_lines_for_reflow(80).lines.is_empty(),
+        "a cache-evicted pending blocker must still prevent native output reordering"
     );
     cell.update_from_item(item(DynamicToolCallStatus::Completed));
     for _ in 0..=4097 / CELLS_PER_FRAME {
@@ -123,5 +129,79 @@ async fn settled_tool_precedes_queued_output_and_is_not_emitted_twice() -> Resul
     let replayed = tui.pending_history_lines_for_test();
     app.flush_native_history(&mut tui);
     assert_eq!(tui.pending_history_lines_for_test(), replayed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_native_source_survives_remap_and_cache_eviction_until_normal_flush() -> Result<()>
+{
+    let mut app = crate::app::test_support::make_test_app().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    let printed: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "printed prefix".into(),
+    ]));
+    let remainder: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "unprinted remainder".into(),
+    ]));
+    let weak = Arc::downgrade(&remainder);
+    app.native_history.defer(&remainder);
+    let consolidated: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "canonical source".into(),
+    ]));
+    app.native_history
+        .consolidate(&[printed, Arc::clone(&remainder)], &consolidated);
+    app.native_history.retain(&[Arc::clone(&consolidated)]);
+    drop(remainder);
+    assert!(
+        weak.upgrade().is_some(),
+        "the unprinted fragment has an intentional FIFO lifetime"
+    );
+    drop(consolidated); // Ordinary cache eviction does not cancel still-unprinted native output.
+    app.flush_native_history(&mut tui);
+    assert!(
+        weak.upgrade().is_none(),
+        "normal flush must release the original source"
+    );
+    let text = tui
+        .pending_history_lines_for_test()
+        .iter()
+        .map(|line| line.line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(text.matches("unprinted remainder").count(), 1);
+    assert!(
+        !text.contains("canonical source"),
+        "a printed prefix must not be emitted again"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn entirely_unprinted_native_consolidation_releases_obsolete_sources() -> Result<()> {
+    let mut app = crate::app::test_support::make_test_app().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    let first: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "old first".into(),
+    ]));
+    let second: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "old second".into(),
+    ]));
+    let first_weak = Arc::downgrade(&first);
+    let second_weak = Arc::downgrade(&second);
+    app.native_history.defer(&first);
+    app.native_history.defer(&second);
+    let consolidated: Arc<dyn HistoryCell> = Arc::new(history_cell::PlainHistoryCell::new(vec![
+        "finished source".into(),
+    ]));
+    app.native_history
+        .consolidate(&[first, second], &consolidated);
+    assert!(first_weak.upgrade().is_none());
+    assert!(second_weak.upgrade().is_none());
+    app.flush_native_history(&mut tui);
+    assert!(
+        tui.pending_history_lines_for_test()
+            .iter()
+            .any(|line| line.line.to_string().contains("finished source"))
+    );
     Ok(())
 }

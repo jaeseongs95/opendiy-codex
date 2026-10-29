@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Public-boundary capacity retry tests (CONC-FENCE-002 / CONC-CANCEL-004).
 //!
 //! Plan: stop/account changes during PreModelRequest admit zero stale HTTP requests;

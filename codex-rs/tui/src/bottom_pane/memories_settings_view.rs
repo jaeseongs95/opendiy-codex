@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
@@ -62,6 +63,7 @@ enum MemoriesMenuItem {
 
 pub(crate) struct MemoriesSettingsView {
     items: Vec<MemoriesMenuItem>,
+    scope: String,
     state: ScrollState,
     reset_confirmation: Option<ScrollState>,
     complete: bool,
@@ -78,6 +80,7 @@ impl MemoriesSettingsView {
         keymap: ListKeymap,
     ) -> Self {
         let mut view = Self {
+            scope: "global".to_string(),
             items: vec![
                 MemoriesMenuItem::Setting {
                     setting: MemoriesSetting::Use,
@@ -113,13 +116,35 @@ impl MemoriesSettingsView {
         view
     }
 
+    pub(crate) fn with_scope(mut self, scope: &str) -> Self {
+        self.scope = scope.to_string();
+        self
+    }
+
     fn initialize_selection(&mut self) {
         self.state.selected_idx = (!self.items.is_empty()).then_some(0);
     }
 
     fn settings_header(&self) -> ColumnRenderable<'_> {
         let mut header = ColumnRenderable::new();
-        header.push(Paragraph::new(Line::from("Memories".bold())).wrap(Wrap { trim: false }));
+        header.push(
+            Paragraph::new(Line::from(crate::i18n::text("Memories").bold()))
+                .wrap(Wrap { trim: false }),
+        );
+        header.push(
+            Paragraph::new(Line::from(format!(
+                "{} {}",
+                crate::i18n::text("Memory scope:"),
+                crate::i18n::text(&self.scope)
+            )))
+            .wrap(Wrap { trim: false }),
+        );
+        header.push(
+            Paragraph::new(Line::from(
+                "/memory view · /memory edit · /memory scope project".dim(),
+            ))
+            .wrap(Wrap { trim: false }),
+        );
         header.push(
             Paragraph::new(Line::from(
                 "Choose how Codex uses and creates memories. Changes are saved to config.toml"
@@ -332,7 +357,17 @@ impl MemoriesSettingsView {
             Some(MemoriesMenuItem::Action {
                 action: MemoriesAction::Reset,
                 ..
-            }) => self.open_reset_confirmation(),
+            }) => {
+                if self.scope == "project" {
+                    self.app_event_tx.send(AppEvent::MemoryCommand {
+                        thread_id: None,
+                        args: "reset-project-unavailable".to_string(),
+                    });
+                    self.complete = true;
+                } else {
+                    self.open_reset_confirmation();
+                }
+            }
             _ => {
                 self.app_event_tx.send(AppEvent::UpdateMemorySettings {
                     use_memories: self.current_setting(MemoriesSetting::Use),

@@ -1,11 +1,10 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Load bounded history pages into the transcript before updating its owned or inline viewport.
 
 use std::collections::HashSet;
 use std::ops::Range;
 
 use super::*;
-use crate::app_server_session::HISTORY_ITEM_PAGE_LIMIT;
-use crate::app_server_session::thread_items_page_params;
 use crate::history_cell::UserHistoryCell;
 use crate::history_cell::is_session_history_prefix_cell;
 use crate::pager_overlay::TranscriptHistoryState;
@@ -24,33 +23,54 @@ impl App {
         app_server: &mut AppServerSession,
         thread_id: ThreadId,
     ) -> bool {
-        let Some(cursor) = app_server.begin_older_history_page(thread_id) else {
+        self.request_history_page(
+            app_server,
+            thread_id,
+            crate::app_server_session::HistoryDirection::Older,
+        )
+    }
+
+    pub(crate) fn request_history_page(
+        &self,
+        app_server: &mut AppServerSession,
+        thread_id: ThreadId,
+        direction: crate::app_server_session::HistoryDirection,
+    ) -> bool {
+        if self.chat_widget.thread_id() != Some(thread_id) || self.pending_thread_switch_resets != 0
+        {
+            return false;
+        }
+        let Some(mut request) = app_server.begin_history_page(thread_id, direction) else {
             return false;
         };
-        tracing::debug!(
-            %thread_id,
-            %cursor,
-            overlay = self.overlay.is_some(),
-            "loading older transcript history page"
-        );
-        let request_id = app_server.next_request_id();
+        if direction == crate::app_server_session::HistoryDirection::Latest {
+            request.params.limit = Some(crate::app_server_session::initial_history_page_limit(
+                &self.config,
+                &self.local_settings,
+                crossterm::terminal::size().map_or(24, |(_, height)| height),
+            ));
+        }
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
+        let generation = self.history_window.generation;
+        let cursor = match request.params.cursor.as_ref() {
+            Some(codex_app_server_protocol::ThreadItemsListCursor::Opaque(cursor)) => {
+                cursor.clone()
+            }
+            _ => request.token.clone(),
+        };
         tokio::spawn(async move {
             let result = request_handle
                 .request_typed::<ThreadItemsListResponse>(ClientRequest::ThreadItemsList {
-                    request_id,
-                    params: thread_items_page_params(
-                        thread_id,
-                        /*turn_id*/ None,
-                        Some(cursor.clone()),
-                        HISTORY_ITEM_PAGE_LIMIT,
-                    ),
+                    request_id: request.request_id,
+                    params: request.params,
                 })
                 .await
-                .map_err(|err| err.to_string());
+                .map_err(|error| error.to_string());
             app_event_tx.send(AppEvent::OlderThreadHistoryLoaded {
                 thread_id,
+                generation,
+                token: Some(request.token),
                 cursor,
                 result,
             });
@@ -69,13 +89,43 @@ impl App {
         if !app_server.is_older_history_page_pending(thread_id, cursor) {
             return Ok(());
         }
+        use crate::app_server_session::HistoryDirection;
+        let direction = app_server.pending_history_direction(thread_id);
         if self.chat_widget.thread_id() != Some(thread_id)
-            || (tui.is_owned_screen() && !self.scrollback_has_older_history)
+            || self.pending_thread_switch_resets != 0
+            || (direction == HistoryDirection::Older
+                && tui.is_owned_screen()
+                && !self.scrollback_has_older_history)
         {
             app_server.cancel_older_history_page(thread_id, cursor);
             return Ok(());
         }
-        let page = result.map_err(|err| color_eyre::eyre::eyre!(err))?;
+        let page = match result {
+            Ok(page) => page,
+            Err(error) => {
+                if let Some(channel) = self.thread_event_channels.get(&thread_id) {
+                    let store = Arc::clone(&channel.store);
+                    let mut turns = std::mem::take(&mut store.lock().await.turns);
+                    let failure = if error.contains("historyItemTooLarge")
+                        || error.contains("historyPageTooLarge")
+                    {
+                        app_server
+                            .fail_history_page(thread_id, None, &mut turns)
+                            .await
+                    } else {
+                        app_server.cancel_older_history_page(thread_id, cursor);
+                        Ok(())
+                    };
+                    merge_older_turns(&mut store.lock().await.turns, turns);
+                    failure?;
+                }
+                self.scrollback_has_older_history = app_server.has_older_history(thread_id);
+                self.chat_widget.add_error_message(error);
+                self.transcript_view.history = TranscriptHistoryState::Failed;
+                tui.frame_requester().schedule_frame();
+                return Ok(());
+            }
+        };
         let Some(store) = self
             .thread_event_channels
             .get(&thread_id)
@@ -84,19 +134,58 @@ impl App {
             app_server.cancel_older_history_page(thread_id, cursor);
             return Ok(());
         };
+        let page_fits = page
+            .data
+            .iter()
+            .try_fold(0usize, |sum, entry| {
+                crate::history_window::payload_bytes(&entry.item)
+                    .map(|size| sum.saturating_add(size))
+            })
+            .is_ok_and(|bytes| bytes <= crate::history_window::MAX_HISTORY_BYTES);
+        if !page_fits {
+            let mut turns = std::mem::take(&mut store.lock().await.turns);
+            let rejected = page.data.first().map(|entry| entry.turn_id.as_str());
+            let failure = app_server
+                .fail_history_page(thread_id, rejected, &mut turns)
+                .await;
+            merge_older_turns(&mut store.lock().await.turns, turns);
+            failure?;
+            self.scrollback_has_older_history = app_server.has_older_history(thread_id);
+            self.chat_widget
+                .add_error_message(crate::history_window::OVERSIZED_HISTORY.to_string());
+            self.transcript_view.history = TranscriptHistoryState::Failed;
+            tui.frame_requester().schedule_frame();
+            return Ok(());
+        }
         let (cwd, mut turns) = {
-            let store = store.lock().await;
+            let mut store = store.lock().await;
             (
                 store
                     .session
                     .as_ref()
                     .map_or_else(|| self.config.cwd.clone(), |session| session.cwd.clone()),
-                store.turns.clone(),
+                std::mem::take(&mut store.turns),
             )
         };
-        let items = app_server
+        let items = match app_server
             .apply_older_history_page(thread_id, cursor, page, &mut turns)
-            .await?;
+            .await
+        {
+            Ok(items) => items,
+            Err(error) => {
+                merge_older_turns(&mut store.lock().await.turns, turns);
+                return Err(error);
+            }
+        };
+        if direction == HistoryDirection::Latest {
+            self.transcript_cells
+                .retain(|cell| is_session_history_prefix_cell(cell.as_ref()));
+            self.transcript_view.retain_window(&self.transcript_cells);
+            if let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut() {
+                overlay.retain_window(&self.transcript_cells);
+            }
+            self.transcript_view.jump_to_latest();
+        }
         let hidden_item_ids = hidden_review_item_ids(&turns);
         let visibility = if self.config.show_raw_agent_reasoning {
             RawReasoningVisibility::Visible
@@ -113,13 +202,33 @@ impl App {
             &cwd,
             visibility,
         );
-        let inserted = self.prepend_older_transcript_cells(cells);
-        self.transcript_view
-            .history_loaded(&self.transcript_cells, inserted.clone());
-        if !inserted.is_empty() {
-            self.join_older_activity_group(inserted.end, &turns);
+        if direction == HistoryDirection::Older {
+            let inserted = self.prepend_older_transcript_cells(cells);
+            self.transcript_view
+                .history_loaded(&self.transcript_cells, inserted.clone());
+            if !inserted.is_empty() {
+                self.join_older_activity_group(inserted.end, &turns);
+            }
+        } else {
+            for cell in cells {
+                if let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut() {
+                    overlay.insert_cell(Arc::clone(&cell));
+                }
+                self.transcript_cells.push(cell);
+            }
+            self.transcript_view
+                .history_loaded(&self.transcript_cells, 0..0);
         }
-        merge_older_turns(&mut store.lock().await.turns, turns);
+        {
+            let mut store = store.lock().await;
+            merge_older_turns(&mut store.turns, turns);
+            bound_display_turns(&mut store.turns, direction == HistoryDirection::Older);
+            app_server.reanchor_history_window(thread_id, &store.turns, direction);
+        }
+        self.bound_history_window(direction == HistoryDirection::Older);
+        if direction == HistoryDirection::Latest {
+            self.history_window.evicted = false;
+        }
         self.scrollback_has_older_history = app_server.has_older_history(thread_id);
         if self.backtrack.overlay_preview_active
             && self.backtrack.nth_user_message == usize::MAX
@@ -425,6 +534,89 @@ fn merge_older_turns(current_turns: &mut Vec<Turn>, mut older_turns: Vec<Turn>) 
         false
     });
     current_turns.splice(0..0, older_turns);
+}
+
+fn admit_display_item(item: &ThreadItem, items: &mut usize, bytes: &mut usize) -> bool {
+    if *items >= crate::history_window::MAX_HISTORY_ITEMS {
+        return false;
+    }
+    let Ok(size) = crate::history_window::payload_bytes(item) else {
+        return false;
+    };
+    if bytes.saturating_add(size) > crate::history_window::MAX_HISTORY_BYTES {
+        return false;
+    }
+    *items += 1;
+    *bytes += size;
+    true
+}
+
+/// Replay readers may copy only the bounded display projection, never the full input history.
+pub(super) fn clone_display_turns(turns: &[Turn]) -> Vec<Turn> {
+    let mut items = 0usize;
+    let mut bytes = 0usize;
+    let mut retained = turns
+        .iter()
+        .rev()
+        .take(crate::history_window::MAX_HISTORY_TURNS)
+        .map(|turn| {
+            let mut copy = crate::history_window::turn_shell(turn);
+            copy.items = turn
+                .items
+                .iter()
+                .rev()
+                .filter(|item| admit_display_item(item, &mut items, &mut bytes))
+                .cloned()
+                .collect();
+            copy.items.reverse();
+            copy.items_view = if copy.items.len() == turn.items.len() {
+                turn.items_view
+            } else if copy.items.is_empty() {
+                codex_app_server_protocol::TurnItemsView::NotLoaded
+            } else {
+                codex_app_server_protocol::TurnItemsView::Summary
+            };
+            copy
+        })
+        .collect::<Vec<_>>();
+    retained.reverse();
+    retained
+}
+
+pub(super) fn bound_display_turns(turns: &mut Vec<Turn>, prefer_older: bool) {
+    let count = turns.len();
+    if count > crate::history_window::MAX_HISTORY_TURNS {
+        if prefer_older {
+            turns.truncate(crate::history_window::MAX_HISTORY_TURNS);
+        } else {
+            turns.drain(..count - crate::history_window::MAX_HISTORY_TURNS);
+        }
+    }
+    let mut items = 0usize;
+    let mut bytes = 0usize;
+    let visit = |turn: &mut Turn, items: &mut usize, bytes: &mut usize| {
+        let count = turn.items.len();
+        turn.items
+            .retain(|item| admit_display_item(item, items, bytes));
+        if count != turn.items.len() {
+            turn.items_view = if turn.items.is_empty() {
+                codex_app_server_protocol::TurnItemsView::NotLoaded
+            } else {
+                codex_app_server_protocol::TurnItemsView::Summary
+            };
+        }
+    };
+    if prefer_older {
+        for turn in turns.iter_mut() {
+            visit(turn, &mut items, &mut bytes);
+        }
+    } else {
+        for turn in turns.iter_mut().rev() {
+            turn.items.reverse();
+            visit(turn, &mut items, &mut bytes);
+            turn.items.reverse();
+        }
+    }
 }
 
 #[cfg(test)]

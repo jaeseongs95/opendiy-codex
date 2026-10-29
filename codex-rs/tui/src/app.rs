@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Top-level TUI application state and runtime wiring.
 //!
 //! This module owns the `App` struct, shared imports, and the high-level run loop that coordinates
@@ -234,6 +234,7 @@ mod feedback_upload;
 mod file_change_approvals;
 mod history_pagination;
 mod history_ui;
+mod history_window;
 mod input;
 mod link_hover;
 mod loaded_threads;
@@ -264,6 +265,7 @@ mod resize_reflow;
 mod resume_config;
 mod right_click_paste;
 pub(crate) use right_click_paste::PasteEnvironment;
+mod memory;
 mod safety_buffering;
 mod server_version_notice;
 mod session_lifecycle;
@@ -567,6 +569,7 @@ pub(crate) struct App {
 
     pub(crate) transcript_cells: Vec<Arc<dyn HistoryCell>>,
     native_history: native_history::NativeHistory,
+    history_window: history_window::HistoryCellWindow,
     turn_tips: turn_tips::TurnTips,
     pub(crate) transcript_view: crate::transcript_view::TranscriptView,
     last_rendered_history_tail: Option<history_ui::RenderedHistoryTail>,

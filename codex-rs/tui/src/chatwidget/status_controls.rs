@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Status output and setup controls for `ChatWidget`.
 //!
 //! Rendering details live in `status_surfaces`; this module owns the mutable
@@ -95,6 +96,13 @@ impl ChatWidget {
     ///
     /// `ChatWidget` stays a pass-through here so `App` remains the owner of "which thread is the
     /// user actually looking at?" and the footer stack remains a pure renderer of that decision.
+    pub(crate) fn set_subagent_status(
+        &mut self,
+        summary: crate::bottom_pane::SubagentStatusSummary,
+    ) {
+        self.bottom_pane.set_subagent_status(summary);
+    }
+
     pub(crate) fn set_active_agent_label(&mut self, active_agent_label: Option<String>) {
         self.bottom_pane.set_active_agent_label(active_agent_label);
     }

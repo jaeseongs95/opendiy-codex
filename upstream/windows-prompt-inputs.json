@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceCommit": "f665ccc64aaf6baee8fd137d8054f1daaae4a398",
+  "sourceCommit": "3a03cbdadf186d74af73fcc5825afc25d3d85f39",
   "files": [
     {
       "path": "codex-rs/collaboration-mode-templates/templates/default.md",
@@ -34,13 +34,13 @@
     },
     {
       "path": "codex-rs/ext/memories/templates/memories/read_path.md",
-      "gitBlobSha256": "2bc7736029884b714860a6f0d6b2fd26598bba58f2213b787f01fe2a491f4326",
-      "windowsSourceSha256": "0db6003a79b80b5911472e9535fd03cced06456e6ee86fc3eb4c8f54d75b3664"
+      "gitBlobSha256": "a361b5a20b81e56f01e40ae691d8f4c75481bf225384286a62113eb3f298d1d1",
+      "windowsSourceSha256": "79d7fff0ac17796888128fc61008da19e9dd45870f92e7b35a118aa573f406ed"
     },
     {
       "path": "codex-rs/ext/memories/templates/memories/read_path_v2.md",
-      "gitBlobSha256": "2f81fa2e89f341a1b7b3cf11ee7b855087c4ab84ddad920980475465ef28ff27",
-      "windowsSourceSha256": "15a09a2b9efcbd4dbce8f3f6e64efa61a10de13e43306613e88557b327e6fe4d"
+      "gitBlobSha256": "3befca9ef392162aaa754dadd94ad822d949554791ea1b226d1cbcac2b8ee151",
+      "windowsSourceSha256": "9ac3d50bfaf3dda3e92b30298424888d040bb91425102973467db8c03d2615f8"
     },
     {
       "path": "codex-rs/ext/web-search/web_run_description.md",

@@ -1,8 +1,10 @@
-# Current 0.165.0 testing methods
+# Testing methods and validation history
 
-For the later final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.
+Current R28 checks are in [R28 validation and limits](cli-r28-validation.md). The sections below preserve earlier checkpoints and do not describe a new R28 public-checkout build.
 
-This source snapshot is pinned to official `360319d8dee62d87e2d59fc0c21805d79519cfed` plus local `f665ccc64aaf6baee8fd137d8054f1daaae4a398`. The public export's offline file/provenance verifier and its synthetic safety checks are distinct from actual Rust component tests and live-app validation. No runtime/build receipt or operational log is published. At the earlier source-export handoff, a new build and Rust test run from the public checkout had **NOT_RUN**; the later public protocol schema run is recorded in the linked 2026-10-29 checkpoint.
+For the earlier R26 final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.
+
+The earlier R26 snapshot described below was pinned to official `360319d8dee62d87e2d59fc0c21805d79519cfed` plus local `f665ccc64aaf6baee8fd137d8054f1daaae4a398`. The public export's offline file/provenance verifier and its synthetic safety checks are distinct from actual Rust component tests and live-app validation. No runtime/build receipt or operational log is published. At the earlier source-export handoff, a new build and Rust test run from the public checkout had **NOT_RUN**; the later public protocol schema run is recorded in the linked 2026-10-29 checkpoint.
 
 ## Separate local candidate results and exclusions
 
@@ -23,7 +25,7 @@ python -B scripts/source-import/test_verify.py
 
 The source verifier distinguishes canonical Git bytes from Windows working inputs. For 38 embedded prompt files, it checks Windows raw SHA-256 against `upstream/windows-prompt-inputs.json` and canonicalizes only their line endings for the Git-blob comparison. The root attributes preserve the old repository rules, merge the selected upstream LF/generated rules and add native `text` rules only for those 38 prompts. An actual Windows Git materialization with `core.autocrlf=true` and `core.eol=native` matched all 38 pinned raw prompt hashes while preserving both compressed schema resources byte-for-byte. A Linux materialization and a new Rust build of the public checkout are **NOT_RUN**; no Linux CRLF rule is added.
 
-The public-export follow-up for generated TypeScript preserves the original Rust schema comparison: it removes only the publication notice from generated fixture files and records that notice externally in MODIFICATIONS. The Python regression reads GENERATED_TS_HEADER from the actual Rust exporter, checks its position in all eight modified fixtures and rejects a local comment before it. This is a source/contract guard, not a substitute for the actual Rust schema group below. That public-checkout group is **NOT_RUN** at this edit while the separate release build is active. Run it after that build finishes, with a separate target directory:
+The public-export follow-up for generated TypeScript preserves the original Rust schema comparison: it removes only the publication notice from generated fixture files and records that notice externally in MODIFICATIONS. The Python regression reads GENERATED_TS_HEADER from the actual Rust exporter, checks its position in the current nine modified fixtures and rejects a local comment before it. This is a source/contract guard, not a substitute for the actual Rust schema group below. That public-checkout group is **NOT_RUN** at this edit while the separate release build is active. Run it after that build finishes, with a separate target directory:
 
 ```sh
 cargo test --manifest-path codex-rs/Cargo.toml --locked --offline --target x86_64-pc-windows-msvc --target-dir <separate-build-target> --profile dev-small -j 1 -p codex-app-server-protocol --lib schema_fixtures_tests -- --test-threads=1 --nocapture

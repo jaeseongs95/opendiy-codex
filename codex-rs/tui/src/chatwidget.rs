@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! The main Codex TUI chat surface.
 //!
 //! `ChatWidget` consumes protocol events, builds and updates history cells, and drives rendering
@@ -1113,6 +1113,15 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_memories_popup(&mut self) {
+        let scope = if self.config.memories.scope == codex_config::types::MemoryScope::Project {
+            "project"
+        } else {
+            "global"
+        };
+        self.open_memories_popup_with_scope(scope);
+    }
+
+    pub(crate) fn open_memories_popup_with_scope(&mut self, scope: &str) {
         if !self.config.features.enabled(Feature::MemoryTool) {
             self.open_feature_enable_prompt(Feature::MemoryTool);
             return;
@@ -1123,8 +1132,14 @@ impl ChatWidget {
             self.config.memories.generate_memories,
             self.app_event_tx.clone(),
             self.bottom_pane.list_keymap(),
-        );
+        )
+        .with_scope(scope);
         self.bottom_pane.show_view(Box::new(view));
+    }
+
+    pub(crate) fn prepare_memory_note(&mut self) {
+        self.bottom_pane
+            .set_composer_text("/memory edit ".to_string(), Vec::new(), Vec::new());
     }
 
     pub(crate) fn set_memory_settings(&mut self, use_memories: bool, generate_memories: bool) {
@@ -1143,6 +1158,18 @@ impl ChatWidget {
                     .set_context_window(/*percent*/ None, /*used_tokens*/ None);
                 self.token_info = None;
             }
+        }
+    }
+
+    pub(crate) fn update_context_window_display(&mut self, window: Option<i64>) {
+        // A running turn keeps the budget it captured; thread settings govern future turns.
+        if let Some(window) = window
+            && !self.is_user_turn_pending_or_running()
+            && let Some(mut info) = self.token_info.clone()
+        {
+            info.model_context_window = Some(window);
+            self.apply_token_info(info);
+            self.refresh_status_surfaces();
         }
     }
 
@@ -1218,6 +1245,32 @@ impl ChatWidget {
             self.iterm_session_detail(status),
         ) {
             tracing::debug!(error = %err, "failed to set terminal program status");
+        }
+    }
+
+    /// Group boundaries also bound active display payload; routing/lifecycle maps stay intact.
+    /// Full accounting happens at item boundaries. Output deltas charge only their new bytes.
+    fn prepare_active_display_item(&mut self, incoming_bytes: usize) {
+        let should_flush = self.transcript.active_cell.as_ref().is_some_and(|cell| {
+            cell.retained_item_count() >= crate::history_window::MAX_HISTORY_ITEMS
+                || cell.retained_source_bytes().saturating_add(incoming_bytes)
+                    > crate::history_window::MAX_HISTORY_BYTES
+        });
+        if should_flush {
+            self.flush_active_cell();
+        }
+    }
+
+    fn enforce_active_display_window(&mut self) {
+        let Some(cell) = self.transcript.active_cell.as_ref() else {
+            return;
+        };
+        let bytes = cell.retained_source_bytes();
+        let full = bytes >= crate::history_window::MAX_HISTORY_BYTES
+            || cell.retained_item_count() >= crate::history_window::MAX_HISTORY_ITEMS;
+        self.transcript.active_group_display_bytes = bytes;
+        if full {
+            self.flush_active_cell();
         }
     }
 

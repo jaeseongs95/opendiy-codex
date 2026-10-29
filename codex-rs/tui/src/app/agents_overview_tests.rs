@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #[path = "agents_overview_discovery_tests.rs"]
 mod discovery;
 
@@ -1186,8 +1187,8 @@ async fn worktrees_overview_groups_by_project_or_directory() {
     let directory_headings = [
         (&primary, "/tmp/worktree-root/primary"),
         (&linked, "/tmp/worktree-root/linked"),
-        (&primary_subdir, "/tmp/worktree-root/primary/shared/child"),
-        (&linked_subdir, "/tmp/worktree-root/linked/shared/child"),
+        (&primary_subdir, "/tmp/worktree-root/.../shared/child"),
+        (&linked_subdir, "/tmp/worktree-root/.../shared/child"),
         (&nested_child, "/tmp/worktree-root/primary/subdir/child"),
     ]
     .map(|(path, stable)| {

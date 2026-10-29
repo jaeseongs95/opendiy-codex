@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use clap::Args;
 use clap::Parser;
 use codex_utils_cli::CliConfigOverrides;
@@ -20,6 +21,8 @@ pub enum Command {
     Status(StatusCommand),
     /// List Codex Cloud tasks.
     List(ListCommand),
+    /// List accessible Codex Cloud environments.
+    Environments(EnvironmentsCommand),
     /// Apply the diff for a Codex Cloud task locally.
     Apply(ApplyCommand),
     /// Show the unified diff for a Codex Cloud task.
@@ -98,6 +101,13 @@ pub struct ListCommand {
 }
 
 #[derive(Debug, Args)]
+pub struct EnvironmentsCommand {
+    /// Emit JSON instead of plain text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct ApplyCommand {
     /// Codex Cloud task identifier to apply.
     #[arg(value_name = "TASK_ID")]
@@ -117,4 +127,18 @@ pub struct DiffCommand {
     /// Attempt number to display (1-based).
     #[arg(long = "attempt", value_parser = parse_attempts, value_name = "N")]
     pub attempt: Option<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environments_supports_machine_readable_output() {
+        let cli = Cli::try_parse_from(["codex cloud", "environments", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Environments(EnvironmentsCommand { json: true }))
+        ));
+    }
 }

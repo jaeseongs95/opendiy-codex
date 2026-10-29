@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::ThreadHistoryMode;
 
@@ -22,6 +23,10 @@ pub(crate) fn reject_paginated_history_mode(
 /// whether and how to recover, and no variant automatically triggers a retry.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ThreadStoreError {
+    /// The rebuildable display projection has not established a durable checkpoint.
+    #[error("display history projection is unavailable; retry after history persistence")]
+    HistoryProjectionUnavailable,
+
     /// The requested thread does not exist in this store.
     #[error("thread {thread_id} not found")]
     ThreadNotFound {

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #[path = "memory_readiness.rs"]
 mod readiness;
 
@@ -18,6 +19,7 @@ use chrono::Duration;
 use sqlx::Executor;
 use sqlx::QueryBuilder;
 use sqlx::Sqlite;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 const JOB_KIND_MEMORY_STAGE1: &str = "memory_stage1";
@@ -33,11 +35,29 @@ const DEFAULT_RETRY_REMAINING: i64 = 3;
 pub struct MemoryStore {
     pool: Arc<SqlitePool>,
     state_pool: Arc<SqlitePool>,
+    eligible_threads: Option<Arc<HashSet<ThreadId>>>,
 }
 
 impl MemoryStore {
     pub(crate) fn new(pool: Arc<SqlitePool>, state_pool: Arc<SqlitePool>) -> Self {
-        Self { pool, state_pool }
+        Self {
+            pool,
+            state_pool,
+            eligible_threads: None,
+        }
+    }
+
+    /// Restrict both extraction and consolidation to source ids resolved by the caller.
+    /// An empty list permits no sources; an unrestricted global store uses `None`.
+    pub fn with_eligible_threads(mut self, thread_ids: Vec<ThreadId>) -> Self {
+        self.eligible_threads = Some(Arc::new(thread_ids.into_iter().collect()));
+        self
+    }
+
+    fn thread_is_eligible(&self, thread_id: ThreadId) -> bool {
+        self.eligible_threads
+            .as_ref()
+            .is_none_or(|ids| ids.contains(&thread_id))
     }
 
     pub(crate) async fn close(&self) {
@@ -241,6 +261,17 @@ FROM threads
             },
             /*include_thread_id_tiebreaker*/ false,
         );
+        if let Some(eligible_threads) = &self.eligible_threads {
+            // One JSON parameter avoids SQLite's bind-variable limit for large catalogs.
+            let ids = eligible_threads
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            builder
+                .push(" AND threads.id IN (SELECT value FROM json_each(")
+                .push_bind(serde_json::to_string(&ids)?)
+                .push("))");
+        }
         builder.push(" AND threads.memory_mode = 'enabled'");
         builder
             .push(" AND threads.id != ")
@@ -568,6 +599,9 @@ WHERE so.thread_id = ? AND so.source_updated_at = ?
         &self,
         thread_id: ThreadId,
     ) -> anyhow::Result<Option<ThreadMetadata>> {
+        if !self.thread_is_eligible(thread_id) {
+            return Ok(None);
+        }
         let row = sqlx::query(
             r#"
 SELECT
@@ -691,6 +725,10 @@ WHERE id = ? AND memory_mode != 'polluted'
         lease_seconds: i64,
         max_running_jobs: usize,
     ) -> anyhow::Result<Stage1JobClaimOutcome> {
+        anyhow::ensure!(
+            self.thread_is_eligible(thread_id),
+            "thread is outside this memory scope"
+        );
         let now = Utc::now().timestamp();
         let lease_until = now.saturating_add(lease_seconds.max(0));
         let max_running_jobs = max_running_jobs as i64;
@@ -879,6 +917,9 @@ WHERE kind = ? AND job_key = ?
         rollout_summary: &str,
         rollout_slug: Option<&str>,
     ) -> anyhow::Result<bool> {
+        if !self.thread_is_eligible(thread_id) {
+            return Ok(false);
+        }
         let now = Utc::now().timestamp();
         let thread_id = thread_id.to_string();
 
@@ -956,6 +997,9 @@ WHERE excluded.source_updated_at >= stage1_outputs.source_updated_at
         thread_id: ThreadId,
         ownership_token: &str,
     ) -> anyhow::Result<bool> {
+        if !self.thread_is_eligible(thread_id) {
+            return Ok(false);
+        }
         let now = Utc::now().timestamp();
         let thread_id = thread_id.to_string();
 

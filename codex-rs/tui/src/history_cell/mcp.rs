@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! MCP tool-call, inventory, and output history cells.
 //! Tool output previews share a three-row budget across all result blocks;
 //! the expanded transcript retains the full text.
@@ -356,6 +357,25 @@ impl McpToolCallCell {
 }
 
 impl HistoryCell for McpToolCallCell {
+    fn retained_source_bytes(&self) -> usize {
+        self.call_id.capacity()
+            + self.invocation.server.capacity()
+            + self.invocation.tool.capacity()
+            + self.invocation.arguments.as_ref().map_or(0, |value| {
+                crate::history_window::payload_bytes(value)
+                    .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1)
+            })
+            + match &self.result {
+                Some(Ok(result)) => result
+                    .content
+                    .iter()
+                    .map(McpContentBlock::retained_source_bytes)
+                    .sum(),
+                Some(Err(error)) => error.capacity(),
+                None => 0,
+            }
+    }
+
     fn activity_ids(&self) -> Vec<String> {
         vec![format!("mcp:{}", self.call_id)]
     }

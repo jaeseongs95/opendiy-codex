@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Authentication step UI and state transitions used by onboarding.
 //!
 //! This module owns the auth-step state machine (ChatGPT login/device-code/API
@@ -431,23 +432,31 @@ impl AuthModeWidget {
 
     fn disallow_api_login(&mut self) {
         self.highlighted_mode = SignInOption::ChatGpt;
-        self.set_error(Some(API_KEY_DISABLED_MESSAGE.to_string()));
+        self.set_error(Some(
+            crate::i18n::text(API_KEY_DISABLED_MESSAGE).to_string(),
+        ));
         *self.sign_in_state.write().unwrap() = SignInState::PickMode;
         self.request_frame.schedule_frame();
     }
 
     fn render_pick_mode(&self, area: Rect, buf: &mut Buffer) {
         let mut lines: Vec<Line> = if self.bedrock_setup_enabled {
-            vec!["  Choose how you want to use Codex.".into(), "".into()]
+            vec![
+                crate::i18n::text("  Choose how you want to use Codex.").into(),
+                "".into(),
+            ]
         } else {
             vec![
                 Line::from(vec![
                     "  ".into(),
-                    "Sign in with ChatGPT to use Codex as part of your paid plan".into(),
+                    crate::i18n::text(
+                        "Sign in with ChatGPT to use Codex as part of your paid plan",
+                    )
+                    .into(),
                 ]),
                 Line::from(vec![
                     "  ".into(),
-                    "or connect an API key for usage-based billing".into(),
+                    crate::i18n::text("or connect an API key for usage-based billing").into(),
                 ]),
                 "".into(),
             ]
@@ -483,11 +492,12 @@ impl AuthModeWidget {
         };
 
         let chatgpt_description = if !self.is_chatgpt_login_allowed() {
-            "ChatGPT login is disabled"
+            crate::i18n::text("ChatGPT login is disabled")
         } else {
-            "Usage included with Plus, Pro, Business, and Enterprise plans"
+            crate::i18n::text("Usage included with Plus, Pro, Business, and Enterprise plans")
         };
-        let device_code_description = "Sign in from another device with a one-time code";
+        let device_code_description =
+            crate::i18n::text("Sign in from another device with a one-time code");
 
         for (idx, option) in self.displayed_sign_in_options().into_iter().enumerate() {
             match option {
@@ -495,7 +505,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Sign in with ChatGPT",
+                        crate::i18n::text("Sign in with ChatGPT"),
                         chatgpt_description,
                     ));
                 }
@@ -503,7 +513,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Sign in with Device Code",
+                        crate::i18n::text("Sign in with Device Code"),
                         device_code_description,
                     ));
                 }
@@ -512,19 +522,19 @@ impl AuthModeWidget {
                         idx,
                         option,
                         if self.bedrock_setup_enabled {
-                            "Use an OpenAI API key"
+                            crate::i18n::text("Use an OpenAI API key")
                         } else {
-                            "Provide your own API key"
+                            crate::i18n::text("Provide your own API key")
                         },
-                        "Pay for what you use",
+                        crate::i18n::text("Pay for what you use"),
                     ));
                 }
                 SignInOption::Bedrock => {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Use Amazon Bedrock",
-                        "Connect using your AWS credentials",
+                        crate::i18n::text("Use Amazon Bedrock"),
+                        crate::i18n::text("Connect using your AWS credentials"),
                     ));
                 }
             }
@@ -533,16 +543,16 @@ impl AuthModeWidget {
 
         if !self.is_api_login_allowed() {
             lines.push(
-                "  API key login is disabled by this workspace. Sign in with ChatGPT to continue."
+                crate::i18n::text("  API key login is disabled by this workspace. Sign in with ChatGPT to continue.")
                     .dim()
                     .into(),
             );
             lines.push("".into());
         }
         lines.push(Line::from(vec![
-            "  Press ".dim(),
+            crate::i18n::text("  Press ").dim(),
             self.confirm_binding().into(),
-            " to continue".dim(),
+            crate::i18n::text(" to continue").dim(),
         ]));
         if let Some(err) = self.error_message() {
             lines.push("".into());
@@ -566,19 +576,19 @@ impl AuthModeWidget {
             self.request_frame
                 .schedule_frame_in(std::time::Duration::from_millis(100));
             spans.extend(shimmer_text(
-                "Finish signing in via your browser",
+                crate::i18n::text("Finish signing in via your browser"),
                 MotionMode::Animated,
             ));
         } else {
-            spans.push("Finish signing in via your browser".into());
+            spans.push(crate::i18n::text("Finish signing in via your browser").into());
         }
         let mut lines = vec![spans.into(), "".into()];
 
         let auth_url = if !state.auth_url.is_empty() {
             lines.push(Line::from(vec![
-                "  If the link doesn't open automatically, press ".into(),
+                crate::i18n::text("  If the link doesn't open automatically, press ").into(),
                 keys::COPY_LINK[0].into(),
-                " to copy it:".into(),
+                crate::i18n::text(" to copy it:").into(),
             ]));
             if let Some(message) = self.error_message() {
                 lines.push(format!("  {message}").dim().into());
@@ -590,10 +600,10 @@ impl AuthModeWidget {
             ]));
             lines.push("".into());
             lines.push(Line::from(vec![
-                "  On a remote or headless machine? Press ".into(),
+                crate::i18n::text("  On a remote or headless machine? Press ").into(),
                 self.cancel_binding().into(),
-                " and choose ".into(),
-                "Sign in with Device Code".cyan(),
+                crate::i18n::text(" and choose ").into(),
+                crate::i18n::text("Sign in with Device Code").cyan(),
                 ".".into(),
             ]));
             lines.push("".into());
@@ -603,9 +613,9 @@ impl AuthModeWidget {
         };
 
         lines.push(Line::from(vec![
-            "  Press ".dim(),
+            crate::i18n::text("  Press ").dim(),
             self.cancel_binding().into(),
-            " to cancel".dim(),
+            crate::i18n::text(" to cancel").dim(),
         ]));
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -619,44 +629,52 @@ impl AuthModeWidget {
     }
 
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
-        let mut docs_line =
-            HyperlinkLine::new(Line::from("  Learn about permissions and approvals in the ").dim());
+        let mut docs_line = HyperlinkLine::new(
+            Line::from(crate::i18n::text(
+                "  Learn about permissions and approvals in the ",
+            ))
+            .dim(),
+        );
         docs_line.push_span(
-            "Codex docs".underlined(),
+            crate::i18n::text("Codex docs").underlined(),
             Some("https://developers.openai.com/codex/security"),
         );
-        let mut preferences_line =
-            HyperlinkLine::new(Line::from("  Your plan's rate limits and ").dim());
+        let mut preferences_line = HyperlinkLine::new(
+            Line::from(crate::i18n::text("  Your plan's rate limits and ")).dim(),
+        );
         preferences_line.push_span(
-            "training data preferences".underlined(),
+            crate::i18n::text("training data preferences").underlined(),
             Some("https://chatgpt.com/#settings"),
         );
-        preferences_line.push_span(" apply".into(), /*destination*/ None);
+        preferences_line.push_span(
+            crate::i18n::text(" apply").into(),
+            /*destination*/ None,
+        );
 
         let lines = vec![
             HyperlinkLine::new(
-                "✓ Signed in with your ChatGPT account"
+                crate::i18n::text("✓ Signed in with your ChatGPT account")
                     .fg(Color::Green)
                     .into(),
             ),
             "".into(),
-            "  You're in control".into(),
+            crate::i18n::text("  You're in control").into(),
             docs_line,
             "".into(),
-            "  Codex can make mistakes".into(),
+            crate::i18n::text("  Codex can make mistakes").into(),
             HyperlinkLine::new(
-                "  Review the code it writes and commands it runs"
+                crate::i18n::text("  Review the code it writes and commands it runs")
                     .dim()
                     .into(),
             ),
             "".into(),
-            "  Included with your ChatGPT plan".into(),
+            crate::i18n::text("  Included with your ChatGPT plan").into(),
             preferences_line,
             "".into(),
             HyperlinkLine::new(Line::from(vec![
-                "  Press ".fg(Color::Cyan),
+                crate::i18n::text("  Press ").fg(Color::Cyan),
                 self.confirm_binding().into(),
-                " to continue".fg(Color::Cyan),
+                crate::i18n::text(" to continue").fg(Color::Cyan),
             ])),
         ];
 
@@ -668,7 +686,7 @@ impl AuthModeWidget {
 
     fn render_chatgpt_success(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
-            "✓ Signed in with your ChatGPT account"
+            crate::i18n::text("✓ Signed in with your ChatGPT account")
                 .fg(Color::Green)
                 .into(),
         ];
@@ -680,9 +698,11 @@ impl AuthModeWidget {
 
     fn render_api_key_configured(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
-            "✓ API key configured".fg(Color::Green).into(),
+            crate::i18n::text("✓ API key configured")
+                .fg(Color::Green)
+                .into(),
             "".into(),
-            "  Codex will use usage-based billing with your API key.".into(),
+            crate::i18n::text("  Codex will use usage-based billing with your API key.").into(),
         ];
 
         Paragraph::new(lines)
@@ -701,16 +721,17 @@ impl AuthModeWidget {
         let mut intro_lines: Vec<Line> = vec![
             Line::from(vec![
                 "> ".into(),
-                "Use your own OpenAI API key for usage-based billing".bold(),
+                crate::i18n::text("Use your own OpenAI API key for usage-based billing").bold(),
             ]),
             "".into(),
-            "  Paste or type your API key below.".into(),
+            crate::i18n::text("  Paste or type your API key below.").into(),
             "".into(),
         ];
         if state.prepopulated_from_env {
-            intro_lines.push("  Detected OPENAI_API_KEY environment variable.".into());
+            intro_lines
+                .push(crate::i18n::text("  Detected OPENAI_API_KEY environment variable.").into());
             intro_lines.push(
-                "  Paste a different key if you prefer to use another account."
+                crate::i18n::text("  Paste a different key if you prefer to use another account.")
                     .dim()
                     .into(),
             );
@@ -721,7 +742,7 @@ impl AuthModeWidget {
             .render(intro_area, buf);
 
         let content_line: Line = if state.value.is_empty() {
-            vec!["Paste or type your API key".dim()].into()
+            vec![crate::i18n::text("Paste or type your API key").dim()].into()
         } else {
             Line::from(state.value.clone())
         };
@@ -729,7 +750,7 @@ impl AuthModeWidget {
             .wrap(Wrap { trim: false })
             .block(
                 Block::default()
-                    .title("API key")
+                    .title(crate::i18n::text("API key"))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Cyan)),
@@ -738,12 +759,12 @@ impl AuthModeWidget {
 
         let mut footer_lines: Vec<Line> = vec![
             Line::from(vec![
-                "  Press ".dim(),
+                crate::i18n::text("  Press ").dim(),
                 self.confirm_binding().into(),
-                " to save".dim(),
+                crate::i18n::text(" to save").dim(),
             ]),
             Line::from(vec![
-                "  Press ".dim(),
+                crate::i18n::text("  Press ").dim(),
                 self.cancel_binding().into(),
                 " to go back".dim(),
             ]),
@@ -771,7 +792,9 @@ impl AuthModeWidget {
                 } else if keys::CONFIRM.is_pressed(*key_event) {
                     let trimmed = state.value.trim().to_string();
                     if trimmed.is_empty() {
-                        self.set_error(Some("API key cannot be empty".to_string()));
+                        self.set_error(Some(
+                            crate::i18n::text("API key cannot be empty").to_string(),
+                        ));
                         should_request_frame = true;
                     } else {
                         should_save = Some(trimmed);
@@ -1087,7 +1110,7 @@ impl WidgetRef for AuthModeWidget {
                 state.render(area, buf, self.error_message());
             }
             SignInState::BedrockConfigured => {
-                Paragraph::new("✓ Amazon Bedrock configured".green())
+                Paragraph::new(crate::i18n::text("✓ Amazon Bedrock configured").green())
                     .wrap(Wrap { trim: false })
                     .render(area, buf);
             }
@@ -1275,6 +1298,29 @@ mod tests {
             animations_suppressed: std::cell::Cell::new(false),
         };
         (widget, codex_home)
+    }
+
+    #[tokio::test]
+    async fn korean_initial_sign_in_picker_renders_login_choices() {
+        let (mut widget, _tmp) = widget_forced_chatgpt().await;
+        widget.auth_config.forced_login_method = None;
+        widget.animations_enabled = false;
+        crate::i18n::with_locale(crate::i18n::Locale::Korean, || {
+            let mut terminal =
+                ratatui::Terminal::new(crate::test_backend::VT100Backend::new(100, 26))
+                    .expect("terminal");
+            terminal
+                .draw(|frame| widget.render_ref(frame.area(), frame.buffer_mut()))
+                .expect("draw");
+            let rendered = terminal.backend().to_string();
+            assert!(rendered.contains("ChatGPT로 로그인"), "{rendered}");
+            assert!(rendered.contains("기기 코드로 로그인"), "{rendered}");
+            assert!(rendered.contains("내 API 키 입력"), "{rendered}");
+            assert!(matches!(
+                *widget.sign_in_state.read().unwrap(),
+                SignInState::PickMode
+            ));
+        });
     }
 
     #[tokio::test]

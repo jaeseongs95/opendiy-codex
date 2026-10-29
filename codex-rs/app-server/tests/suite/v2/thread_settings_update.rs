@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use anyhow::Context;
 use anyhow::Result;
 use app_test_support::MockResponsesConfig;
@@ -49,6 +49,314 @@ use test_case::test_case;
 use tokio::time::timeout;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn context_settings(
+    mcp: &mut TestAppServer,
+    thread_id: &str,
+    window: Option<Option<i64>>,
+) -> Result<codex_app_server_protocol::ThreadSettings> {
+    let request_id = mcp
+        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+            thread_id: thread_id.to_string(),
+            model_context_window: window,
+            ..Default::default()
+        })
+        .await?;
+    let response: ThreadSettingsUpdateResponse =
+        timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
+    assert_eq!(response.settings_applied, Some(true));
+    response
+        .thread_settings
+        .context("server should return authoritative settings")
+}
+
+#[tokio::test]
+async fn context_window_applies_to_core_isolates_threads_and_survives_cold_resume() -> Result<()> {
+    let server = create_mock_responses_server_sequence_unchecked(vec![
+        create_final_assistant_message_sse_response("done")?,
+    ])
+    .await;
+    let codex_home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri())
+        .with_root_config("model_context_window = 180000")
+        .with_provider_config("supports_websockets = false")
+        .write(codex_home.path())?;
+    write_models_cache(codex_home.path()).await?;
+    let original_config = std::fs::read(codex_home.path().join("config.toml"))?;
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.show_in_picker)
+        .context("a catalog model")?
+        .id
+        .clone();
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let first = mcp
+        .start_thread(ThreadStartParams {
+            model: Some(model.clone()),
+            ..Default::default()
+        })
+        .await?
+        .thread
+        .id;
+    let second = mcp
+        .start_thread(ThreadStartParams {
+            model: Some(model),
+            ..Default::default()
+        })
+        .await?
+        .thread
+        .id;
+    let selected = context_settings(&mut mcp, &first, Some(Some(120_000))).await?;
+    assert_eq!(selected.model_context_window, Some(120_000));
+    assert_eq!(selected.effective_context_window, Some(114_000));
+    let unrelated = context_settings(&mut mcp, &second, None).await?;
+    assert_eq!(unrelated.model_context_window, None);
+    assert_eq!(unrelated.effective_context_window, Some(171_000));
+
+    start_text_turn(&mut mcp, first.clone()).await?;
+    let usage: codex_app_server_protocol::ThreadTokenUsageUpdatedNotification = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_notification("thread/tokenUsage/updated"),
+    )
+    .await??;
+    assert_eq!(usage.thread_id, first);
+    assert_eq!(usage.token_usage.model_context_window, Some(114_000));
+    timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/completed"),
+    )
+    .await??;
+    mcp.shutdown_gracefully().await?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let _: ThreadResumeResponse = mcp
+        .request(|request_id| ClientRequest::ThreadResume {
+            request_id,
+            params: ThreadResumeParams {
+                thread_id: first.clone(),
+                ..Default::default()
+            },
+        })
+        .await?;
+    let resumed = context_settings(&mut mcp, &first, None).await?;
+    assert_eq!(resumed.model_context_window, Some(120_000));
+    assert_eq!(resumed.effective_context_window, Some(114_000));
+    let reset = context_settings(&mut mcp, &first, Some(None)).await?;
+    assert_eq!(reset.model_context_window, None);
+    assert_eq!(reset.effective_context_window, Some(171_000));
+    mcp.shutdown_gracefully().await?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let _: ThreadResumeResponse = mcp
+        .request(|request_id| ClientRequest::ThreadResume {
+            request_id,
+            params: ThreadResumeParams {
+                thread_id: first.clone(),
+                ..Default::default()
+            },
+        })
+        .await?;
+    let resumed_reset = context_settings(&mut mcp, &first, None).await?;
+    assert_eq!(resumed_reset.model_context_window, None);
+    assert_eq!(resumed_reset.effective_context_window, Some(171_000));
+    assert_eq!(
+        std::fs::read(codex_home.path().join("config.toml"))?,
+        original_config
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn context_window_rejects_invalid_and_unknown_model_without_changing_settings() -> Result<()>
+{
+    let server = responses::start_mock_server().await;
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+    write_models_cache(codex_home.path()).await?;
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.show_in_picker)
+        .context("a catalog model")?
+        .id
+        .clone();
+    let smaller_model = all_model_presets()
+        .iter()
+        .find(|preset| preset.show_in_picker && preset.id != model)
+        .context("a second catalog model")?
+        .id
+        .clone();
+    let cache_path = codex_home.path().join("models_cache.json");
+    let mut cache: Value = serde_json::from_slice(&std::fs::read(&cache_path)?)?;
+    let smaller = cache["models"]
+        .as_array_mut()
+        .context("cached model list")?
+        .iter_mut()
+        .find(|entry| entry["slug"].as_str() == Some(smaller_model.as_str()))
+        .context("second cached model")?;
+    smaller["context_window"] = json!(64_000);
+    smaller["max_context_window"] = json!(64_000);
+    std::fs::write(cache_path, serde_json::to_vec(&cache)?)?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let first = mcp
+        .start_thread(ThreadStartParams {
+            model: Some(model.clone()),
+            ..Default::default()
+        })
+        .await?
+        .thread
+        .id;
+    context_settings(&mut mcp, &first, Some(Some(120_000))).await?;
+    for tokens in [0, -1, 1, 272_001, i64::MAX] {
+        let id = mcp
+            .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+                thread_id: first.clone(),
+                model_context_window: Some(Some(tokens)),
+                ..Default::default()
+            })
+            .await?;
+        let error: JSONRPCError = timeout(
+            DEFAULT_TIMEOUT,
+            mcp.read_stream_until_error_message(RequestId::Integer(id)),
+        )
+        .await??;
+        assert!(
+            error.error.message.contains("model_context_window"),
+            "{error:?}"
+        );
+        assert_eq!(
+            context_settings(&mut mcp, &first, None)
+                .await?
+                .model_context_window,
+            Some(120_000)
+        );
+    }
+    let id = mcp
+        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+            thread_id: first.clone(),
+            model: Some("unknown-context-test-model".to_string()),
+            model_context_window: Some(Some(120_000)),
+            ..Default::default()
+        })
+        .await?;
+    let _: JSONRPCError = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(id)),
+    )
+    .await??;
+    let unchanged = context_settings(&mut mcp, &first, None).await?;
+    assert_eq!(unchanged.model, model);
+    assert_eq!(unchanged.model_context_window, Some(120_000));
+    let id = mcp
+        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+            thread_id: first.clone(),
+            model: Some(smaller_model.clone()),
+            ..Default::default()
+        })
+        .await?;
+    let _: JSONRPCError = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(id)),
+    )
+    .await??;
+    let unchanged = context_settings(&mut mcp, &first, None).await?;
+    assert_eq!(unchanged.model, model);
+    assert_eq!(unchanged.model_context_window, Some(120_000));
+    let id = mcp
+        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+            thread_id: first.clone(),
+            model: Some(smaller_model.clone()),
+            model_context_window: Some(None),
+            ..Default::default()
+        })
+        .await?;
+    let reset: ThreadSettingsUpdateResponse =
+        timeout(DEFAULT_TIMEOUT, mcp.read_response(id)).await??;
+    let reset = reset
+        .thread_settings
+        .context("accepted final combination")?;
+    assert_eq!(reset.model, smaller_model);
+    assert_eq!(reset.model_context_window, None);
+    assert_eq!(reset.effective_context_window, Some(60_800));
+    assert!(received_response_bodies(&server).await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn context_window_busy_update_preserves_running_turn_and_changes_next_turn() -> Result<()> {
+    let server = responses::start_mock_server().await;
+    let delayed =
+        responses::sse_response(create_final_assistant_message_sse_response("first done")?)
+            .set_delay(Duration::from_secs(2));
+    let next = responses::sse_response(create_final_assistant_message_sse_response("next done")?);
+    let _requests = responses::mount_response_sequence(&server, vec![delayed, next]).await;
+    let codex_home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri())
+        .with_root_config("model_context_window = 180000")
+        .with_provider_config("supports_websockets = false")
+        .write(codex_home.path())?;
+    write_models_cache(codex_home.path()).await?;
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.show_in_picker)
+        .context("a catalog model")?
+        .id
+        .clone();
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let thread = mcp
+        .start_thread(ThreadStartParams {
+            model: Some(model),
+            ..Default::default()
+        })
+        .await?
+        .thread
+        .id;
+    start_text_turn(&mut mcp, thread.clone()).await?;
+    timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/started"),
+    )
+    .await??;
+    context_settings(&mut mcp, &thread, Some(Some(120_000))).await?;
+    let usage: codex_app_server_protocol::ThreadTokenUsageUpdatedNotification = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_notification("thread/tokenUsage/updated"),
+    )
+    .await??;
+    assert_eq!(usage.token_usage.model_context_window, Some(171_000));
+    timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/completed"),
+    )
+    .await??;
+    start_text_turn(&mut mcp, thread).await?;
+    let usage: codex_app_server_protocol::ThreadTokenUsageUpdatedNotification = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_notification("thread/tokenUsage/updated"),
+    )
+    .await??;
+    assert_eq!(usage.token_usage.model_context_window, Some(114_000));
+    timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/completed"),
+    )
+    .await??;
+    Ok(())
+}
 
 #[tokio::test]
 async fn disabled_plugin_ids_replace_preserve_and_clear_without_inference() -> Result<()> {

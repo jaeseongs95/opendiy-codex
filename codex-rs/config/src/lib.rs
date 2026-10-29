@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 mod application_requirements;
 mod application_storage_requirements;
 mod auth_policy;
@@ -29,6 +30,7 @@ mod mcp_ema_cancellation;
 pub use mcp_ema_cancellation::McpEmaCancellation;
 mod mcp_requirements;
 mod mcp_types;
+pub mod memory_scope;
 mod merge;
 mod model_provider_requirements;
 mod overrides;

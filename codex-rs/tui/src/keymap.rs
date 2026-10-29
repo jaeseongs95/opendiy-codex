@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Runtime keymap resolution for the TUI.
 //!
 //! This module converts deserialized config (`TuiKeymap`) into a concrete

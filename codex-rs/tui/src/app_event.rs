@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
@@ -296,6 +296,14 @@ pub(crate) struct AgentPickerThreadRefresh {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
+    MemoryCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
+    ContextCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
     CronCommand {
         thread_id: Option<ThreadId>,
         args: String,
@@ -486,6 +494,8 @@ pub(crate) enum AppEvent {
     /// One background-loaded page of older Ctrl+T transcript history.
     OlderThreadHistoryLoaded {
         thread_id: ThreadId,
+        generation: u64,
+        token: Option<String>,
         cursor: String,
         result: Result<ThreadItemsListResponse, String>,
     },
@@ -1173,6 +1183,7 @@ pub(crate) enum AppEvent {
     FollowTranscript,
 
     InsertHistoryCell(Box<dyn HistoryCell>),
+    RefreshHistoryRetention,
     /// FIFO barrier after the completed turn's history insertions.
     TurnTipReady {
         thread_id: ThreadId,

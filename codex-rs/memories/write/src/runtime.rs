@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crate::metrics::MEMORY_STORAGE_BYTES;
 use crate::workspace::memory_storage_bytes;
 use codex_core::CodexThread;
@@ -79,6 +80,10 @@ impl StageOneRequestContext {
 
 pub(crate) struct MemoryStartupContext {
     version: MemoryVersion,
+    project: Option<codex_config::memory_scope::MemoryProject>,
+    project_scope: bool,
+    generate_by_default: bool,
+    memory_store: tokio::sync::OnceCell<Option<MemoryStore>>,
     thread_id: ThreadId,
     thread: Arc<CodexThread>,
     thread_manager: Arc<ThreadManager>,
@@ -200,6 +205,10 @@ impl MemoryStartupContext {
 
         Self {
             version: config.memories.version,
+            project: config.memories.project.clone(),
+            project_scope: config.memories.scope == codex_config::types::MemoryScope::Project,
+            generate_by_default: config.memories.generate_memories,
+            memory_store: tokio::sync::OnceCell::new(),
             thread_id,
             thread,
             thread_manager,
@@ -244,16 +253,68 @@ impl MemoryStartupContext {
     }
 
     pub(crate) async fn memory_store(&self) -> Option<MemoryStore> {
-        match self
-            .thread
-            .state_db()?
-            .memories_for_version(self.version)
+        if self.project_scope && self.project.is_none() {
+            return None;
+        }
+        self.memory_store
+            .get_or_init(|| async {
+                let db = self.thread.state_db()?;
+                let result = if let Some(project) = self.project.as_ref() {
+                    let candidates = match db.memory_source_candidates().await {
+                        Ok(candidates) => candidates,
+                        Err(error) => {
+                            tracing::warn!("failed reading memory source catalog: {error}");
+                            return None;
+                        }
+                    };
+                    let project_filter = project.clone();
+                    let eligible = match tokio::task::spawn_blocking(move || {
+                        let mut cwd_cache = std::collections::HashMap::new();
+                        candidates
+                            .into_iter()
+                            .filter_map(|(id, cwd)| {
+                                let eligible = *cwd_cache
+                                    .entry(cwd.clone())
+                                    .or_insert_with(|| project_filter.contains_source(&cwd));
+                                eligible.then_some(id)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .await
+                    {
+                        Ok(ids) => ids,
+                        Err(error) => {
+                            tracing::warn!("failed resolving memory source scopes: {error}");
+                            return None;
+                        }
+                    };
+                    db.memories_for_project(self.version, &project.key)
+                        .await
+                        .map(|store| store.with_eligible_threads(eligible))
+                } else {
+                    db.memories_for_version(self.version).await
+                };
+                match result {
+                    Ok(store) => Some(store),
+                    Err(error) => {
+                        tracing::warn!("failed opening memory store: {error}");
+                        None
+                    }
+                }
+            })
             .await
-        {
-            Ok(store) => Some(store),
-            Err(err) => {
-                tracing::warn!("failed opening memory store: {err}");
-                None
+            .clone()
+    }
+
+    pub(crate) async fn generation_enabled(&self) -> bool {
+        let Some(db) = self.thread.state_db() else {
+            return false;
+        };
+        match db.get_thread_memory_mode(self.thread_id).await {
+            Ok(mode) => mode.map_or(self.generate_by_default, |mode| mode == "enabled"),
+            Err(error) => {
+                tracing::warn!("failed checking memory generation mode: {error}");
+                false
             }
         }
     }

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Root-scoped background refresh for the agent picker.
 
 use super::agent_navigation::AgentPickerThreadVisibility;
@@ -247,6 +248,7 @@ impl App {
     }
 
     fn replace_agent_picker_view(&mut self, selected_thread_id: Option<ThreadId>) {
+        self.sync_active_agent_label();
         let selected = selected_thread_id.and_then(|selected_thread_id| {
             self.agent_navigation
                 .visible_threads()

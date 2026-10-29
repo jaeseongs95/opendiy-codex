@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain
@@ -167,6 +167,8 @@ impl App {
             event => (event, None),
         };
         match event {
+            AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
+            AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
             AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
             AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,
             AppEvent::CronCancelReply(reply) => self.handle_cron_cancel_reply(*reply),
@@ -388,9 +390,18 @@ impl App {
             }
             AppEvent::OlderThreadHistoryLoaded {
                 thread_id,
+                generation,
+                token,
                 cursor,
                 result,
             } => {
+                if token.as_deref().is_some_and(|token| !app_server.is_history_token_pending(thread_id, token)) {
+                    return Ok(AppRunControl::Continue);
+                }
+                if generation != self.history_window.generation {
+                    app_server.cancel_older_history_page(thread_id, &cursor);
+                    return Ok(AppRunControl::Continue);
+                }
                 if let Err(err) = self
                     .handle_older_history_page(tui, app_server, thread_id, &cursor, result)
                     .await
@@ -406,6 +417,7 @@ impl App {
                     tracing::warn!(%thread_id, error = %err, "failed to load older transcript history");
                 }
             }
+
             AppEvent::OpenWarnings => self.chat_widget.open_warnings(&self.transcript_cells),
             AppEvent::UpdateWarnings { transcript, dismissed, kept } => {
                 if !Arc::ptr_eq(&transcript, &self.chat_widget.warning_display_state.transcript) {
@@ -919,6 +931,10 @@ impl App {
                 self.transcript_view.jump_to_latest();
                 tui.frame_requester().schedule_frame();
             }
+            AppEvent::RefreshHistoryRetention => {
+                self.bound_history_window(false);
+                tui.frame_requester().schedule_frame();
+            }
             AppEvent::InsertHistoryCell(cell) => {
                 self.insert_history_cell(tui, cell);
             }
@@ -934,6 +950,12 @@ impl App {
                 if tui.is_owned_screen() {
                     self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
                 }
+                if let Some(thread_id) = self.chat_widget.thread_id() {
+                    for error in app_server.take_history_errors(thread_id) {
+                        self.chat_widget.add_error_message(error);
+                    }
+                }
+                self.bound_history_window(/*prefer_older*/ false);
                 self.finish_initial_history_replay_buffer(tui);
             }
             AppEvent::ConsolidateAgentMessage {
@@ -988,6 +1010,7 @@ impl App {
 
                     self.maybe_finish_stream_reflow(tui)?;
                 }
+                self.bound_history_window(/*prefer_older*/ false);
                 self.chat_widget.note_stream_consolidation_completed();
                 self.insert_pending_usage_output_after_stream_shutdown(tui);
             }

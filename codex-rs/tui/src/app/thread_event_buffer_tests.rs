@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::*;
 use crate::app::THREAD_EVENT_CHANNEL_CAPACITY;
 use crate::app::Turn;
@@ -134,6 +135,13 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
     assert_eq!(
         snapshot_events(&store),
         vec![
+            serde_json::to_value(exec_approval_request(
+                thread_id,
+                "turn-2",
+                "approval-1",
+                None
+            ))
+            .unwrap(),
             serde_json::to_value(delta(
                 "turn-2",
                 "item-2",
@@ -149,7 +157,7 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
             serde_json::to_value(delta("turn-2", "item-2", "🙂")).expect("delta should serialize"),
         ]
     );
-    assert!(!store.has_pending_thread_approvals());
+    assert!(store.has_pending_thread_approvals());
 
     let mut store = ThreadEventStore::new(/*capacity*/ THREAD_EVENT_CHANNEL_CAPACITY);
     store.push_request(exec_approval_request(
@@ -168,18 +176,26 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
 
     assert_eq!(
         snapshot_events(&store),
-        (1..65)
-            .map(|chunk| {
-                serde_json::to_value(delta(
-                    "turn-budget",
-                    "item-budget",
-                    &format!("{chunk:08}").repeat(MAX_COALESCED_AGENT_MESSAGE_DELTA_BYTES / 8),
-                ))
-                .expect("delta should serialize")
-            })
-            .collect::<Vec<_>>()
+        std::iter::once(
+            serde_json::to_value(exec_approval_request(
+                thread_id,
+                "turn-budget",
+                "approval-budget",
+                None
+            ))
+            .unwrap()
+        )
+        .chain((1..65).map(|chunk| {
+            serde_json::to_value(delta(
+                "turn-budget",
+                "item-budget",
+                &format!("{chunk:08}").repeat(MAX_COALESCED_AGENT_MESSAGE_DELTA_BYTES / 8),
+            ))
+            .expect("delta should serialize")
+        }))
+        .collect::<Vec<_>>()
     );
-    assert!(!store.has_pending_thread_approvals());
+    assert!(store.has_pending_thread_approvals());
 
     let mut store = ThreadEventStore::new(/*capacity*/ 4);
     store.push_notification(turn_started_notification(thread_id, "turn-oversized"));
@@ -218,4 +234,21 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
         ]
     );
     assert!(store.has_pending_thread_approvals());
+}
+
+#[test]
+fn resolved_requests_do_not_keep_the_pending_request_retention_exception() {
+    let mut store = ThreadEventStore::new(4);
+    let thread_id = ThreadId::new();
+    for index in 0..20 {
+        let id = format!("approval-{index}");
+        store.push_request(exec_approval_request(thread_id, "turn", &id, None));
+        store.note_outbound_op(&crate::app_command::AppCommand::ExecApproval {
+            id,
+            turn_id: Some("turn".to_string()),
+            decision: codex_app_server_protocol::CommandExecutionApprovalDecision::Accept,
+        });
+    }
+    assert!(!store.has_pending_thread_approvals());
+    assert!(store.buffer.len() <= 5);
 }

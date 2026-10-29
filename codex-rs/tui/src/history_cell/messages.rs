@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! User, assistant, reasoning, and streaming message history cells.
 //! Completed reasoning is retained in the expanded transcript, not compact scrollback.
 
@@ -176,6 +177,20 @@ impl UserHistoryCell {
 }
 
 impl HistoryCell for UserHistoryCell {
+    fn retained_source_bytes(&self) -> usize {
+        self.message.capacity()
+            + self
+                .remote_image_urls
+                .iter()
+                .map(String::capacity)
+                .sum::<usize>()
+            + self
+                .local_image_paths
+                .iter()
+                .map(|path| path.as_os_str().len())
+                .sum::<usize>()
+    }
+
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         visible_lines(self.display_hyperlink_lines(width))
     }
@@ -393,6 +408,10 @@ impl ReasoningSummaryCell {
 }
 
 impl HistoryCell for ReasoningSummaryCell {
+    fn retained_source_bytes(&self) -> usize {
+        self.content.capacity() + self._header.capacity()
+    }
+
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         visible_lines(self.display_hyperlink_lines(width))
     }
@@ -628,6 +647,10 @@ impl AgentMarkdownCell {
 }
 
 impl HistoryCell for AgentMarkdownCell {
+    fn retained_source_bytes(&self) -> usize {
+        self.markdown_source.capacity() + self.copy_source.as_ref().map_or(0, String::capacity)
+    }
+
     fn copy_source(&self) -> Option<&str> {
         Some(self.copy_source.as_deref().unwrap_or(&self.markdown_source))
     }

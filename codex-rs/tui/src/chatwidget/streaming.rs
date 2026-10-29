@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Streaming transcript updates for `ChatWidget`.
 //!
 //! This module owns assistant, plan, and reasoning deltas, including stream-tail
@@ -37,6 +38,7 @@ impl ChatWidget {
         if self.status_state.reasoning_item_id.as_ref() == Some(&id) {
             return;
         }
+        self.reset_live_display_budget(2);
         self.status_state.reasoning_item_id = Some(id);
         self.status_state.reasoning_recovered_after_refresh = false;
         self.reasoning_buffer.clear();
@@ -160,6 +162,9 @@ impl ChatWidget {
         if had_stream_controller {
             self.request_pending_usage_output_insertion_after_stream_shutdown();
         }
+        if had_stream_controller {
+            self.reset_live_display_budget(0);
+        }
         if completed_message.is_some() {
             self.transcript.active_streamed_agent_message = None;
             self.transcript.last_flushed_agent_message = None;
@@ -237,6 +242,9 @@ impl ChatWidget {
         if self.active_mode_kind() != ModeKind::Plan {
             return;
         }
+        if !self.admit_live_display_bytes(1, delta.len()) {
+            return;
+        }
         if !self.transcript.plan_item_active {
             self.transcript.plan_item_active = true;
             self.transcript.plan_delta_buffer.clear();
@@ -275,6 +283,8 @@ impl ChatWidget {
     }
 
     pub(super) fn on_plan_item_completed(&mut self, text: String) {
+        let oversized = text.len() > crate::history_window::MAX_HISTORY_BYTES
+            || self.transcript.live_display_oversized[1];
         let (plan_text, source) = if text.trim().is_empty() {
             (
                 self.transcript.plan_delta_buffer.trim().to_string(),
@@ -287,6 +297,12 @@ impl ChatWidget {
             self.transcript
                 .record_agent_markdown(plan_text.clone(), source);
             self.transcript.latest_proposed_plan_markdown = Some(plan_text.clone());
+        }
+        if oversized {
+            self.reject_oversized_live_display(1);
+            self.reset_live_display_budget(1);
+            self.handle_stream_finished();
+            return;
         }
         // Plan commit ticks can hide the status row; remember whether we streamed plan output so
         // completion can restore it once stream queues are idle.
@@ -323,6 +339,7 @@ impl ChatWidget {
             self.app_event_tx
                 .send(AppEvent::ConsolidateProposedPlan(source));
         }
+        self.reset_live_display_budget(1);
         if should_restore_after_stream {
             self.status_state.pending_status_indicator_restore = true;
             self.maybe_restore_status_indicator_after_stream_idle();
@@ -331,6 +348,9 @@ impl ChatWidget {
     }
 
     pub(super) fn on_agent_reasoning_delta(&mut self, delta: String) {
+        if !self.admit_live_display_bytes(2, delta.len()) {
+            return;
+        }
         // Accumulate the current reasoning block for history and activity text.
         self.reasoning_buffer.push_str(&delta);
 
@@ -394,6 +414,7 @@ impl ChatWidget {
             if let Some(id) = &self.status_state.reasoning_item_id {
                 cell.set_source_item_id(id.clone());
             }
+            self.prepare_active_display_item(cell.retained_source_bytes());
             let cell: Box<dyn HistoryCell> = cell;
             let result = match self.transcript.active_cell.as_mut() {
                 Some(active) => active.append_reasoning(cell),
@@ -404,6 +425,8 @@ impl ChatWidget {
                 Err(cell) => self.add_boxed_history(cell),
             }
         }
+        self.reset_live_display_budget(2);
+        self.enforce_active_display_window();
         self.reasoning_buffer.clear();
         // Keep the last useful summary through tools and later empty items.
         self.status_state.reasoning_item_id = None;
@@ -448,6 +471,13 @@ impl ChatWidget {
             self.add_async_questions(&item.id, questions);
         }
         self.transcript.last_completed_agent_message = Some((turn_id.to_string(), item.id.clone()));
+        let completed_bytes = item
+            .content
+            .iter()
+            .map(|content| match content {
+                AgentMessageContent::Text { text } => text.len(),
+            })
+            .fold(0usize, usize::saturating_add);
         let mut message = String::new();
         for content in &item.content {
             match content {
@@ -455,7 +485,13 @@ impl ChatWidget {
             }
         }
         let parsed = parse_assistant_markdown(&message, self.config.cwd.as_path());
-        if from_replay
+        if completed_bytes > crate::history_window::MAX_HISTORY_BYTES
+            || self.transcript.live_display_oversized[0]
+        {
+            self.reject_oversized_live_display(0);
+            self.handle_stream_finished();
+            self.request_redraw();
+        } else if from_replay
             && self.stream_controller.is_none()
             && !parsed.visible_markdown.is_empty()
             && !self.completed_agent_message_was_flushed(&message)
@@ -506,6 +542,7 @@ impl ChatWidget {
                 }
             });
         }
+        self.reset_live_display_budget(0);
         self.status_state.pending_status_indicator_restore = item.questions.is_some()
             || match item.phase {
                 // Models that don't support preambles only output AgentMessageItems on turn completion.
@@ -607,6 +644,9 @@ impl ChatWidget {
 
     #[inline]
     pub(super) fn handle_streaming_delta(&mut self, delta: String) {
+        if !self.admit_live_display_bytes(0, delta.len()) {
+            return;
+        }
         if !delta.is_empty() {
             self.mark_safety_buffering_agent_message_started();
         }
@@ -728,5 +768,55 @@ impl ChatWidget {
             return true;
         }
         false
+    }
+}
+
+impl ChatWidget {
+    /// Answer, plan, and reasoning counters follow their source lifetimes, not total turn traffic.
+    /// Admission is constant-time and never serializes or scans accumulated source text.
+    fn admit_live_display_bytes(&mut self, kind: usize, bytes: usize) -> bool {
+        if self.transcript.live_display_oversized[kind] {
+            return false;
+        }
+        let retained = self.transcript.live_display_bytes.iter().sum::<usize>();
+        if bytes > crate::history_window::MAX_HISTORY_BYTES.saturating_sub(retained) {
+            self.reject_oversized_live_display(kind);
+            return false;
+        }
+        self.transcript.live_display_bytes[kind] += bytes;
+        true
+    }
+
+    pub(super) fn reset_live_display_budget(&mut self, kind: usize) {
+        self.transcript.live_display_bytes[kind] = 0;
+        self.transcript.live_display_oversized[kind] = false;
+    }
+
+    fn reject_oversized_live_display(&mut self, kind: usize) {
+        let report = !self.transcript.live_display_oversized[kind];
+        self.transcript.live_display_oversized[kind] = true;
+        self.transcript.live_display_bytes[kind] = 0;
+        match kind {
+            0 => {
+                self.stream_controller = None;
+                self.clear_active_stream_tail();
+                self.transcript.last_flushed_agent_message = None;
+            }
+            1 => {
+                self.plan_stream_controller = None;
+                self.clear_active_stream_tail();
+                self.transcript.plan_delta_buffer = String::new();
+                self.transcript.plan_item_active = false;
+            }
+            2 => {
+                self.reasoning_buffer = String::new();
+                self.reasoning_summary_parts.clear();
+            }
+            _ => unreachable!("display stream kind"),
+        }
+        if report {
+            self.add_error_message(crate::history_window::OVERSIZED_HISTORY.to_string());
+        }
+        self.app_event_tx.send(AppEvent::StopCommitAnimation);
     }
 }

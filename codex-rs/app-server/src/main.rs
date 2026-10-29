@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #![recursion_limit = "256"]
 
 use clap::Parser;
@@ -71,8 +72,16 @@ struct AppServerArgs {
     disable_plugin_startup_tasks_for_tests: bool,
 
     /// Enable remote control for this app-server process without changing persistence.
-    #[arg(long = "remote-control", hide = true)]
+    #[arg(
+        long = "remote-control",
+        hide = true,
+        conflicts_with = "no_remote_control"
+    )]
     remote_control: bool,
+
+    /// Start with remote control disabled, preserving saved registrations and settings.
+    #[arg(long = "no-remote-control", conflicts_with = "remote_control")]
+    no_remote_control: bool,
 
     /// Save loaded threads during managed daemon shutdown.
     #[arg(long, hide = true)]
@@ -93,6 +102,7 @@ fn main() -> anyhow::Result<()> {
             #[cfg(debug_assertions)]
             disable_plugin_startup_tasks_for_tests,
             remote_control,
+            no_remote_control,
             managed_daemon,
         } = AppServerArgs::parse();
         let loader_overrides = if disable_managed_config_from_debug_env() {
@@ -115,7 +125,7 @@ fn main() -> anyhow::Result<()> {
             runtime_options.plugin_startup_tasks = PluginStartupTasks::Skip;
         }
         runtime_options.remote_control_startup_mode =
-            match (remote_control, remote_control_disabled) {
+            match (remote_control, no_remote_control || remote_control_disabled) {
                 (true, _) => codex_app_server::RemoteControlStartupMode::EnabledEphemeral,
                 (false, true) => codex_app_server::RemoteControlStartupMode::DisabledEphemeral,
                 (false, false) => codex_app_server::RemoteControlStartupMode::ResolvePersisted,

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Handles persistent thread-settings updates and serializes their persistence
 //! with checkpoints written directly to storage.
 
@@ -13,6 +14,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ThreadSettingsAppliedEvent;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::ThreadSettingsSnapshot;
+use codex_thread_store::PersistContext;
 use codex_thread_store::ThreadStoreResult;
 use tokio::sync::SemaphorePermit;
 
@@ -63,6 +65,7 @@ pub(super) fn prepare_update(
         turn_extension_init,
     } = overrides.into();
     let ThreadSettingsOverrides {
+        model_context_window,
         environments: environment_requests,
         runtime_workspace_roots,
         profile_workspace_roots,
@@ -81,6 +84,7 @@ pub(super) fn prepare_update(
         disabled_plugin_ids,
     } = overrides;
     SessionSettingsUpdate {
+        model_context_window,
         turn_extension_init,
         step_settings: StepSettingsUpdate {
             model,
@@ -121,7 +125,32 @@ pub(super) async fn apply_update(
 ) -> ConstraintResult<()> {
     let _settings_guard = acquire_persistence_lock(session).await;
     let commit = session.update_settings(updates).await?;
-    emit_applied(session, submission_id, commit.snapshot).await;
+    emit_applied(session, submission_id, commit.snapshot, true).await;
+    Ok(())
+}
+
+/// The caller owns the settings persistence permit. Use the existing store's durability fence
+/// before acknowledging a context edit, without waiting for its event consumer.
+pub(super) async fn persist_context_window_settings(
+    session: &Session,
+    snapshot: &ThreadSettingsSnapshot,
+) -> std::io::Result<()> {
+    if let Some(live_thread) = session.live_thread() {
+        live_thread
+            .append_items(&[RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(
+                ThreadSettingsAppliedEvent {
+                    thread_id: Some(session.thread_id()),
+                    thread_settings: snapshot.clone(),
+                },
+            ))])
+            .await
+            .map_err(std::io::Error::other)?;
+        live_thread
+            .persist(PersistContext::Standard)
+            .await
+            .map_err(std::io::Error::other)?;
+        live_thread.flush().await.map_err(std::io::Error::other)?;
+    }
     Ok(())
 }
 
@@ -130,17 +159,23 @@ pub(super) async fn emit_applied(
     session: &Session,
     submission_id: String,
     snapshot: ThreadSettingsSnapshot,
+    persist: bool,
 ) {
     let msg = EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
         thread_id: Some(session.thread_id()),
         thread_settings: snapshot,
     });
-    session
-        .send_event_raw_without_materializing_rollout(Event {
-            id: submission_id,
-            msg,
-        })
-        .await;
+    let event = Event {
+        id: submission_id,
+        msg,
+    };
+    if persist {
+        session
+            .send_event_raw_without_materializing_rollout(event)
+            .await;
+    } else {
+        session.send_event_raw_with_persistence(event, false).await;
+    }
 }
 
 /// Builds a current thread-owned snapshot for storage checkpoints.

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Transcript and active-cell bookkeeping for `ChatWidget`.
 
 use super::HistoryCell;
@@ -42,6 +43,8 @@ pub(super) struct TranscriptState {
     /// One bounded entry shared by layout and paint across unchanged active-cell frames.
     pub(super) active_cell_layout: Cell<Option<ActiveCellLayoutCache>>,
     /// Markdown of the most recently completed agent message for whole-response copying.
+    /// This one-response copy lifetime is separate from the bounded display cache, including
+    /// when a completed response is too large to display.
     pub(super) last_agent_markdown: Option<String>,
     /// Original source of that response, before display sanitization, for exact block copying.
     pub(super) last_agent_source: Option<String>,
@@ -67,6 +70,9 @@ pub(super) struct TranscriptState {
     pub(super) plan_delta_buffer: String,
     /// True while a plan item is streaming.
     pub(super) plan_item_active: bool,
+    pub(super) active_group_display_bytes: usize,
+    pub(super) live_display_bytes: [usize; 3],
+    pub(super) live_display_oversized: [bool; 3],
 }
 
 impl TranscriptState {
@@ -87,6 +93,7 @@ impl TranscriptState {
     /// Remove the active cell and invalidate its layout before its address can be reused.
     pub(super) fn take_active_cell(&mut self) -> Option<Box<dyn HistoryCell>> {
         let active_cell = self.active_cell.take();
+        self.active_group_display_bytes = 0;
         if active_cell.is_some() {
             self.active_cell_layout.set(None);
         }
@@ -109,6 +116,8 @@ impl TranscriptState {
     }
 
     pub(super) fn reset_turn_flags(&mut self) {
+        self.live_display_bytes = [0; 3];
+        self.live_display_oversized = [false; 3];
         self.saw_copy_source_this_turn = false;
         self.last_completed_agent_message = None;
         self.active_streamed_agent_message = None;

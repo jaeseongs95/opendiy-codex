@@ -12,6 +12,12 @@ import type { AskForApproval } from "./AskForApproval";
 import type { SandboxPolicy } from "./SandboxPolicy";
 
 export type ThreadSettings = {/**
+ * Thread-local override; null uses the configured/model default.
+ */
+modelContextWindow: bigint | null, /**
+ * Model budget after catalog limits and the model's usable-context percentage.
+ */
+effectiveContextWindow: bigint | null, /**
  * Saved list of disabled plugin IDs. Does not yet filter plugin capabilities.
  */
 disabledPluginIds: Array<string>, cwd: AbsolutePathBuf, approvalPolicy: AskForApproval, approvalsReviewer: ApprovalsReviewer, sandboxPolicy: SandboxPolicy, activePermissionProfile: ActivePermissionProfile | null, model: string, modelProvider: string, serviceTier: string | null, effort: ReasoningEffort | null, summary: ReasoningSummary | null, collaborationMode: CollaborationMode, /**

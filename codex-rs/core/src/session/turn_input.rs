@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Handles reply-bearing turn-input operations.
 //!
 //! This is the one place Core decides whether submitted input starts a turn,
@@ -190,7 +191,7 @@ impl PreparedTurnInputSettings {
                 .set_turn_trigger(turn_trigger);
         }
         if emit_thread_settings_applied {
-            thread_settings::emit_applied(session, submission_id, settings_snapshot).await;
+            thread_settings::emit_applied(session, submission_id, settings_snapshot, true).await;
         }
         if let Some(parent_turn_id) = parent_turn_id {
             if let Some(initiating_agent_path) = initiating_agent_path {

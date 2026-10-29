@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crate::extensions::seed_extension_instructions;
 use crate::memory_root;
 use crate::phase1;
@@ -1574,5 +1575,202 @@ async fn memories_startup_phase2_v2_consolidates_without_a_handbook() -> anyhow:
     let mut memories = startup_test_memories_config();
     memories.version = codex_protocol::MemoryVersion::V2;
     run_memory_phase_two_model_request_test(&server, home, memories).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn generation_disable_stops_new_phase_claims_and_can_be_reenabled() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let home = Arc::new(TempDir::new()?);
+    let db = init_state_db(&home).await?;
+    let test = build_test_codex(&server, Arc::clone(&home)).await?;
+    let worker = test.session_configured.thread_id;
+    let metadata = codex_state::ThreadMetadataBuilder::new(
+        worker,
+        home.path().join("worker.jsonl"),
+        chrono::Utc::now(),
+        SessionSource::Cli,
+    )
+    .build("test-provider");
+    db.upsert_thread(&metadata).await?;
+    db.set_thread_memory_mode(worker, "enabled").await?;
+    let source = seed_stage1_candidate(
+        &db,
+        home.path(),
+        chrono::Utc::now() - chrono::Duration::hours(2),
+        "source",
+    )
+    .await?;
+    let config_snapshot = test.codex.config_snapshot().await;
+    let context = Arc::new(MemoryStartupContext::new(
+        Arc::clone(&test.thread_manager),
+        test.thread_manager.auth_manager(),
+        worker,
+        Arc::clone(&test.codex),
+        &test.config,
+        config_snapshot.session_source,
+    ));
+    assert!(context.generation_enabled().await);
+    assert!(db.set_thread_memory_mode(worker, "disabled").await?);
+    assert!(!context.generation_enabled().await);
+    let config = Arc::new(test.config.clone());
+    phase1::run(Arc::clone(&context), Arc::clone(&config)).await;
+    phase2::run(
+        Arc::clone(&context),
+        Arc::clone(&config),
+        config.permissions.effective_permission_profile(),
+    )
+    .await;
+    assert!(
+        !server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|request| request.url.path().ends_with("/responses")),
+        "disabled work must not make a model request"
+    );
+    assert!(
+        db.memories()
+            .list_stage1_outputs_for_global(10)
+            .await?
+            .is_empty()
+    );
+    assert_eq!(
+        db.get_thread_memory_mode(source).await?.as_deref(),
+        Some("enabled")
+    );
+    db.set_thread_memory_mode(worker, "enabled").await?;
+    assert!(
+        context.generation_enabled().await,
+        "a live thread can resume generation without changing its original config"
+    );
+    shutdown_test_codex(&test).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn project_source_cwd_reclassification_rejects_foreign_history_before_sampling()
+-> anyhow::Result<()> {
+    use codex_config::memory_scope::MemoryProject;
+    use codex_config::types::MemoryScope;
+    use codex_protocol::protocol::{ThreadMemoryScope, ThreadSettingsAppliedEvent};
+    // A positive control proves that zero requests are caused by scope validation.
+    for foreign in [true, false] {
+        let server = start_mock_server().await;
+        let home = Arc::new(TempDir::new()?);
+        let projects = TempDir::new()?;
+        let a = projects.path().join("a");
+        let b = projects.path().join("b");
+        std::fs::create_dir_all(&a)?;
+        std::fs::create_dir_all(&b)?;
+        let target = MemoryProject::resolve(&b, &[])?;
+        let origin = MemoryProject::resolve(if foreign { &a } else { &b }, &[])?;
+        let mut memories = startup_test_memories_config();
+        memories.scope = MemoryScope::Project;
+        memories.project = Some(target.clone());
+        let test =
+            build_test_codex_with_memories_config(&server, Arc::clone(&home), memories).await?;
+        let db = init_state_db(&home).await?;
+        let source = seed_stage1_candidate(
+            &db,
+            home.path(),
+            chrono::Utc::now() - chrono::Duration::hours(2),
+            "scope-source",
+        )
+        .await?;
+        let mut metadata = db.get_thread(source).await?.expect("source metadata");
+        let mut snapshot = test.codex.thread_settings_snapshot().await;
+        snapshot.cwd = b.as_path().abs();
+        snapshot.memory_scope = Some(ThreadMemoryScope {
+            project: true,
+            version: test.config.memories.version,
+            project_key: Some(origin.key),
+            markers: Vec::new(),
+        });
+        let event = EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
+            thread_id: Some(source),
+            thread_settings: snapshot,
+        });
+        // Exercise the same metadata extraction + upsert used after a --cd/settings update.
+        codex_state::apply_rollout_item(
+            &mut metadata,
+            &RolloutItem::EventMsg(event.clone()),
+            "test-provider",
+        );
+        db.upsert_thread(&metadata).await?;
+        assert_eq!(db.get_thread(source).await?.unwrap().cwd, b);
+        assert!(
+            db.memory_source_candidates()
+                .await?
+                .iter()
+                .any(|(id, cwd)| *id == source && cwd == &b)
+        );
+        let path = &metadata.rollout_path;
+        let contents = std::fs::read_to_string(path)?;
+        let mut lines: Vec<serde_json::Value> = contents
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<Result<_, _>>()?;
+        lines[0]["payload"]["cwd"] = json!(if foreign { &a } else { &b });
+        lines.insert(
+            1,
+            json!({"timestamp":"2026-10-12T00:00:00Z", "type":"event_msg", "payload":event}),
+        );
+        std::fs::write(
+            path,
+            lines
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<Vec<_>, _>>()?
+                .join("\n")
+                + "\n",
+        )?;
+        let response = if foreign {
+            None
+        } else {
+            Some(mount_sse_once(&server, sse(vec![
+                ev_response_created("scope-control"),
+                ev_assistant_message("scope-control-message", &json!({"raw_memory":"positive scope evidence", "rollout_summary":"positive scope summary", "rollout_slug":"scope-source"}).to_string()),
+                ev_completed("scope-control"),
+            ])).await)
+        };
+        let snapshot = test.codex.config_snapshot().await;
+        let context = Arc::new(MemoryStartupContext::new(
+            Arc::clone(&test.thread_manager),
+            test.thread_manager.auth_manager(),
+            test.session_configured.thread_id,
+            Arc::clone(&test.codex),
+            &test.config,
+            snapshot.session_source,
+        ));
+        phase1::run(Arc::clone(&context), Arc::new(test.config.clone())).await;
+        let outputs = context
+            .memory_store()
+            .await
+            .expect("scoped store")
+            .list_stage1_outputs_for_global(10)
+            .await?;
+        if let Some(response) = response {
+            assert!(
+                response
+                    .single_request()
+                    .body_contains_text("remember this startup test conversation")
+            );
+            assert_eq!(outputs.len(), 1);
+        } else {
+            assert!(outputs.is_empty(), "foreign source must not save an output");
+            assert!(
+                !server
+                    .received_requests()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|request| request.url.path().ends_with("/responses")),
+                "foreign source must not invoke sampling"
+            );
+        }
+        shutdown_test_codex(&test).await?;
+    }
     Ok(())
 }

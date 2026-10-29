@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Orchestrates startup while the provisional composer owns terminal input.
 //!
 //! Lightweight validation runs before acquiring the terminal. Once the draft is visible, slow
@@ -917,6 +918,9 @@ pub(super) async fn run_main_inner(
         .clone()
         .map(|layer| layer.with_filter(log_db::default_filter()));
 
+    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
+    let batch_layer = batch_layer.map(|layer| layer.with_filter(
+        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
     let _ = tracing_subscriber::registry()
         .with(tui_file_layer)
         .with(feedback_layer)
@@ -924,6 +928,7 @@ pub(super) async fn run_main_inner(
         .with(log_db_layer)
         .with(otel_logger_layer)
         .with(otel_tracing_layer)
+        .with(batch_layer)
         .try_init();
 
     if let Err(err) = screen_reader_result {

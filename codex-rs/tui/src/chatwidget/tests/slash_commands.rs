@@ -1,9 +1,28 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::helpers::drain_insert_history_transcript;
 use super::*;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use pretty_assertions::assert_eq;
 use serial_test::serial;
+
+#[tokio::test]
+async fn context_command_routes_arguments_without_starting_a_model_turn() {
+    for argument in ["", "120000", "reset"] {
+        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
+        chat.dispatch_command_with_args(SlashCommand::Context, argument.to_string(), Vec::new());
+        match rx.try_recv().expect("context event") {
+            AppEvent::ContextCommand { thread_id, args } => {
+                assert_eq!(thread_id, chat.thread_id());
+                assert_eq!(args, argument);
+            }
+            other => panic!("expected context event, got {other:?}"),
+        }
+        assert!(
+            op_rx.try_recv().is_err(),
+            "context commands must not start inference"
+        );
+    }
+}
 
 fn force_pet_image_support(chat: &mut ChatWidget) {
     chat.set_pet_image_support_for_tests(crate::pets::PetImageSupport::Supported(
@@ -3018,9 +3037,31 @@ async fn slash_memories_opens_memory_menu() {
 
     chat.dispatch_command(SlashCommand::Memories);
 
-    assert!(render_bottom_popup(&chat, /*width*/ 80).contains("Use memories"));
+    let popup = render_bottom_popup(&chat, /*width*/ 80);
+    assert!(popup.contains("Use memories"));
+    assert!(popup.contains("Memory scope: global"));
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+    let original = chat.config.memories.use_memories;
+    let generation = chat.config.memories.generate_memories;
+    chat.handle_key_event(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    chat.handle_key_event(KeyCode::Enter.into());
+    assert_matches!(rx.try_recv(), Ok(AppEvent::UpdateMemorySettings { use_memories, generate_memories })
+        if use_memories == !original && generate_memories == generation);
     assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
     assert!(op_rx.try_recv().is_err(), "expected no core op to be sent");
+}
+
+#[tokio::test]
+async fn connected_memories_command_uses_its_owner_for_server_scope_lookup() {
+    let (mut chat, mut events, mut ops) = make_chatwidget_manual(None).await;
+    let owner = ThreadId::new();
+    chat.thread_id = Some(owner);
+    chat.set_feature_enabled(Feature::MemoryTool, true);
+    chat.dispatch_command(SlashCommand::Memories);
+    assert_matches!(events.try_recv(), Ok(AppEvent::MemoryCommand { thread_id: Some(id), args }) if id == owner && args.is_empty());
+    assert_matches!(events.try_recv(), Err(TryRecvError::Empty));
+    assert!(chat.no_modal_or_popup_active());
+    assert!(ops.try_recv().is_err());
 }
 
 #[tokio::test]

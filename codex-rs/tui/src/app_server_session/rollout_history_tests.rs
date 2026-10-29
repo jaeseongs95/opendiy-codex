@@ -1,12 +1,17 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::super::ForkGoalContinuation;
 use super::super::ForkPermissionMode;
+use super::super::HistoryHydrationScope;
 use super::super::ResumeModelSettings;
+use super::super::ThreadHistorySupport;
 use super::super::ThreadParamsMode;
 use crate::legacy_core::config::Config;
 use crate::legacy_core::config::ConfigBuilder;
 use app_test_support::create_fake_paginated_rollout;
 use app_test_support::create_fake_rollout;
 use codex_app_server_protocol::ThreadHistoryMode;
+use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::UserInput;
 use codex_features::Feature;
 use codex_protocol::ThreadId;
 use color_eyre::eyre::Result;
@@ -269,6 +274,76 @@ async fn viewing_thread_reads_history_without_resuming_it() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn embedded_legacy_history_uses_full_read_even_with_pagination_support() -> Result<()> {
+    let codex_home = tempfile::tempdir()?;
+    let config = build_config(&codex_home).await;
+    let thread_id = ThreadId::from_string(
+        &create_fake_rollout(
+            codex_home.path(),
+            "2025-01-05T12-00-00",
+            "2025-01-05T12:00:00Z",
+            "Saved legacy user message",
+            Some(config.model_provider_id.as_str()),
+            /*git_info*/ None,
+        )
+        .expect("create legacy rollout"),
+    )?;
+    let mut app_server = crate::start_embedded_app_server_for_picker(&config).await?;
+    assert!(app_server.uses_embedded_app_server());
+    let local_settings = crate::local_settings::LocalSettings::from(&config);
+    for support in [
+        ThreadHistorySupport::Paginated,
+        ThreadHistorySupport::LegacyOnly,
+    ] {
+        app_server.history_support = support;
+        let mut thread = app_server
+            .thread_read(thread_id, /*include_turns*/ false)
+            .await?;
+        assert_eq!(thread.history_mode, ThreadHistoryMode::Legacy);
+        assert!(thread.turns.is_empty());
+        let next_request_id = app_server.next_request_id;
+        app_server
+            .hydrate_initial_thread_history(
+                &mut thread,
+                None,
+                None,
+                Some(&config),
+                Some(&local_settings),
+                HistoryHydrationScope::Initial,
+            )
+            .await?;
+        assert_eq!(app_server.next_request_id, next_request_id + 1);
+        assert!(
+            thread
+                .turns
+                .iter()
+                .flat_map(|turn| &turn.items)
+                .any(|item| {
+                    matches!(item, ThreadItem::UserMessage { content, .. }
+                if content.iter().any(|input| matches!(input,
+                    UserInput::Text { text, .. } if text == "Saved legacy user message")))
+                })
+        );
+        let turns = thread.turns.clone();
+        let next_request_id = app_server.next_request_id;
+        app_server
+            .hydrate_initial_thread_history(
+                &mut thread,
+                None,
+                None,
+                Some(&config),
+                Some(&local_settings),
+                HistoryHydrationScope::Initial,
+            )
+            .await?;
+        assert_eq!(app_server.next_request_id, next_request_id);
+        assert_eq!(thread.turns, turns);
+    }
+    app_server.shutdown().await?;
+    Ok(())
+}
+
 #[test]
 fn only_active_writer_failures_offer_read_only_view() {
     let conflict = color_eyre::eyre::eyre!("thread already has an active writer (code -32600)");
@@ -360,7 +435,6 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
         let local_settings = crate::local_settings::LocalSettings::from(&resume_config);
         let next_request_id = app_server.next_request_id;
         let legacy = {
-            // Keep the large resume future off the Windows test thread's stack.
             let mut resume = Box::pin(app_server.resume_thread(
                 &local_settings,
                 resume_config.clone(),
@@ -368,8 +442,7 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
                 ResumeModelSettings::RestoreFromThread,
             ));
             drop(maintenance_guard);
-            // This current-thread test polls resume before yielding to the startup worker.
-            // Resume must acquire its guard before waiting for metadata revalidation.
+            // 재개를 먼저 진행해 메타데이터 재확인과 전체 응답 동안 변환을 차단한다.
             assert!(resume.as_mut().now_or_never().is_none());
             assert!(
                 codex_rollout::try_acquire_rollout_maintenance_lock(codex_home.path())?.is_none()
@@ -377,7 +450,23 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
             resume.await?
         };
         assert_eq!(app_server.next_request_id, next_request_id + 2);
-        assert!(!legacy.turns.is_empty());
+        assert!(codex_rollout::try_acquire_rollout_maintenance_lock(codex_home.path())?.is_some());
+        assert!(
+            app_server
+                .history_pagination
+                .contains_key(&legacy_thread_id)
+        );
+        assert!(
+            legacy
+                .turns
+                .iter()
+                .flat_map(|turn| &turn.items)
+                .any(|item| {
+                    matches!(item, ThreadItem::UserMessage { content, .. }
+                if content.iter().any(|input| matches!(input,
+                    UserInput::Text { text, .. } if text == "Saved legacy user message")))
+                })
+        );
         app_server.shutdown().await?;
     }
     Ok(())
@@ -456,7 +545,10 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()> 
         )
         .await?;
     assert_eq!(resumed.session.thread_id, thread_id);
-    assert!(app_server.next_request_id >= next_request_id + 4);
+    // 잠금 아래 메타데이터를 재확인하고 재개한 뒤 차례·항목 페이지를 조회한다.
+    assert_eq!(app_server.next_request_id, next_request_id + 4);
+    // 이 최소 자료에는 차례 시작·항목 완료 기록이 없어 페이지 차례가 없다.
+    assert!(resumed.turns.is_empty());
     assert_eq!(
         app_server
             .history_pagination
@@ -479,7 +571,7 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()> 
             .await
             .is_err()
     );
-    assert_eq!(app_server.next_request_id, next_request_id + 2);
+    assert!(app_server.next_request_id > next_request_id);
 
     app_server.shutdown().await?;
     Ok(())

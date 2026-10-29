@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::*;
 use crate::app::safety_buffering::SafetyBufferedRetry;
 use crate::app::session_lifecycle::ThreadAttachPresentation;
@@ -401,7 +402,7 @@ stream_max_retries = 0
         None
     );
 
-    insta::assert_snapshot!(app.chat_widget.composer_text_with_pending(), @"");
+    assert_eq!(app.chat_widget.composer_text_with_pending(), "");
     assert!(
         std::iter::from_fn(|| app_event_rx.try_recv().ok())
             .all(|event| !matches!(event, AppEvent::CodexOp(AppCommand::UserTurn { .. })))

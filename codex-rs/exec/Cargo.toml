@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 [package]
 name = "codex-exec"
 version.workspace = true
@@ -22,6 +23,7 @@ path = "tests/all.rs"
 workspace = true
 
 [dependencies]
+codex-diagnostics = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 codex-arg0 = { workspace = true }
