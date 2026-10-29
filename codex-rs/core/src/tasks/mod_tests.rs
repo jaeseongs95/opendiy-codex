@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::SessionTask;
 use super::SessionTaskResult;
 use super::TASK_COMPACT_METRIC;
@@ -171,6 +172,7 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
                 total_tokens: 1_000,
                 ..TokenUsage::default()
             }),
+            /*includes_reasoning*/ false,
         )
         .await
         .expect("earlier session usage should be recorded");
@@ -193,7 +195,11 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
         };
         // Local pre-turn compaction records usage with the previous model's context.
         session
-            .update_token_usage_info(&previous_context, Some(&compaction_usage))
+            .update_token_usage_info(
+                &previous_context,
+                Some(&compaction_usage),
+                /*includes_reasoning*/ false,
+            )
             .await
             .expect("compaction usage should be recorded");
         expected_usage.push((previous_context.model_info().slug.clone(), compaction_usage));
@@ -225,7 +231,9 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
                     &turn_context,
                     &response_context.initial_settings,
                     Some(&response_usage),
-                    crate::session::TokenUsageContext::Sampling,
+                    crate::session::TokenUsageContext::Sampling {
+                        includes_reasoning: false,
+                    },
                 )
                 .await
                 .expect("response usage should be recorded");

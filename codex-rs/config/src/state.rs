@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crate::CONFIG_TOML_FILE;
 use crate::config_requirements::ConfigRequirements;
 use crate::config_requirements::ConfigRequirementsToml;
@@ -647,7 +648,11 @@ impl ConfigLayerStack {
             );
         }
 
-        if let Some(layer) = self.layers_low_to_high().next_back() {
+        let is_credential_origin =
+            |path: &str| provider_paths.iter().any(|prefix| path.starts_with(prefix));
+        if origins.keys().any(|path| is_credential_origin(path))
+            && let Some(layer) = self.layers_low_to_high().next_back()
+        {
             let effective = self.effective_config();
             let mut effective_origins = HashMap::new();
             record_origins(
@@ -658,8 +663,7 @@ impl ConfigLayerStack {
                 &include,
             );
             origins.retain(|path, _| {
-                !provider_paths.iter().any(|prefix| path.starts_with(prefix))
-                    || effective_origins.contains_key(path)
+                !is_credential_origin(path) || effective_origins.contains_key(path)
             });
         }
 

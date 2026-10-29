@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crate::context::GuardianContextMode;
 use crate::context::world_state::WorldStateSnapshot;
 use crate::context_manager::ContextManager;
@@ -78,6 +79,7 @@ async fn guardian_checkpoint_preserves_live_context_without_storage(
                 ..Default::default()
             },
             Some(32_000),
+            /*includes_reasoning*/ true,
         );
     }
     let expected = session.clone_history().await;

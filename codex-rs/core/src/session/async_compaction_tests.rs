@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Cancellation prevents new speculation without cancelling session-owned work.
 
 use super::*;
@@ -65,6 +66,7 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
             total_tokens: 70_000,
             ..Default::default()
         }),
+        /*includes_reasoning*/ false,
     )
     .await
     .expect("record usage");

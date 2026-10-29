@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use codex_config::test_support::CloudConfigBundleFixture;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_core::ModelClient;
@@ -3521,6 +3522,7 @@ async fn token_count_includes_rate_limits_snapshot() {
                     "reasoning_output_tokens": 0,
                     "total_tokens": 123
                 },
+                "last_usage_includes_reasoning": false,
                 // Default model is gpt-5.4 in tests → 95% usable context window
                 "model_context_window": 258400
             },

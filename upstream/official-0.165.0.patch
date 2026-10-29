@@ -12165,9 +12165,9 @@ zBvQn)oPuhuuy`(+2}te_)dGS}4%(LQDZ-W|&WV-@?@RcU=`#e#X?pi3MjC80BmU^J
 p&#b_v-w(?3+R)z(-yW}x3P&ccr~J9X>C&|kp|PjnBNyo4UuC#UL$d$?
 
 diff --git a/codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst b/codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst
-index 8020c41657da3719319605126dbc39a0ea3d3d5d..0dc6514570ab77a996fa7df9e4c1e185f9e78e20 100644
+index 8020c41657da3719319605126dbc39a0ea3d3d5d..2ef81f053c1e2edb239bd6573e0395b08a8589cf 100644
 GIT binary patch
-literal 162440
+literal 162490
 zcmV(jK=!{VwJ-euX#D;GS~q<&Gq7xEY8wI&KUO5RxxJHVZMo#Mc7Mykh!Ep0t#u+&
 z`B!Iad{H0A)308K<Olr+{RdqLGy^0990Qg7%C-o`Rzjmr2>o0xLYYGTv4m3Tp`B7i
 zHCAn-#~yTl**@v=@xWL<7&C<A+K^JDe>qXrk6kHFt?bA}tmROZ%)Lr<Hnd(^D^4{?
@@ -15015,7 +15015,7 @@ z5wpXkj<^9`2nEC!5Q8U`rH#<sjyM^64X{-^^GV%rDVM)bjz0y*Ym$yn;m3RwR+eHn
 z{^Nx@>rjI|oj<9D&Z6)!!_WOvu#JXvUvzq+PQ7b8D+ydmSLujPR1MyPpyu-{m9Fj;
 zpCTLkB6)4>UMDIhDd@BpSJXtns`7@zuol~XN+e%pDD|@@d^DxeWyL&IR(K;qd$sfw
 z$cqwiNo4SiPjb#tC#da;rk|(%Z75j0X`PCDsGS-EMkK7p7sZt*8$ft~9;$5uGOU)M
-z!oa0*&}(Z);Tg%vh`efmT$|Z}6Xv!%U&$egU_T2#0|!V(Qj)^3IvRmoou2_cIKs!$
+z!oa0*&}(Z);Tg%vh`efmT$|Z}6Xv!%U&$egU_T2#0|!V(Qj)^3IvRmoou2`3IFQHE
 zVvKo5&ZM=m)l5zD-}wrKJ0!VDL8S2RtwbLEPzpVvO>OAsKBm_+A3u_pP(C0Ls8G5{
 zMq+J>qf*Cr{*_15ODP1d{YacMtrVImTytGPOb~-4WefZ;QDW1-qu?~8@z>SFdY^AS
 z{%n7O(Z-P!95=b;{`w_FLI>mjJL(ZD04L4=hmEL1L3?v>)56G3;vku>7X0cwULM00
@@ -15181,118 +15181,119 @@ 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
-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
+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
 
 literal 160788
 zcmV(!K;^$EwJ-euXjK0J>NkZmGq7xEY8wI&KUO5RxxJHVZMo#Mc7Mykh!Ep0t#u+&
@@ -19113,6 +19114,18 @@ index 8cd8793bd..e5daeae39 100644
  }
  
  #[tokio::test]
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+index d0d363e40..2e15fd896 100644
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -3755,6 +3755,7 @@ mod tests {
+                 total_tokens: 200,
+                 codex_rollout_budget_units: None,
+             },
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage {
+                 input_tokens: 10,
+                 cached_input_tokens: 5,
 diff --git a/codex-rs/app-server/src/config_manager_service.rs b/codex-rs/app-server/src/config_manager_service.rs
 index df807ba4b..2b932b331 100644
 --- a/codex-rs/app-server/src/config_manager_service.rs
@@ -22054,6 +22067,18 @@ index 6dfe969ab..3028d9e02 100644
              disabled_plugin_ids: Vec::new(),
              cwd: AbsolutePathBuf::from_absolute_path("/tmp").expect("absolute path"),
              approval_policy: AskForApproval::OnRequest,
+diff --git a/codex-rs/app-server/tests/common/rollout.rs b/codex-rs/app-server/tests/common/rollout.rs
+index a7c322292..44ebcfa96 100644
+--- a/codex-rs/app-server/tests/common/rollout.rs
++++ b/codex-rs/app-server/tests/common/rollout.rs
+@@ -125,6 +125,7 @@ pub fn create_fake_rollout_with_token_usage(
+                 total_tokens: 150,
+                 codex_rollout_budget_units: None,
+             },
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage {
+                 input_tokens: 70,
+                 cached_input_tokens: 10,
 diff --git a/codex-rs/app-server/tests/suite/v2/memory_read.rs b/codex-rs/app-server/tests/suite/v2/memory_read.rs
 index 2cc136ff2..28825375a 100644
 --- a/codex-rs/app-server/tests/suite/v2/memory_read.rs
@@ -22712,7 +22737,7 @@ index f1c704e90..aca321343 100644
  async fn paginated_history_lists_and_legacy_reads_use_projected_turns_and_items() -> Result<()> {
      let server = create_mock_responses_server_repeating_assistant("Done").await;
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_resume.rs b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
-index 19cd962b1..4b7e7919e 100644
+index 19cd962b1..0aa8109d3 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_resume.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
 @@ -448,13 +448,13 @@ async fn wait_for_responses_request_count(
@@ -23179,6 +23204,30 @@ index 19cd962b1..4b7e7919e 100644
  #[tokio::test]
  async fn thread_resume_with_empty_path_uses_running_thread_id() -> Result<()> {
      let server = create_mock_responses_server_repeating_assistant("Done").await;
+@@ -4137,6 +4562,7 @@ async fn cold_paginated_resume_restores_usage_without_loading_turns() -> Result<
+                     total_tokens: 150,
+                     ..Default::default()
+                 },
++                last_usage_includes_reasoning: None,
+                 last_token_usage: TokenUsage {
+                     input_tokens: 70,
+                     output_tokens: 20,
+@@ -4216,6 +4642,7 @@ async fn cold_paginated_resume_omits_usage_when_its_turn_is_ambiguous() -> Resul
+                     total_tokens: 150,
+                     ..Default::default()
+                 },
++                last_usage_includes_reasoning: None,
+                 last_token_usage: TokenUsage {
+                     total_tokens: 90,
+                     ..Default::default()
+@@ -4500,6 +4927,7 @@ async fn thread_resume_token_usage_replay_can_belong_to_interrupted_turn() -> Re
+                         total_tokens: 230,
+                         codex_rollout_budget_units: None,
+                     },
++                    last_usage_includes_reasoning: None,
+                     last_token_usage: TokenUsage {
+                         input_tokens: 90,
+                         cached_input_tokens: 30,
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 index ab688b12e..351971c4a 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
@@ -23660,6 +23709,19 @@ index 822643bc7..4021d0215 100644
 +    }
 +    Ok(())
 +}
+diff --git a/codex-rs/chatgpt/src/connectors.rs b/codex-rs/chatgpt/src/connectors.rs
+index 6b30a7393..51a5fbe60 100644
+--- a/codex-rs/chatgpt/src/connectors.rs
++++ b/codex-rs/chatgpt/src/connectors.rs
+@@ -90,7 +90,7 @@ pub async fn list_cached_all_connectors(
+     let cache_context = connector_directory_cache_context(config, &auth);
+     let connectors = codex_connectors::cached_directory_connectors(&cache_context)?;
+     Some(merge_directory_and_plugin_connectors(
+-        connectors,
++        connectors.to_vec(),
+         plugin_apps,
+     ))
+ }
 diff --git a/codex-rs/cli/src/config_override_args.rs b/codex-rs/cli/src/config_override_args.rs
 index 931df6c8f..50aa01a16 100644
 --- a/codex-rs/cli/src/config_override_args.rs
@@ -27245,6 +27307,104 @@ index 71ad4e2bd..9c4479908 100644
  mod merge;
  mod model_provider_requirements;
  mod overrides;
+diff --git a/codex-rs/config/src/loader/mod.rs b/codex-rs/config/src/loader/mod.rs
+index b78dee7af..a0ce5fcc4 100644
+--- a/codex-rs/config/src/loader/mod.rs
++++ b/codex-rs/config/src/loader/mod.rs
+@@ -1604,14 +1604,15 @@ fn project_trust_for_lookup_key(
+         return Some((lookup_key.to_string(), trust_level));
+     }
+ 
+-    let mut normalized_matches: Vec<_> = projects_trust
++    // Only Windows folds project keys. On other platforms the exact lookup is exhaustive.
++    #[cfg(windows)]
++    return projects_trust
+         .iter()
+-        .filter(|(key, _)| normalize_project_trust_lookup_key((*key).clone()) == lookup_key)
+-        .collect();
+-    normalized_matches.sort_by_key(|(key, _)| *key);
+-    normalized_matches
+-        .first()
+-        .map(|(key, trust_level)| ((**key).clone(), **trust_level))
++        .filter(|(key, _)| key.eq_ignore_ascii_case(lookup_key))
++        .min_by_key(|(key, _)| *key)
++        .map(|(key, trust_level)| (key.clone(), *trust_level));
++    #[cfg(not(windows))]
++    None
+ }
+ /// Takes a `toml::Value` parsed from a config.toml file and walks through it,
+ /// resolving any `AbsolutePathBuf` fields against `base_dir`, returning a new
+@@ -1621,11 +1622,16 @@ fn project_trust_for_lookup_key(
+ /// even if they were loaded from different directories.
+ #[doc(hidden)]
+ pub fn resolve_relative_paths_in_config_toml(
+-    value_from_config_toml: TomlValue,
++    mut value_from_config_toml: TomlValue,
+     base_dir: &Path,
+ ) -> io::Result<TomlValue> {
+-    // Use the serialize/deserialize round-trip to convert the
+-    // `toml::Value` into a `ConfigToml` with `AbsolutePath
++    if value_from_config_toml
++        .as_table()
++        .is_some_and(toml::Table::is_empty)
++    {
++        return Ok(value_from_config_toml);
++    }
++    // The typed round trip resolves AbsolutePathBuf fields against this layer's directory.
+     let _guard = AbsolutePathBufGuard::new(base_dir);
+     let Ok(resolved) = value_from_config_toml.clone().try_into::<ConfigToml>() else {
+         return Ok(value_from_config_toml);
+@@ -1639,38 +1645,27 @@ pub fn resolve_relative_paths_in_config_toml(
+         )
+     })?;
+ 
+-    Ok(copy_shape_from_original(
+-        &value_from_config_toml,
+-        &resolved_value,
+-    ))
++    apply_resolved_values(&mut value_from_config_toml, resolved_value);
++    Ok(value_from_config_toml)
+ }
+ 
+-/// Ensure that every field in `original` is present in the returned
+-/// `toml::Value`, taking the value from `resolved` where possible. This ensures
+-/// the fields that we "removed" during the serialize/deserialize round-trip in
+-/// `resolve_config_paths` are preserved, out of an abundance of caution.
+-fn copy_shape_from_original(original: &TomlValue, resolved: &TomlValue) -> TomlValue {
++/// Update values in the original tree while preserving unknown keys and omitting defaults
++/// introduced by the typed round trip.
++fn apply_resolved_values(original: &mut TomlValue, resolved: TomlValue) {
+     match (original, resolved) {
+         (TomlValue::Table(original_table), TomlValue::Table(resolved_table)) => {
+-            let mut table = toml::map::Map::new();
+-            for (key, original_value) in original_table {
+-                let resolved_value = resolved_table.get(key).unwrap_or(original_value);
+-                table.insert(
+-                    key.clone(),
+-                    copy_shape_from_original(original_value, resolved_value),
+-                );
++            for (key, resolved_value) in resolved_table {
++                if let Some(original_value) = original_table.get_mut(&key) {
++                    apply_resolved_values(original_value, resolved_value);
++                }
+             }
+-            TomlValue::Table(table)
+         }
+         (TomlValue::Array(original_array), TomlValue::Array(resolved_array)) => {
+-            let mut items = Vec::new();
+-            for (index, original_value) in original_array.iter().enumerate() {
+-                let resolved_value = resolved_array.get(index).unwrap_or(original_value);
+-                items.push(copy_shape_from_original(original_value, resolved_value));
++            for (original_value, resolved_value) in original_array.iter_mut().zip(resolved_array) {
++                apply_resolved_values(original_value, resolved_value);
+             }
+-            TomlValue::Array(items)
+         }
+-        (_, resolved_value) => resolved_value.clone(),
++        (original, resolved) => *original = resolved,
+     }
+ }
+ 
 diff --git a/codex-rs/config/src/memory_scope.rs b/codex-rs/config/src/memory_scope.rs
 new file mode 100644
 index 000000000..e8d76eecd
@@ -27466,6 +27626,33 @@ index 000000000..e8d76eecd
 +        assert!(MemoryProject::resolve(&temp.path().join("nested/deeper"), &markers).is_err());
 +    }
 +}
+diff --git a/codex-rs/config/src/state.rs b/codex-rs/config/src/state.rs
+index dd05325e1..20df8a278 100644
+--- a/codex-rs/config/src/state.rs
++++ b/codex-rs/config/src/state.rs
+@@ -647,7 +647,11 @@ impl ConfigLayerStack {
+             );
+         }
+ 
+-        if let Some(layer) = self.layers_low_to_high().next_back() {
++        let is_credential_origin =
++            |path: &str| provider_paths.iter().any(|prefix| path.starts_with(prefix));
++        if origins.keys().any(|path| is_credential_origin(path))
++            && let Some(layer) = self.layers_low_to_high().next_back()
++        {
+             let effective = self.effective_config();
+             let mut effective_origins = HashMap::new();
+             record_origins(
+@@ -658,8 +662,7 @@ impl ConfigLayerStack {
+                 &include,
+             );
+             origins.retain(|path, _| {
+-                !provider_paths.iter().any(|prefix| path.starts_with(prefix))
+-                    || effective_origins.contains_key(path)
++                !is_credential_origin(path) || effective_origins.contains_key(path)
+             });
+         }
+ 
 diff --git a/codex-rs/config/src/tui_keymap.rs b/codex-rs/config/src/tui_keymap.rs
 index 170dcf1b4..406b055f9 100644
 --- a/codex-rs/config/src/tui_keymap.rs
@@ -27534,6 +27721,309 @@ index 449b920f7..c4f811df2 100644
              version: toml.version.unwrap_or(defaults.version),
              dual_write: toml.dual_write.unwrap_or(defaults.dual_write),
              disable_on_external_context: toml
+diff --git a/codex-rs/connectors/src/filter.rs b/codex-rs/connectors/src/filter.rs
+index 3fcabd6fb..7089b7e3c 100644
+--- a/codex-rs/connectors/src/filter.rs
++++ b/codex-rs/connectors/src/filter.rs
+@@ -1,23 +1,40 @@
+ use std::collections::HashSet;
++use std::sync::Arc;
+ 
+ use crate::AppInfo;
++use crate::merge::plugin_connector_to_app_info;
+ 
+-pub fn filter_tool_suggest_discoverable_connectors(
+-    directory_connectors: Vec<AppInfo>,
++/// Load the directory only when a candidate still needs to be suggested.
++pub async fn filter_tool_suggest_discoverable_connectors(
++    directory_connectors: impl Future<Output = Arc<[AppInfo]>>,
+     accessible_connectors: &[AppInfo],
+-    discoverable_connector_ids: &HashSet<String>,
++    mut discoverable_connector_ids: HashSet<String>,
+ ) -> Vec<AppInfo> {
+-    let accessible_connector_ids: HashSet<&str> = accessible_connectors
+-        .iter()
+-        .filter(|connector| connector.is_accessible)
+-        .map(|connector| connector.id.as_str())
+-        .collect();
++    for connector in accessible_connectors {
++        if connector.is_accessible {
++            discoverable_connector_ids.remove(&connector.id);
++        }
++    }
++    if discoverable_connector_ids.is_empty() {
++        return Vec::new();
++    }
+ 
+-    let mut connectors = directory_connectors
+-        .into_iter()
+-        .filter(|connector| !accessible_connector_ids.contains(connector.id.as_str()))
+-        .filter(|connector| discoverable_connector_ids.contains(connector.id.as_str()))
+-        .collect::<Vec<_>>();
++    let mut connectors = Vec::with_capacity(discoverable_connector_ids.len());
++    connectors.extend(
++        directory_connectors
++            .await
++            .iter()
++            .filter(|connector| discoverable_connector_ids.contains(&connector.id))
++            .cloned(),
++    );
++    for connector in &connectors {
++        discoverable_connector_ids.remove(&connector.id);
++    }
++    connectors.extend(
++        discoverable_connector_ids
++            .into_iter()
++            .map(plugin_connector_to_app_info),
++    );
+     connectors.sort_by(|left, right| {
+         left.name
+             .cmp(&right.name)
+@@ -61,17 +78,18 @@ mod tests {
+         }
+     }
+ 
+-    #[test]
+-    fn filter_tool_suggest_discoverable_connectors_keeps_only_plugin_backed_uninstalled_apps() {
++    #[tokio::test]
++    async fn filter_tool_suggest_discoverable_connectors_keeps_only_plugin_backed_uninstalled_apps()
++    {
+         let filtered = filter_tool_suggest_discoverable_connectors(
+-            vec![
++            std::future::ready(Arc::from([
+                 named_app(
+                     "connector_2128aebfecb84f64a069897515042a44",
+                     "Google Calendar",
+                 ),
+                 named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail"),
+                 named_app("connector_other", "Other"),
+-            ],
++            ])),
+             &[AppInfo {
+                 is_accessible: true,
+                 ..named_app(
+@@ -79,51 +97,48 @@ mod tests {
+                     "Google Calendar",
+                 )
+             }],
+-            &HashSet::from([
++            HashSet::from([
+                 "connector_2128aebfecb84f64a069897515042a44".to_string(),
+                 "connector_68df038e0ba48191908c8434991bbac2".to_string(),
++                "connector_missing".to_string(),
+             ]),
+-        );
++        )
++        .await;
+ 
+         assert_eq!(
+             filtered,
+-            vec![named_app(
+-                "connector_68df038e0ba48191908c8434991bbac2",
+-                "Gmail",
+-            )]
+-        );
+-    }
+-
+-    #[test]
+-    fn filter_tool_suggest_discoverable_connectors_excludes_accessible_apps_even_when_disabled() {
+-        let filtered = filter_tool_suggest_discoverable_connectors(
+             vec![
+-                named_app(
+-                    "connector_2128aebfecb84f64a069897515042a44",
+-                    "Google Calendar",
+-                ),
+                 named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail"),
+-            ],
+-            &[
+-                AppInfo {
+-                    is_accessible: true,
+-                    ..named_app(
+-                        "connector_2128aebfecb84f64a069897515042a44",
+-                        "Google Calendar",
+-                    )
+-                },
+-                AppInfo {
+-                    is_accessible: true,
+-                    is_enabled: false,
+-                    ..named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail")
+-                },
+-            ],
+-            &HashSet::from([
+-                "connector_2128aebfecb84f64a069897515042a44".to_string(),
+-                "connector_68df038e0ba48191908c8434991bbac2".to_string(),
+-            ]),
++                plugin_connector_to_app_info("connector_missing".to_string()),
++            ]
+         );
++    }
+ 
+-        assert_eq!(filtered, Vec::<AppInfo>::new());
++    #[tokio::test]
++    async fn skips_directory_when_no_connectors_can_be_suggested() {
++        let accessible = [
++            AppInfo {
++                is_accessible: true,
++                ..app("calendar")
++            },
++            AppInfo {
++                is_accessible: true,
++                is_enabled: false,
++                ..app("gmail")
++            },
++        ];
++        for candidates in [
++            HashSet::new(),
++            HashSet::from(["calendar".to_string(), "gmail".to_string()]),
++        ] {
++            let filtered = filter_tool_suggest_discoverable_connectors(
++                async { panic!("unexpected connector directory lookup") },
++                &accessible,
++                candidates,
++            )
++            .await;
++
++            assert_eq!(filtered, Vec::<AppInfo>::new());
++        }
+     }
+ }
+diff --git a/codex-rs/connectors/src/lib.rs b/codex-rs/connectors/src/lib.rs
+index ec8b19c92..ae80ef4bf 100644
+--- a/codex-rs/connectors/src/lib.rs
++++ b/codex-rs/connectors/src/lib.rs
+@@ -1,5 +1,6 @@
+ use std::collections::HashMap;
+ use std::future::Future;
++use std::sync::Arc;
+ use std::sync::LazyLock;
+ use std::sync::Mutex as StdMutex;
+ use std::time::Duration;
+@@ -85,7 +86,7 @@ impl ConnectorDirectoryCacheKey {
+ struct CachedConnectorDirectory {
+     key: ConnectorDirectoryCacheKey,
+     expires_at: Instant,
+-    connectors: Vec<AppInfo>,
++    connectors: Arc<[AppInfo]>,
+ }
+ 
+ static CONNECTOR_DIRECTORY_CACHE: LazyLock<StdMutex<Option<CachedConnectorDirectory>>> =
+@@ -122,7 +123,7 @@ pub struct DirectoryApp {
+ 
+ pub fn cached_directory_connectors(
+     cache_context: &ConnectorDirectoryCacheContext,
+-) -> Option<Vec<AppInfo>> {
++) -> Option<Arc<[AppInfo]>> {
+     if let Some(cached_connectors) = cached_directory_connectors_in_memory(&cache_context.cache_key)
+     {
+         return Some(cached_connectors);
+@@ -133,9 +134,10 @@ pub fn cached_directory_connectors(
+     else {
+         return None;
+     };
++    let connectors = Arc::from(connectors);
+     write_cached_directory_connectors_in_memory(
+         cache_context.cache_key.clone(),
+-        &connectors,
++        Arc::clone(&connectors),
+         Duration::ZERO,
+     );
+     Some(connectors)
+@@ -143,25 +145,25 @@ pub fn cached_directory_connectors(
+ 
+ fn cached_directory_connectors_in_memory(
+     cache_key: &ConnectorDirectoryCacheKey,
+-) -> Option<Vec<AppInfo>> {
++) -> Option<Arc<[AppInfo]>> {
+     let cache_guard = CONNECTOR_DIRECTORY_CACHE
+         .lock()
+         .unwrap_or_else(std::sync::PoisonError::into_inner);
+     cache_guard
+         .as_ref()
+         .filter(|cached| cached.key == *cache_key)
+-        .map(|cached| cached.connectors.clone())
++        .map(|cached| Arc::clone(&cached.connectors))
+ }
+ 
+ fn unexpired_directory_connectors_in_memory(
+     cache_key: &ConnectorDirectoryCacheKey,
+-) -> Option<Vec<AppInfo>> {
++) -> Option<Arc<[AppInfo]>> {
+     let cache_guard = CONNECTOR_DIRECTORY_CACHE
+         .lock()
+         .unwrap_or_else(std::sync::PoisonError::into_inner);
+     let cached = cache_guard.as_ref()?;
+     if cached.key == *cache_key && Instant::now() < cached.expires_at {
+-        return Some(cached.connectors.clone());
++        return Some(Arc::clone(&cached.connectors));
+     }
+     None
+ }
+@@ -180,7 +182,7 @@ where
+         && let Some(cached_connectors) =
+             unexpired_directory_connectors_in_memory(&cache_context.cache_key)
+     {
+-        return Ok(cached_connectors);
++        return Ok(cached_connectors.to_vec());
+     }
+ 
+     let apps = if is_workspace_account {
+@@ -235,7 +237,7 @@ fn write_cached_directory_connectors(
+ ) {
+     write_cached_directory_connectors_in_memory(
+         cache_context.cache_key.clone(),
+-        connectors,
++        Arc::from(connectors),
+         CONNECTORS_CACHE_TTL,
+     );
+     directory_cache::write_cached_directory_connectors_to_disk(cache_context, connectors);
+@@ -243,7 +245,7 @@ fn write_cached_directory_connectors(
+ 
+ fn write_cached_directory_connectors_in_memory(
+     cache_key: ConnectorDirectoryCacheKey,
+-    connectors: &[AppInfo],
++    connectors: Arc<[AppInfo]>,
+     ttl: Duration,
+ ) {
+     let mut cache_guard = CONNECTOR_DIRECTORY_CACHE
+@@ -252,7 +254,7 @@ fn write_cached_directory_connectors_in_memory(
+     *cache_guard = Some(CachedConnectorDirectory {
+         key: cache_key,
+         expires_at: Instant::now() + ttl,
+-        connectors: connectors.to_vec(),
++        connectors,
+     });
+ }
+ 
+@@ -526,7 +528,6 @@ fn normalize_connector_value(value: Option<&str>) -> Option<String> {
+ mod tests {
+     use super::*;
+     use pretty_assertions::assert_eq;
+-    use std::sync::Arc;
+     use std::sync::Mutex;
+     use std::sync::atomic::AtomicUsize;
+     use std::sync::atomic::Ordering;
+@@ -849,7 +850,9 @@ mod tests {
+         let second = cached_directory_connectors(&cache_context).expect("disk cache should load");
+ 
+         assert_eq!(calls.load(Ordering::SeqCst), 1);
+-        assert_eq!(first, second);
++        assert_eq!(first.as_slice(), second.as_ref());
++        let cached = cached_directory_connectors(&cache_context).expect("memory cache should hit");
++        assert!(Arc::ptr_eq(&second, &cached));
+         Ok(())
+     }
+ 
+@@ -891,8 +894,8 @@ mod tests {
+             &cached_expected.id,
+         ));
+         assert_eq!(
+-            cached_directory_connectors(&cache_context),
+-            Some(vec![cached_expected])
++            cached_directory_connectors(&cache_context).as_deref(),
++            Some([cached_expected].as_slice())
+         );
+         let refreshed_calls = Arc::clone(&calls);
+ 
 diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
 index 7a96817c9..6797cac3f 100644
 --- a/codex-rs/core/config.schema.json
@@ -27620,7 +28110,7 @@ index 59027230a..b4d3f3c7b 100644
                          model: "parent-only-model".to_string(),
                          model_provider_id: "parent-only-provider".to_string(),
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index 99550cb20..764eb769d 100644
+index 99550cb20..f18e09d3b 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -297,6 +297,7 @@ pub struct ModelClient {
@@ -27678,6 +28168,24 @@ index 99550cb20..764eb769d 100644
              let client = ApiResponsesClient::new(
                  transport,
                  client_setup.api_provider,
+@@ -1927,14 +1954,14 @@ impl ResponsesHttpExecutor<'_> {
+ 
+             match stream_result {
+                 Ok(stream) => {
+-                    let (stream, _) = map_response_stream(
++                    return Ok(map_response_stream(
+                         stream,
+                         request_session_telemetry,
+                         inference_trace_attempt,
+                         Arc::clone(&self.client.state.provider),
+                         interceptors,
+-                    );
+-                    return Ok(stream);
++                        /*last_response_tx*/ None,
++                    ));
+                 }
+                 Err(ApiError::Transport(unauthorized_transport))
+                     if self
 @@ -2023,6 +2050,12 @@ impl ModelClientSession {
                  .client
                  .current_client_setup(ClientRouting::Workspace)
@@ -27709,7 +28217,26 @@ index 99550cb20..764eb769d 100644
              let stream_result = websocket_connection
                  .stream_request(
                      ws_request,
-@@ -2430,7 +2474,7 @@ impl ModelClientSession {
+@@ -2268,14 +2312,16 @@ impl ModelClientSession {
+                 );
+                 err
+             })?;
+-            let (stream, last_request_rx) = map_response_stream(
++            let (last_response_tx, last_response_rx) = oneshot::channel();
++            let stream = map_response_stream(
+                 stream_result,
+                 request_session_telemetry,
+                 inference_trace_attempt,
+                 Arc::clone(&self.client.state.provider),
+                 interceptors,
++                Some(last_response_tx),
+             );
+-            self.websocket_session.last_response_rx = Some(last_request_rx);
++            self.websocket_session.last_response_rx = Some(last_response_rx);
+             return Ok(WebsocketStreamOutcome::Stream(stream));
+         }
+     }
+@@ -2430,7 +2476,7 @@ impl ModelClientSession {
                  ResponsesHttpExecutor::new(&self.client)
                      .stream_responses_http(
                          &self.turn_state,
@@ -27718,8 +28245,105 @@ index 99550cb20..764eb769d 100644
                          self.client.event_sender.as_ref(),
                          prompt,
                          model_info,
+@@ -2530,18 +2576,20 @@ fn map_response_stream(
+     inference_trace_attempt: InferenceTraceAttempt,
+     provider: SharedModelProvider,
+     interceptors: Vec<Box<dyn codex_extension_api::ModelResponseInterceptor>>,
+-) -> (ResponseStream, oneshot::Receiver<LastResponse>) {
++    last_response_tx: Option<oneshot::Sender<LastResponse>>,
++) -> ResponseStream {
+     let upstream_request_id = api_stream.upstream_request_id.take();
+     let interrupt = api_stream.interrupt.take();
+-    let (mut stream, last_response) = map_response_events(
++    let mut stream = map_response_events(
+         upstream_request_id,
+         crate::model_request::intercept_stream(Box::pin(api_stream), interceptors),
+         session_telemetry,
+         inference_trace_attempt,
+         provider,
++        last_response_tx,
+     );
+     stream.interrupt = interrupt;
+-    (stream, last_response)
++    stream
+ }
+ 
+ fn map_response_events<S>(
+@@ -2550,7 +2598,8 @@ fn map_response_events<S>(
+     session_telemetry: SessionTelemetry,
+     inference_trace_attempt: InferenceTraceAttempt,
+     provider: SharedModelProvider,
+-) -> (ResponseStream, oneshot::Receiver<LastResponse>)
++    mut last_response_tx: Option<oneshot::Sender<LastResponse>>,
++) -> ResponseStream
+ where
+     S: futures::Stream<Item = std::result::Result<ResponseEvent, ApiError>>
+         + Unpin
+@@ -2559,13 +2608,13 @@ where
+ {
+     let (tx_event, rx_event) =
+         mpsc::channel::<Result<ResponseEvent>>(RESPONSE_STREAM_CHANNEL_CAPACITY);
+-    let (tx_last_response, rx_last_response) = oneshot::channel::<LastResponse>();
+     let consumer_dropped = CancellationToken::new();
+     let consumer_dropped_for_stream = consumer_dropped.clone();
+ 
+     tokio::spawn(async move {
+         let mut logged_error = false;
+-        let mut tx_last_response = Some(tx_last_response);
++        let collect_output_items =
++            last_response_tx.is_some() || inference_trace_attempt.needs_output_items();
+         let mut items_added: Vec<ResponseItem> = Vec::new();
+         let mut active_item_id: Option<ResponseItemId> = None;
+         let (request_start, mut ttft_ms) = (Instant::now(), None);
+@@ -2601,7 +2650,9 @@ where
+                         );
+                     }
+                     active_item_id = None;
+-                    items_added.push(item.clone());
++                    if collect_output_items {
++                        items_added.push(item.clone());
++                    }
+                     if tx_event
+                         .send(Ok(ResponseEvent::OutputItemDone(item)))
+                         .await
+@@ -2631,12 +2682,13 @@ where
+                         &token_usage,
+                         &items_added,
+                     );
+-                    if let Some(sender) = tx_last_response.take() {
++                    if let Some(sender) = last_response_tx.take() {
+                         let _ = sender.send(LastResponse {
+                             response_id: response_id.clone(),
+-                            items_added: std::mem::take(&mut items_added),
++                            items_added,
+                         });
+                     }
++                    items_added = Vec::new();
+                     if tx_event
+                         .send(Ok(ResponseEvent::Completed {
+                             response_id,
+@@ -2702,14 +2754,11 @@ where
+         );
+     });
+ 
+-    (
+-        ResponseStream {
+-            rx_event,
+-            interrupt: None,
+-            consumer_dropped: consumer_dropped_for_stream,
+-        },
+-        rx_last_response,
+-    )
++    ResponseStream {
++        rx_event,
++        interrupt: None,
++        consumer_dropped: consumer_dropped_for_stream,
++    }
+ }
+ 
+ /// Handles a 401 response by optionally refreshing ChatGPT tokens once.
 diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
-index 3e83bcead..6fc7e98d1 100644
+index 3e83bcead..34a1bd10b 100644
 --- a/codex-rs/core/src/client_tests.rs
 +++ b/codex-rs/core/src/client_tests.rs
 @@ -144,6 +144,297 @@ fn test_model_provider() -> SharedModelProvider {
@@ -28020,6 +28644,113 @@ index 3e83bcead..6fc7e98d1 100644
  #[tokio::test]
  async fn workspace_routed_http_rejects_redirects_without_a_routing_header() {
      use codex_client::HttpTransport;
+@@ -1620,6 +1911,34 @@ async fn summarize_memories_returns_empty_for_empty_input() {
+     assert_eq!(output.len(), 0);
+ }
+ 
++#[tokio::test]
++async fn untraced_http_stream_releases_completed_output_before_response_ends() {
++    // This item's shared payload lets us observe whether the mapper kept a copy.
++    let tools = Arc::from([json!({"type": "function", "name": "lookup"})]);
++    let payload = Arc::downgrade(&tools);
++    let item = ResponseItem::AdditionalTools {
++        id: None,
++        role: "developer".to_string(),
++        tools,
++    };
++    let events = futures::stream::iter([Ok(ResponseEvent::OutputItemDone(item))])
++        .chain(futures::stream::pending());
++    let mut stream = super::map_response_events(
++        /*upstream_request_id*/ None,
++        events,
++        test_session_telemetry(),
++        InferenceTraceAttempt::disabled(),
++        test_model_provider(),
++        /*last_response_tx*/ None,
++    );
++
++    assert!(matches!(
++        stream.next().await,
++        Some(Ok(ResponseEvent::OutputItemDone(_)))
++    ));
++    assert_eq!(payload.strong_count(), 0);
++}
++
+ #[tokio::test]
+ async fn dropped_response_stream_traces_cancelled_partial_output() -> anyhow::Result<()> {
+     let temp = TempDir::new()?;
+@@ -1632,12 +1951,13 @@ async fn dropped_response_stream_traces_cancelled_partial_output() -> anyhow::Re
+     let item = output_message("1", "partial answer");
+     let api_stream = futures::stream::iter([Ok(ResponseEvent::OutputItemDone(item))])
+         .chain(futures::stream::pending());
+-    let (mut stream, _) = super::map_response_events(
++    let mut stream = super::map_response_events(
+         /*upstream_request_id*/ None,
+         api_stream,
+         test_session_telemetry(),
+         attempt,
+         test_model_provider(),
++        /*last_response_tx*/ None,
+     );
+ 
+     let observed = stream
+@@ -1688,12 +2008,13 @@ async fn response_stream_records_last_model_feedback_ids() {
+             end_turn: Some(true),
+         }),
+     ]);
+-    let (mut stream, _) = super::map_response_events(
++    let mut stream = super::map_response_events(
+         Some("req-123".to_string()),
+         api_stream,
+         test_session_telemetry(),
+         InferenceTraceAttempt::disabled(),
+         test_model_provider(),
++        /*last_response_tx*/ None,
+     );
+ 
+     while stream.next().await.is_some() {}
+@@ -1911,12 +2232,13 @@ async fn dropped_backpressured_response_stream_traces_cancelled_partial_output()
+         notify: Arc::clone(&backpressured_item_yielded),
+     };
+ 
+-    let (stream, _) = super::map_response_events(
++    let stream = super::map_response_events(
+         /*upstream_request_id*/ None,
+         api_stream,
+         test_session_telemetry(),
+         attempt,
+         test_model_provider(),
++        /*last_response_tx*/ None,
+     );
+ 
+     // Fill the mapper channel with non-terminal events, then yield one output
+@@ -2207,7 +2529,8 @@ async fn intercepted_output_reaches_trace_and_websocket_bookkeeping() -> anyhow:
+         }))
+         .await?;
+     drop(tx_event);
+-    let (mut stream, last_response) = super::map_response_stream(
++    let (last_response_tx, last_response_rx) = tokio::sync::oneshot::channel();
++    let mut stream = super::map_response_stream(
+         codex_api::ResponseStream {
+             rx_event,
+             upstream_request_id: None,
+@@ -2217,6 +2540,7 @@ async fn intercepted_output_reaches_trace_and_websocket_bookkeeping() -> anyhow:
+         attempt,
+         test_model_provider(),
+         vec![Box::new(ReplaceOutput)],
++        Some(last_response_tx),
+     );
+     let mut delivered = Vec::new();
+     while let Some(event) = stream.next().await {
+@@ -2225,7 +2549,7 @@ async fn intercepted_output_reaches_trace_and_websocket_bookkeeping() -> anyhow:
+         }
+     }
+     assert_eq!(delivered, vec![output_message("1", "transformed")]);
+-    assert_eq!(last_response.await?.items_added, delivered);
++    assert_eq!(last_response_rx.await?.items_added, delivered);
+     let rollout = replay_bundle(temp.path())?;
+     let payload = rollout
+         .raw_payloads
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
 index 024eb7613..2b09d74b1 100644
 --- a/codex-rs/core/src/codex_thread.rs
@@ -28097,6 +28828,44 @@ index 024eb7613..2b09d74b1 100644
      /// Revokes enterprise MCP authority from the current owner after a failed reload.
      pub async fn disable_mcp_enterprise_auth(&self) {
          self.session.disable_mcp_enterprise_auth().await;
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index 163e7d53e..28d1564b3 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -826,8 +826,7 @@ async fn drain_to_completed(
+     prompt: &Prompt,
+     phase: CompactionPhase,
+ ) -> CodexResult<CompactionResponse> {
+-    sess.set_server_reasoning_included(turn_context.model_info().use_responses_lite)
+-        .await;
++    let mut includes_reasoning = turn_context.model_info().use_responses_lite;
+     let mut stream = client_session
+         .stream(
+             prompt,
+@@ -858,7 +857,7 @@ async fn drain_to_completed(
+             // Keep each attempt isolated until the response completes successfully.
+             Ok(ResponseEvent::OutputItemDone(item)) => output.push(item),
+             Ok(ResponseEvent::ServerReasoningIncluded(included)) => {
+-                sess.set_server_reasoning_included(included).await;
++                includes_reasoning = included;
+             }
+             Ok(ResponseEvent::RateLimits(snapshot)) => {
+                 sess.update_rate_limits(turn_context, snapshot).await;
+@@ -892,8 +891,12 @@ async fn drain_to_completed(
+                     usage_metadata.as_ref(),
+                 )
+                 .await;
+-                sess.update_token_usage_info(turn_context, token_usage.as_ref())
+-                    .await?;
++                sess.update_token_usage_info(
++                    turn_context,
++                    token_usage.as_ref(),
++                    includes_reasoning,
++                )
++                .await?;
+                 return Ok(CompactionResponse {
+                     response_id,
+                     output,
 diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
 index d25334203..0fdd6e71e 100644
 --- a/codex-rs/core/src/config/config_tests.rs
@@ -28256,10 +29025,30 @@ index 38832d1f1..db12b0d5c 100644
          let effective_permission_profile = constrained_permission_profile.value.get().clone();
          let (mut effective_file_system_sandbox_policy, effective_network_sandbox_policy) =
 diff --git a/codex-rs/core/src/connectors.rs b/codex-rs/core/src/connectors.rs
-index 9b1a34a57..472ab1c92 100644
+index 9b1a34a57..0bf9b8692 100644
 --- a/codex-rs/core/src/connectors.rs
 +++ b/codex-rs/core/src/connectors.rs
-@@ -336,7 +336,7 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_mcp_manager(
+@@ -89,16 +89,13 @@ pub(crate) async fn list_tool_suggest_discoverable_tools_with_auth(
+     loaded_plugin_app_connector_ids: &[String],
+ ) -> anyhow::Result<Vec<DiscoverableTool>> {
+     let connector_ids = tool_suggest_connector_ids(config, loaded_plugin_app_connector_ids);
+-    let directory_connectors = codex_connectors::merge::merge_plugin_connectors(
+-        cached_directory_connectors_for_tool_suggest_with_auth(config, auth).await,
+-        connector_ids.iter().cloned(),
+-    );
+     let discoverable_connectors =
+         codex_connectors::filter::filter_tool_suggest_discoverable_connectors(
+-            directory_connectors,
++            cached_directory_connectors_for_tool_suggest_with_auth(config, auth),
+             accessible_connectors,
+-            &connector_ids,
++            connector_ids,
+         )
++        .await
+         .into_iter()
+         .map(DiscoverableTool::from);
+     let discoverable_plugins = list_tool_suggest_discoverable_plugins(
+@@ -336,7 +333,7 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_mcp_manager(
      }
      let accessible_connectors =
          with_app_plugin_sources(accessible_connectors, &tool_plugin_context);
@@ -28268,6 +29057,40 @@ index 9b1a34a57..472ab1c92 100644
      Ok(AccessibleConnectorsStatus {
          connectors: accessible_connectors,
          codex_apps_ready,
+@@ -423,9 +420,9 @@ fn tool_suggest_connector_ids(
+ async fn cached_directory_connectors_for_tool_suggest_with_auth(
+     config: &Config,
+     auth: Option<&CodexAuth>,
+-) -> Vec<AppInfo> {
++) -> Arc<[AppInfo]> {
+     if !config.features.enabled(Feature::Apps) {
+-        return Vec::new();
++        return Arc::default();
+     }
+ 
+     let loaded_auth;
+@@ -435,18 +432,18 @@ async fn cached_directory_connectors_for_tool_suggest_with_auth(
+         let Ok(auth_manager) =
+             AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false).await
+         else {
+-            return Vec::new();
++            return Arc::default();
+         };
+         loaded_auth = auth_manager.auth().await;
+         loaded_auth.as_ref()
+     };
+     let Some(auth) = auth.filter(|auth| auth.uses_codex_backend()) else {
+-        return Vec::new();
++        return Arc::default();
+     };
+ 
+     let account_id = match auth.get_account_id() {
+         Some(account_id) if !account_id.is_empty() => account_id,
+-        _ => return Vec::new(),
++        _ => return Arc::default(),
+     };
+     let is_workspace_account = auth.is_workspace_account();
+     let cache_context = ConnectorDirectoryCacheContext::new(
 diff --git a/codex-rs/core/src/context/world_state/top_level_tools.rs b/codex-rs/core/src/context/world_state/top_level_tools.rs
 index 4dbab8b18..d8ecde5e7 100644
 --- a/codex-rs/core/src/context/world_state/top_level_tools.rs
@@ -28406,6 +29229,118 @@ index 4ac92c260..6138ae8db 100644
  #[test]
  fn snapshots_catalog_transitions() {
      use PreviousSectionState::Absent;
+diff --git a/codex-rs/core/src/context_manager/history.rs b/codex-rs/core/src/context_manager/history.rs
+index f39be3fb4..92bf46603 100644
+--- a/codex-rs/core/src/context_manager/history.rs
++++ b/codex-rs/core/src/context_manager/history.rs
+@@ -244,9 +244,7 @@ impl ContextManager {
+             reset_version: 0,
+             user_message_revision: 0,
+             guardian_review_context_revision: next_guardian_review_context_revision(),
+-            token_info: TokenUsageInfo::new_or_append(
+-                &None, &None, /*model_context_window*/ None,
+-            ),
++            token_info: None,
+             reference_context_item: None,
+             world_state_baseline: None,
+         }
+@@ -887,12 +885,14 @@ impl ContextManager {
+         &mut self,
+         usage: &TokenUsage,
+         model_context_window: Option<i64>,
++        includes_reasoning: bool,
+     ) {
+-        self.token_info = TokenUsageInfo::new_or_append(
++        self.token_info = Some(TokenUsageInfo::new_or_append(
+             &self.token_info,
+-            &Some(usage.clone()),
++            usage,
++            includes_reasoning,
+             model_context_window,
+-        );
++        ));
+     }
+ 
+     fn get_non_last_reasoning_items_tokens(&self) -> i64 {
+@@ -934,9 +934,7 @@ impl ContextManager {
+         self.items[start..].iter().map(|envelope| &envelope.item)
+     }
+ 
+-    /// When true, the server already accounted for past reasoning tokens and
+-    /// the client should not re-estimate them.
+-    pub(crate) fn get_total_token_usage(&self, server_reasoning_included: bool) -> i64 {
++    pub(crate) fn get_total_token_usage(&self) -> i64 {
+         let last_tokens = self
+             .token_info
+             .as_ref()
+@@ -946,7 +944,11 @@ impl ContextManager {
+             .items_after_last_model_generated_item()
+             .map(estimate_item_token_count)
+             .fold(0i64, i64::saturating_add);
+-        if server_reasoning_included {
++        if self
++            .token_info
++            .as_ref()
++            .is_some_and(|info| info.last_usage_includes_reasoning == Some(true))
++        {
+             last_tokens.saturating_add(items_after_last_model_generated_tokens)
+         } else {
+             last_tokens
+diff --git a/codex-rs/core/src/context_manager/history_tests.rs b/codex-rs/core/src/context_manager/history_tests.rs
+index 70178c446..52f4b1fa8 100644
+--- a/codex-rs/core/src/context_manager/history_tests.rs
++++ b/codex-rs/core/src/context_manager/history_tests.rs
+@@ -933,6 +933,33 @@ fn non_last_reasoning_tokens_ignore_entries_after_last_user() {
+     assert_eq!(history.get_non_last_reasoning_items_tokens(), 32);
+ }
+ 
++#[test_case(None, 125; "legacy count")]
++#[test_case(Some(false), 125; "exclusive count")]
++#[test_case(Some(true), 100; "inclusive count")]
++fn total_token_usage_respects_saved_reasoning_accounting(
++    includes_reasoning: Option<bool>,
++    expected: i64,
++) {
++    let mut history = create_history_with_items(vec![
++        reasoning_with_encrypted_content(/*len*/ 1_000),
++        user_msg("second"),
++        assistant_msg("counted reply"),
++    ]);
++    let usage = TokenUsage {
++        total_tokens: 100,
++        ..Default::default()
++    };
++    let mut saved = json!({ "last_token_usage": usage, "total_token_usage": usage });
++    if let Some(included) = includes_reasoning {
++        saved["last_usage_includes_reasoning"] = json!(included);
++    }
++    history.set_token_info(Some(
++        serde_json::from_value(saved).expect("saved token count"),
++    ));
++
++    assert_eq!(history.get_total_token_usage(), expected);
++}
++
+ #[test]
+ fn items_after_last_model_generated_tokens_include_user_and_tool_output() {
+     let history = create_history_with_items(vec![
+@@ -1149,6 +1176,7 @@ fn total_token_usage_includes_all_items_after_last_model_generated_item() {
+             ..Default::default()
+         },
+         /*model_context_window*/ None,
++        /*includes_reasoning*/ true,
+     );
+     let added_user = user_msg("new user message");
+     let added_tool_output = custom_tool_call_output("tool-tail", "new tool output");
+@@ -1158,7 +1186,7 @@ fn total_token_usage_includes_all_items_after_last_model_generated_item() {
+     );
+ 
+     assert_eq!(
+-        history.get_total_token_usage(/*server_reasoning_included*/ true),
++        history.get_total_token_usage(),
+         100 + estimate_item_token_count(&added_user)
+             + estimate_item_token_count(&added_tool_output)
+     );
 diff --git a/codex-rs/core/src/guardian/review.rs b/codex-rs/core/src/guardian/review.rs
 index 81aef2fb4..c1ff1e790 100644
 --- a/codex-rs/core/src/guardian/review.rs
@@ -28569,6 +29504,75 @@ index df8892059..968c16443 100644
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
  async fn guardian_review_does_not_retry_missing_assessment_payload() -> anyhow::Result<()> {
      skip_if_no_network!(Ok(()));
+diff --git a/codex-rs/core/src/hook_runtime.rs b/codex-rs/core/src/hook_runtime.rs
+index 3dde6e1ae..bb9747feb 100644
+--- a/codex-rs/core/src/hook_runtime.rs
++++ b/codex-rs/core/src/hook_runtime.rs
+@@ -31,6 +31,7 @@ use codex_otel::HOOK_RUN_METRIC;
+ use codex_protocol::items::FunctionCallOutputItem;
+ use codex_protocol::items::TurnItem;
+ use codex_protocol::items::UserMessageItem;
++use codex_protocol::models::ContentItem;
+ use codex_protocol::models::ResponseItem;
+ use codex_protocol::openai_models::ModelInfo;
+ use codex_protocol::protocol::AskForApproval;
+@@ -61,7 +62,8 @@ use tracing::instrument;
+ use crate::context::ContextualUserFragment;
+ use crate::context::HookAdditionalContext;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
+-use crate::event_mapping::parse_turn_item;
++use crate::event_mapping::is_contextual_user_message_content;
++use crate::event_mapping::user_input_parts;
+ use crate::guardian::GuardianReviewContext;
+ use crate::hook_environment_executor::with_environment_hooks;
+ use crate::hook_environment_executor::with_tool_environment_hooks;
+@@ -617,21 +619,38 @@ pub(crate) async fn run_post_compact_hooks(
+     }
+ }
+ 
++pub(crate) fn legacy_notify_input_messages(input: &[ResponseItem]) -> Vec<String> {
++    input
++        .iter()
++        .filter_map(|item| {
++            let ResponseItem::Message { role, content, .. } = item else {
++                return None;
++            };
++            if role != "user" || is_contextual_user_message_content(content) {
++                return None;
++            }
++            Some(
++                user_input_parts(content)
++                    .filter_map(|(_, part)| match part {
++                        ContentItem::InputText { text } => Some(text.as_str()),
++                        ContentItem::InputImage { .. }
++                        | ContentItem::InputAudio { .. }
++                        | ContentItem::OutputText { .. } => None,
++                    })
++                    .collect(),
++            )
++        })
++        .collect()
++}
++
+ #[instrument(level = "trace", skip_all)]
+ pub(crate) async fn run_legacy_after_agent_hook(
+     sess: &Arc<Session>,
+     turn_context: &Arc<TurnContext>,
+-    input: &[ResponseItem],
++    input_messages: Vec<String>,
+     last_assistant_message: Option<String>,
+ ) -> bool {
+     let mut abort_message = None;
+-    let input_messages = input
+-        .iter()
+-        .filter_map(|item| match parse_turn_item(item) {
+-            Some(TurnItem::UserMessage(user_message)) => Some(user_message.message()),
+-            _ => None,
+-        })
+-        .collect();
+     let hooks = sess.hooks();
+     for hook_outcome in hooks
+         .dispatch(codex_hooks::HookPayload {
 diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
 index 048a68bfc..7e227ba1e 100644
 --- a/codex-rs/core/src/responses_retry.rs
@@ -29083,6 +30087,18 @@ index 65aa29397..c778b3dae 100644
  #[tokio::test]
  async fn sampling_retry_logs_stream_error_context() {
      let (_session, turn_context) = make_session_and_context().await;
+diff --git a/codex-rs/core/src/session/async_compaction_tests.rs b/codex-rs/core/src/session/async_compaction_tests.rs
+index e4a048124..d73b96c65 100644
+--- a/codex-rs/core/src/session/async_compaction_tests.rs
++++ b/codex-rs/core/src/session/async_compaction_tests.rs
+@@ -65,6 +65,7 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
+             total_tokens: 70_000,
+             ..Default::default()
+         }),
++        /*includes_reasoning*/ false,
+     )
+     .await
+     .expect("record usage");
 diff --git a/codex-rs/core/src/session/config_refresh_tests.rs b/codex-rs/core/src/session/config_refresh_tests.rs
 index 927a28630..34a74218f 100644
 --- a/codex-rs/core/src/session/config_refresh_tests.rs
@@ -29231,6 +30247,18 @@ index 927a28630..34a74218f 100644
 +    assert!(!config.plugins.allows_plugin("sample@test"));
 +    Ok(())
 +}
+diff --git a/codex-rs/core/src/session/guardian_checkpoint_tests.rs b/codex-rs/core/src/session/guardian_checkpoint_tests.rs
+index 6ff5ab358..c64bf4042 100644
+--- a/codex-rs/core/src/session/guardian_checkpoint_tests.rs
++++ b/codex-rs/core/src/session/guardian_checkpoint_tests.rs
+@@ -78,6 +78,7 @@ async fn guardian_checkpoint_preserves_live_context_without_storage(
+                 ..Default::default()
+             },
+             Some(32_000),
++            /*includes_reasoning*/ true,
+         );
+     }
+     let expected = session.clone_history().await;
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
 index 5ded79268..0183c7d0e 100644
 --- a/codex-rs/core/src/session/handlers.rs
@@ -29294,9 +30322,18 @@ index 5ded79268..0183c7d0e 100644
                          Err(error) => {
                              let message = format!("invalid thread settings override: {error}");
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index aba497125..c374623c3 100644
+index aba497125..b5deb0141 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
+@@ -417,7 +417,7 @@ use codex_utils_stream_parser::ProposedPlanSegment;
+ /// Whether reported usage updates the installed context baseline or only spending.
+ #[derive(Clone, Copy)]
+ pub(crate) enum TokenUsageContext {
+-    Sampling,
++    Sampling { includes_reasoning: bool },
+     SpendingOnly,
+ }
+ 
 @@ -608,7 +608,7 @@ impl Session {
          let SessionSpawnArgs {
              attached_thread,
@@ -29374,6 +30411,15 @@ index aba497125..c374623c3 100644
              developer_instructions: config.developer_instructions.clone(),
              base_instructions,
              permission_profile_state: session_permission_profile_state_from_config(&config)?,
+@@ -1567,7 +1611,7 @@ impl Session {
+ 
+     pub(crate) async fn get_total_token_usage(&self) -> i64 {
+         let state = self.state.lock().await;
+-        state.get_total_token_usage(state.server_reasoning_included())
++        state.get_total_token_usage()
+     }
+ 
+     pub(crate) async fn auto_compact_window_snapshot(&self) -> AutoCompactWindowSnapshot {
 @@ -2050,6 +2094,8 @@ impl Session {
                  }
              };
@@ -29535,6 +30581,83 @@ index aba497125..c374623c3 100644
                  }
              }
          }
+@@ -5167,13 +5284,14 @@ impl Session {
+         &self,
+         turn_context: &TurnContext,
+         token_usage: Option<&TokenUsage>,
++        includes_reasoning: bool,
+     ) -> CodexResult<()> {
+         let result = self
+             .record_token_usage_info(
+                 turn_context,
+                 &turn_context.initial_settings,
+                 token_usage,
+-                TokenUsageContext::Sampling,
++                TokenUsageContext::Sampling { includes_reasoning },
+             )
+             .await;
+         self.send_token_count_event(turn_context).await;
+@@ -5235,10 +5353,11 @@ impl Session {
+             let token_info = {
+                 let mut state = self.state.lock().await;
+                 match context {
+-                    TokenUsageContext::Sampling => {
++                    TokenUsageContext::Sampling { includes_reasoning } => {
+                         state.update_token_info_from_usage(
+                             token_usage,
+                             turn_context.model_context_window(),
++                            includes_reasoning,
+                         );
+                         if matches!(
+                             turn_context.config.model_auto_compact_token_limit_scope,
+@@ -5251,6 +5370,7 @@ impl Session {
+                     TokenUsageContext::SpendingOnly => {
+                         let mut info = state.token_info().unwrap_or(TokenUsageInfo {
+                             total_token_usage: TokenUsage::default(),
++                            last_usage_includes_reasoning: None,
+                             last_token_usage: TokenUsage::default(),
+                             model_context_window: turn_context.model_context_window(),
+                         });
+@@ -5259,6 +5379,7 @@ impl Session {
+ 
+                         // Contributors receive the reported usage; stored context stays unchanged.
+                         info.last_token_usage = token_usage.clone();
++                        info.last_usage_includes_reasoning = None;
+                         info.model_context_window = turn_context
+                             .model_context_window()
+                             .or(info.model_context_window);
+@@ -5307,6 +5428,7 @@ impl Session {
+             let mut state = self.state.lock().await;
+             let mut info = state.token_info().unwrap_or(TokenUsageInfo {
+                 total_token_usage: TokenUsage::default(),
++                last_usage_includes_reasoning: None,
+                 last_token_usage: TokenUsage::default(),
+                 model_context_window: None,
+             });
+@@ -5325,9 +5447,9 @@ impl Session {
+                 info.model_context_window = Some(model_context_window);
+             }
+ 
+-            state.set_token_info(Some(info));
+             // The local estimate already includes every retained reasoning item.
+-            state.set_server_reasoning_included(/*included*/ true);
++            info.last_usage_includes_reasoning = Some(true);
++            state.set_token_info(Some(info));
+         }
+         self.set_auto_compact_window_estimated_prefill_for_scope(
+             turn_context,
+@@ -5366,11 +5488,6 @@ impl Session {
+         state.record_mcp_dependency_prompted(names);
+     }
+ 
+-    pub(crate) async fn set_server_reasoning_included(&self, included: bool) {
+-        let mut state = self.state.lock().await;
+-        state.set_server_reasoning_included(included);
+-    }
+-
+     pub(crate) async fn send_token_count_event(&self, turn_context: &TurnContext) {
+         let (info, rate_limits) = {
+             let state = self.state.lock().await;
 diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
 index 9c415e602..918a1caa3 100644
 --- a/codex-rs/core/src/session/session.rs
@@ -29715,10 +30838,89 @@ index a61493af7..8a641e118 100644
      session: Arc<Session>,
      turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 182e03e58..21a506db0 100644
+index 182e03e58..c7bebafb3 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
-@@ -4496,6 +4496,7 @@ async fn set_rate_limits_retains_previous_credits() {
+@@ -3359,6 +3359,7 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
+             total_tokens: 30,
+             codex_rollout_budget_units: None,
+         },
++        last_usage_includes_reasoning: None,
+         last_token_usage: TokenUsage {
+             input_tokens: 3,
+             cached_input_tokens: 0,
+@@ -3380,6 +3381,7 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
+             total_tokens: 375,
+             codex_rollout_budget_units: None,
+         },
++        last_usage_includes_reasoning: None,
+         last_token_usage: TokenUsage {
+             input_tokens: 10,
+             cached_input_tokens: 0,
+@@ -3529,6 +3531,7 @@ async fn recompute_token_usage_updates_model_context_window() {
+         let mut state = session.state.lock().await;
+         state.set_token_info(Some(TokenUsageInfo {
+             total_token_usage: TokenUsage::default(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage::default(),
+             model_context_window: Some(258_400),
+         }));
+@@ -3545,7 +3548,7 @@ async fn recompute_token_usage_updates_model_context_window() {
+     assert_eq!(actual.model_context_window, Some(128_000));
+ }
+ 
+-#[test_case(crate::session::TokenUsageContext::Sampling; "sampling")]
++#[test_case(crate::session::TokenUsageContext::Sampling { includes_reasoning: false }; "sampling")]
+ #[test_case(crate::session::TokenUsageContext::SpendingOnly; "spending_only")]
+ #[tokio::test]
+ async fn record_token_usage_info_notifies_extension_contributors(
+@@ -3632,7 +3635,9 @@ async fn record_token_usage_info_notifies_extension_contributors(
+             &turn_context,
+             &turn_context.initial_settings,
+             Some(&first_usage),
+-            crate::session::TokenUsageContext::Sampling,
++            crate::session::TokenUsageContext::Sampling {
++                includes_reasoning: true,
++            },
+         )
+         .await
+         .expect("first usage should be recorded");
+@@ -3650,8 +3655,12 @@ async fn record_token_usage_info_notifies_extension_contributors(
+     expected_total_usage.add_assign(&second_usage);
+     let expected_session_info = TokenUsageInfo {
+         total_token_usage: expected_total_usage.clone(),
++        last_usage_includes_reasoning: Some(matches!(
++            context,
++            crate::session::TokenUsageContext::SpendingOnly
++        )),
+         last_token_usage: match context {
+-            crate::session::TokenUsageContext::Sampling => second_usage.clone(),
++            crate::session::TokenUsageContext::Sampling { .. } => second_usage.clone(),
+             crate::session::TokenUsageContext::SpendingOnly => first_usage.clone(),
+         },
+         model_context_window: turn_context.model_context_window(),
+@@ -3663,6 +3672,7 @@ async fn record_token_usage_info_notifies_extension_contributors(
+             turn_level_id: turn_context.sub_id.clone(),
+             token_usage: TokenUsageInfo {
+                 total_token_usage: first_usage.clone(),
++                last_usage_includes_reasoning: Some(true),
+                 last_token_usage: first_usage,
+                 model_context_window: turn_context.model_context_window(),
+             },
+@@ -3675,6 +3685,12 @@ async fn record_token_usage_info_notifies_extension_contributors(
+             turn_level_id: turn_context.sub_id.clone(),
+             token_usage: TokenUsageInfo {
+                 total_token_usage: expected_total_usage,
++                last_usage_includes_reasoning: match context {
++                    crate::session::TokenUsageContext::Sampling { includes_reasoning } => {
++                        Some(includes_reasoning)
++                    }
++                    crate::session::TokenUsageContext::SpendingOnly => None,
++                },
+                 last_token_usage: second_usage,
+                 model_context_window: turn_context.model_context_window(),
+             },
+@@ -4496,6 +4512,7 @@ async fn set_rate_limits_retains_previous_credits() {
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29726,7 +30928,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -4619,6 +4620,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
+@@ -4619,6 +4636,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29734,7 +30936,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -5244,6 +5246,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
+@@ -5244,6 +5262,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29742,7 +30944,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -6214,6 +6217,100 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
+@@ -6214,6 +6233,100 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
      submissions.await;
  }
  
@@ -29843,7 +31045,7 @@ index 182e03e58..21a506db0 100644
  #[tokio::test]
  async fn compaction_persists_resume_metadata_and_companion_records() {
      let (mut session, turn_context) = make_session_and_context().await;
-@@ -6818,6 +6915,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+@@ -6818,6 +6931,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29851,7 +31053,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7139,6 +7237,7 @@ async fn make_session_with_config_and_rx(
+@@ -7139,6 +7253,7 @@ async fn make_session_with_config_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29859,7 +31061,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7276,6 +7375,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
+@@ -7276,6 +7391,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29867,7 +31069,7 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -9104,6 +9204,7 @@ where
+@@ -9104,6 +9220,7 @@ where
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -29875,6 +31077,14 @@ index 182e03e58..21a506db0 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
+@@ -12799,6 +12916,7 @@ async fn set_total_token_usage(sess: &Session, total_token_usage: TokenUsage) {
+     let mut state = sess.state.lock().await;
+     state.set_token_info(Some(TokenUsageInfo {
+         total_token_usage,
++        last_usage_includes_reasoning: None,
+         last_token_usage: TokenUsage::default(),
+         model_context_window: None,
+     }));
 diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
 index f07d921dc..f2e9b3882 100644
 --- a/codex-rs/core/src/session/thread_settings.rs
@@ -29968,10 +31178,18 @@ index f07d921dc..f2e9b3882 100644
  
  /// Builds a current thread-owned snapshot for storage checkpoints.
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index 65cbd64a1..3dab5ecab 100644
+index 65cbd64a1..d21d13ba2 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
-@@ -35,6 +35,8 @@ use crate::responses_metadata::CodexResponsesMetadata;
+@@ -19,6 +19,7 @@ use crate::feedback_tags;
+ use crate::hook_runtime::drain_async_hook_results;
+ use crate::hook_runtime::hooks_for_model_request;
+ use crate::hook_runtime::inspect_pending_input;
++use crate::hook_runtime::legacy_notify_input_messages;
+ use crate::hook_runtime::record_additional_contexts;
+ use crate::hook_runtime::record_pending_input;
+ use crate::hook_runtime::run_legacy_after_agent_hook;
+@@ -35,6 +36,8 @@ use crate::responses_metadata::CodexResponsesMetadata;
  use crate::responses_metadata::CodexResponsesRequestKind;
  use crate::responses_retry::ResponsesStreamRequest;
  use crate::responses_retry::ResponsesStreamRetryState;
@@ -29980,7 +31198,34 @@ index 65cbd64a1..3dab5ecab 100644
  use crate::responses_retry::handle_response_stream_error;
  use crate::session::PreviousTurnSettings;
  use crate::session::TurnInput;
-@@ -1765,11 +1767,17 @@ async fn run_sampling_request(
+@@ -589,7 +592,7 @@ pub(crate) async fn run_turn(
+         }
+         .await;
+         match sampling_request_result {
+-            Ok((sampling_request_output, sampling_request_input)) => {
++            Ok((sampling_request_output, notify_messages)) => {
+                 guardian_budget_compacted = false;
+                 let SamplingRequestResult {
+                     needs_follow_up: model_needs_follow_up,
+@@ -785,7 +788,7 @@ pub(crate) async fn run_turn(
+                     if run_legacy_after_agent_hook(
+                         &sess,
+                         &turn_context,
+-                        &sampling_request_input,
++                        notify_messages,
+                         last_agent_message.clone(),
+                     )
+                     .await
+@@ -1734,7 +1737,7 @@ async fn run_sampling_request(
+     client_session: &mut ModelClientSession,
+     input: Vec<ResponseItem>,
+     cancellation_token: CancellationToken,
+-) -> CodexResult<(SamplingRequestResult, Vec<ResponseItem>)> {
++) -> CodexResult<(SamplingRequestResult, Vec<String>)> {
+     let turn_context = Arc::clone(&step_context.turn);
+     let preempt = step_context.preempt.clone().unwrap_or_default();
+     let _input_watch = if let Some(preempt) = &step_context.preempt {
+@@ -1765,13 +1768,20 @@ async fn run_sampling_request(
          &step_context.session_telemetry,
          incremental_tools,
      );
@@ -29988,7 +31233,8 @@ index 65cbd64a1..3dab5ecab 100644
 +    let auth_owner = sess.services.model_client.auth_owner_generation();
 +    let mut retry_state = ResponsesStreamRetryState::for_sampling(auth_owner);
      let mut initial_input = Some(input);
-     let mut original_input = None;
+-    let mut original_input = None;
++    let mut notify_messages = Vec::new();
      let mut executed_tool_calls_by_output = HashMap::new();
 +    let mut capacity_retry_active = false;
      loop {
@@ -29998,17 +31244,28 @@ index 65cbd64a1..3dab5ecab 100644
 +        }
          // Running code-mode cells can request review while this response is in flight.
          // Keep the latest received ID until response.created replaces it.
++        let first_attempt = initial_input.is_some();
          let prompt_input = if let Some(input) = initial_input.take() {
-@@ -1802,6 +1810,7 @@ async fn run_sampling_request(
+             input
+         } else {
+@@ -1801,7 +1811,11 @@ async fn run_sampling_request(
+             )
              .await?;
          }
++        if first_attempt && turn_context.config.notify.is_some() {
++            notify_messages = legacy_notify_input_messages(&prompt.input);
++        }
          let mut draining_for_mailbox = false;
 +        let mut capacity_retry_safe = true;
          let err = match try_run_sampling_request(
              tool_runtime.clone(),
              Arc::clone(&sess),
-@@ -1813,6 +1822,8 @@ async fn run_sampling_request(
-             &prompt,
+@@ -1810,14 +1824,16 @@ async fn run_sampling_request(
+             client_session,
+             &responses_metadata,
+             Arc::clone(&turn_diff_tracker),
+-            &prompt,
++            prompt,
              cancellation_token.child_token(),
              &mut draining_for_mailbox,
 +            preempt.clone(),
@@ -30016,10 +31273,17 @@ index 65cbd64a1..3dab5ecab 100644
          )
          .await
          {
-@@ -1835,6 +1846,15 @@ async fn run_sampling_request(
+             Ok(output) => {
+-                return Ok((output, original_input.unwrap_or(prompt.input)));
++                return Ok((output, notify_messages));
+             }
+             Err(err) => match err.details() {
+                 CodexErrorDetails::ContextWindowExceeded => {
+@@ -1835,7 +1851,14 @@ async fn run_sampling_request(
              },
          };
  
+-        let original_input = original_input.get_or_insert(prompt.input);
 +        if matches!(err.details(), CodexErrorDetails::ServerOverloaded) {
 +            // Never replay a failed response that may already have produced tool effects.
 +            if !capacity_retry_safe {
@@ -30028,12 +31292,24 @@ index 65cbd64a1..3dab5ecab 100644
 +            capacity_retry_active = true;
 +            client_session.bind_capacity_retry_owner(auth_owner);
 +        }
-+
-         let original_input = original_input.get_or_insert(prompt.input);
  
          let retry = handle_response_stream_error(
-@@ -2662,6 +2682,8 @@ async fn try_run_sampling_request(
-     prompt: &Prompt,
+             &mut retry_state,
+@@ -1860,7 +1883,7 @@ async fn run_sampling_request(
+                     needs_follow_up: true,
+                     last_agent_message: None,
+                 },
+-                std::mem::take(original_input),
++                notify_messages,
+             ));
+         }
+         retry??;
+@@ -2659,9 +2682,11 @@ async fn try_run_sampling_request(
+     client_session: &mut ModelClientSession,
+     responses_metadata: &CodexResponsesMetadata,
+     turn_diff_tracker: SharedTurnDiffTracker,
+-    prompt: &Prompt,
++    prompt: Prompt,
      cancellation_token: CancellationToken,
      draining_for_mailbox: &mut bool,
 +    mut preempt: CancellationToken,
@@ -30041,7 +31317,7 @@ index 65cbd64a1..3dab5ecab 100644
  ) -> CodexResult<SamplingRequestResult> {
      let turn_context = Arc::clone(&step_context.turn);
      feedback_tags!(
-@@ -2697,7 +2719,9 @@ async fn try_run_sampling_request(
+@@ -2697,7 +2722,9 @@ async fn try_run_sampling_request(
          .features
          .enabled(Feature::ConcurrentReasoningSummaries)
          && turn_context.provider.info().is_openai();
@@ -30052,7 +31328,7 @@ index 65cbd64a1..3dab5ecab 100644
      let effort = sess
          .reasoning_effort_for_request(&step_context.settings, super::RequestEffortUsage::Sampling)
          .await;
-@@ -2722,11 +2746,20 @@ async fn try_run_sampling_request(
+@@ -2722,11 +2749,20 @@ async fn try_run_sampling_request(
              }
          });
          let cancellation_token = cancellation_token.clone();
@@ -30075,7 +31351,7 @@ index 65cbd64a1..3dab5ecab 100644
              }
          }
      });
-@@ -2734,34 +2767,70 @@ async fn try_run_sampling_request(
+@@ -2734,34 +2770,70 @@ async fn try_run_sampling_request(
          .execution_mode_for_event(HookEventName::PreModelRequest)
          .is_some()
      {
@@ -30095,8 +31371,8 @@ index 65cbd64a1..3dab5ecab 100644
      let sampling_timing_guard = turn_context.turn_timing_state.begin_sampling();
      let mut response_completed = false;
      let mut request_token_usage = None;
-     sess.set_server_reasoning_included(step_context.settings.model_info.use_responses_lite)
-         .await;
+-    sess.set_server_reasoning_included(step_context.settings.model_info.use_responses_lite)
+-        .await;
 -    let mut stream = match client_session
 -        .stream(
 -            prompt,
@@ -30113,10 +31389,11 @@ index 65cbd64a1..3dab5ecab 100644
 -        .await?
 -    {
 -        Ok(stream) => stream,
++    let mut includes_reasoning = step_context.settings.model_info.use_responses_lite;
 +    let stream_result = {
 +        let request = client_session
 +            .stream(
-+                prompt,
++                &prompt,
 +                &step_context.settings.model_info,
 +                &step_context.session_telemetry,
 +                effort,
@@ -30135,6 +31412,7 @@ index 65cbd64a1..3dab5ecab 100644
 +            result = request => result?.map(Some),
 +        }
 +    };
++    drop(prompt);
 +    let mut stream = match stream_result {
 +        Ok(Some(stream)) => stream,
 +        Ok(None) => {
@@ -30165,7 +31443,7 @@ index 65cbd64a1..3dab5ecab 100644
                      token_usage: None,
                  })
                  .await;
-@@ -2817,12 +2886,21 @@ async fn try_run_sampling_request(
+@@ -2817,12 +2889,21 @@ async fn try_run_sampling_request(
              codex.usage.total_tokens = field::Empty,
          );
  
@@ -30193,7 +31471,7 @@ index 65cbd64a1..3dab5ecab 100644
          // Account for an already-received terminal error even if cancellation raced it.
          // Cancellation still stops ordinary stream events before they can run tools.
          let event = match event {
-@@ -2892,6 +2970,19 @@ async fn try_run_sampling_request(
+@@ -2892,6 +2973,19 @@ async fn try_run_sampling_request(
              .record_responses(&handle_responses, &event);
          record_turn_ttft_metric(&turn_context, &event).await;
  
@@ -30213,7 +31491,25 @@ index 65cbd64a1..3dab5ecab 100644
          match event {
              ResponseEvent::Created { response_id } => {
                  if let Some(response_id) = response_id {
-@@ -3418,6 +3509,13 @@ async fn try_run_sampling_request(
+@@ -3176,7 +3270,7 @@ async fn try_run_sampling_request(
+                 .await;
+             }
+             ResponseEvent::ServerReasoningIncluded(included) => {
+-                sess.set_server_reasoning_included(included).await;
++                includes_reasoning = included;
+             }
+             ResponseEvent::RateLimits(snapshot) => {
+                 // Update internal state with latest rate limits, but defer sending until
+@@ -3228,7 +3322,7 @@ async fn try_run_sampling_request(
+                         &turn_context,
+                         &step_context.settings,
+                         token_usage.as_ref(),
+-                        super::TokenUsageContext::Sampling,
++                        super::TokenUsageContext::Sampling { includes_reasoning },
+                     )
+                     .await;
+                 should_emit_token_count = true;
+@@ -3418,6 +3512,13 @@ async fn try_run_sampling_request(
      )
      .await;
  
@@ -30227,7 +31523,7 @@ index 65cbd64a1..3dab5ecab 100644
      if !in_flight.is_empty() {
          let _tool_blocking_timing_guard = turn_context.turn_timing_state.begin_tool_blocking();
          let _tool_blocking_span = trace_span!(
-@@ -3426,7 +3524,16 @@ async fn try_run_sampling_request(
+@@ -3426,7 +3527,16 @@ async fn try_run_sampling_request(
              conversation.id = %sess.thread_id,
              turn.id = %turn_context.sub_id,
          );
@@ -30308,6 +31604,94 @@ index f49993e5d..49e789204 100644
          ThreadStoreError::ThreadNotFound {
              thread_id: ThreadId::new(),
          },
+diff --git a/codex-rs/core/src/state/session.rs b/codex-rs/core/src/state/session.rs
+index d122db22d..d56d6d94d 100644
+--- a/codex-rs/core/src/state/session.rs
++++ b/codex-rs/core/src/state/session.rs
+@@ -77,7 +77,6 @@ pub(crate) struct SessionState {
+     pub(crate) history_reset: CancellationToken,
+     pub(crate) latest_rate_limits: Option<RateLimitSnapshot>,
+     pub(crate) latest_token_usage_record: Option<TokenUsageRecord>,
+-    pub(crate) server_reasoning_included: bool,
+     pub(crate) mcp_dependency_prompted: HashSet<String>,
+     pub(crate) additional_context: AdditionalContextStore,
+     /// Settings used by the latest regular user turn, used for turn-to-turn
+@@ -131,7 +130,6 @@ impl SessionState {
+             history_reset: CancellationToken::new(),
+             latest_rate_limits: None,
+             latest_token_usage_record: None,
+-            server_reasoning_included: false,
+             mcp_dependency_prompted: HashSet::new(),
+             additional_context: AdditionalContextStore::default(),
+             previous_turn_settings: None,
+@@ -291,8 +289,10 @@ impl SessionState {
+         &mut self,
+         usage: &TokenUsage,
+         model_context_window: Option<i64>,
++        includes_reasoning: bool,
+     ) {
+-        self.history.update_token_info(usage, model_context_window);
++        self.history
++            .update_token_info(usage, model_context_window, includes_reasoning);
+     }
+ 
+     pub(crate) fn ensure_auto_compact_window_server_prefill_from_usage(
+@@ -374,17 +374,8 @@ impl SessionState {
+         self.history.set_token_usage_full(context_window);
+     }
+ 
+-    pub(crate) fn get_total_token_usage(&self, server_reasoning_included: bool) -> i64 {
+-        self.history
+-            .get_total_token_usage(server_reasoning_included)
+-    }
+-
+-    pub(crate) fn set_server_reasoning_included(&mut self, included: bool) {
+-        self.server_reasoning_included = included;
+-    }
+-
+-    pub(crate) fn server_reasoning_included(&self) -> bool {
+-        self.server_reasoning_included
++    pub(crate) fn get_total_token_usage(&self) -> i64 {
++        self.history.get_total_token_usage()
+     }
+ 
+     pub(crate) fn record_mcp_dependency_prompted<I>(&mut self, names: I)
+diff --git a/codex-rs/core/src/tasks/mod_tests.rs b/codex-rs/core/src/tasks/mod_tests.rs
+index beeda1022..5adce3a5f 100644
+--- a/codex-rs/core/src/tasks/mod_tests.rs
++++ b/codex-rs/core/src/tasks/mod_tests.rs
+@@ -171,6 +171,7 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
+                 total_tokens: 1_000,
+                 ..TokenUsage::default()
+             }),
++            /*includes_reasoning*/ false,
+         )
+         .await
+         .expect("earlier session usage should be recorded");
+@@ -193,7 +194,11 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
+         };
+         // Local pre-turn compaction records usage with the previous model's context.
+         session
+-            .update_token_usage_info(&previous_context, Some(&compaction_usage))
++            .update_token_usage_info(
++                &previous_context,
++                Some(&compaction_usage),
++                /*includes_reasoning*/ false,
++            )
+             .await
+             .expect("compaction usage should be recorded");
+         expected_usage.push((previous_context.model_info().slug.clone(), compaction_usage));
+@@ -225,7 +230,9 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
+                     &turn_context,
+                     &response_context.initial_settings,
+                     Some(&response_usage),
+-                    crate::session::TokenUsageContext::Sampling,
++                    crate::session::TokenUsageContext::Sampling {
++                        includes_reasoning: false,
++                    },
+                 )
+                 .await
+                 .expect("response usage should be recorded");
 diff --git a/codex-rs/core/src/thread_manager/shutdown.rs b/codex-rs/core/src/thread_manager/shutdown.rs
 index e622f4102..118ea91f1 100644
 --- a/codex-rs/core/src/thread_manager/shutdown.rs
@@ -32229,6 +33613,112 @@ index 000000000..f2b4c1cae
 +    assert_eq!(requests.requests().len(), 2);
 +    Ok(())
 +}
+diff --git a/codex-rs/core/tests/suite/client.rs b/codex-rs/core/tests/suite/client.rs
+index 2c01fcb17..2f08e997f 100644
+--- a/codex-rs/core/tests/suite/client.rs
++++ b/codex-rs/core/tests/suite/client.rs
+@@ -3521,6 +3521,7 @@ async fn token_count_includes_rate_limits_snapshot() {
+                     "reasoning_output_tokens": 0,
+                     "total_tokens": 123
+                 },
++                "last_usage_includes_reasoning": false,
+                 // Default model is gpt-5.4 in tests → 95% usable context window
+                 "model_context_window": 258400
+             },
+diff --git a/codex-rs/core/tests/suite/compact.rs b/codex-rs/core/tests/suite/compact.rs
+index b3522a09b..c480acee0 100644
+--- a/codex-rs/core/tests/suite/compact.rs
++++ b/codex-rs/core/tests/suite/compact.rs
+@@ -5480,8 +5480,18 @@ async fn auto_compact_body_after_prefix_still_caps_at_context_window() {
+     );
+ }
+ 
++#[derive(Clone, Copy)]
++enum ContinueThread {
++    Live,
++    Fork,
++    Restart,
++}
++
++#[test_case::test_case(ContinueThread::Live; "live")]
++#[test_case::test_case(ContinueThread::Fork; "fork")]
++#[test_case::test_case(ContinueThread::Restart; "cold resume")]
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn auto_compact_accounts_for_encrypted_reasoning() {
++async fn auto_compact_accounts_for_encrypted_reasoning(continuation: ContinueThread) {
+     skip_if_no_network!();
+ 
+     let server = start_mock_server().await;
+@@ -5519,26 +5529,53 @@ async fn auto_compact_accounts_for_encrypted_reasoning() {
+     )
+     .await;
+ 
+-    let test = test_codex()
+-        .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+-        .with_model_info_override("gpt-5.5", |model| {
+-            model.use_responses_lite = true;
+-        })
+-        .with_config(|config| {
+-            config.model = Some("gpt-5.5".to_string());
+-            set_test_compact_prompt(config);
+-            config.model_auto_compact_token_limit = Some(81);
+-        })
++    let builder = || {
++        test_codex()
++            .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
++            .with_model_info_override("gpt-5.5", |model| {
++                model.use_responses_lite = true;
++            })
++            .with_config(|config| {
++                config.model = Some("gpt-5.5".to_string());
++                set_test_compact_prompt(config);
++                config.model_auto_compact_token_limit = Some(81);
++            })
++    };
++    let mut test = builder()
+         .build_with_auto_env(&server)
+         .await
+         .expect("build codex");
+ 
+-    for user in [
+-        "FIRST_REASONING",
+-        "SECOND_REASONING",
+-        "BELOW_COMPACT_LIMIT",
+-        "AT_COMPACT_LIMIT",
+-    ] {
++    for user in ["FIRST_REASONING", "SECOND_REASONING"] {
++        test.submit_text_turn(user).await.expect("submit user turn");
++    }
++
++    match continuation {
++        ContinueThread::Live => {}
++        ContinueThread::Restart => {
++            test = builder()
++                .restart_with_auto_env(&server, &test)
++                .await
++                .expect("restart");
++        }
++        ContinueThread::Fork => {
++            let path = test
++                .session_configured
++                .rollout_path
++                .clone()
++                .expect("rollout path");
++            let options = test.start_thread_options().await;
++            test.codex.shutdown_and_wait().await.expect("flush rollout");
++            test.codex = test
++                .thread_manager
++                .fork_legacy_thread(usize::MAX, options, path)
++                .await
++                .expect("fork")
++                .thread;
++        }
++    }
++
++    for user in ["BELOW_COMPACT_LIMIT", "AT_COMPACT_LIMIT"] {
+         test.submit_text_turn(user).await.expect("submit user turn");
+     }
+ 
 diff --git a/codex-rs/core/tests/suite/mod.rs b/codex-rs/core/tests/suite/mod.rs
 index 9deb12935..464230487 100644
 --- a/codex-rs/core/tests/suite/mod.rs
@@ -32242,6 +33732,99 @@ index 9deb12935..464230487 100644
  mod catalog_permission_messages;
  mod cli_stream;
  mod client;
+diff --git a/codex-rs/core/tests/suite/request_plugin_install.rs b/codex-rs/core/tests/suite/request_plugin_install.rs
+index 2d8766b4f..8bb265076 100644
+--- a/codex-rs/core/tests/suite/request_plugin_install.rs
++++ b/codex-rs/core/tests/suite/request_plugin_install.rs
+@@ -5,6 +5,8 @@ use anyhow::Result;
+ use codex_config::types::ToolSuggestDisabledTool;
+ use codex_config::types::ToolSuggestDiscoverable;
+ use codex_config::types::ToolSuggestDiscoverableType;
++use codex_connectors::ConnectorDirectoryCacheContext;
++use codex_connectors::ConnectorDirectoryCacheKey;
+ use codex_core::NewThread;
+ use codex_core::StartThreadOptions;
+ use codex_core::TurnInputRequest;
+@@ -759,7 +761,43 @@ async fn unavailable_recommendations_preserve_legacy_workflow(
+         ],
+     )
+     .await;
+-    let test = build_test(&server, &apps_server).await?;
++    let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
++    let mut builder = test_codex()
++        .with_auth(auth.clone())
++        .with_pre_build_hook(|home| {
++            std::fs::write(
++                home.join("config.toml"),
++                "[apps.calendar]\nenabled = false\n",
++            )
++            .expect("write disabled calendar app");
++        })
++        .with_config(move |config| {
++            configure_apps_without_search_tool(config, &apps_server.chatgpt_base_url);
++            config.tool_suggest.discoverables.extend(
++                [CALENDAR_CONNECTOR_ID, "connector_missing"].map(|id| ToolSuggestDiscoverable {
++                    kind: ToolSuggestDiscoverableType::Connector,
++                    id: id.to_string(),
++                }),
++            );
++        });
++    let test = builder.build_with_auto_env(&server).await?;
++    let cache_key = ConnectorDirectoryCacheKey::new(
++        server.uri(),
++        auth.get_account_id(),
++        auth.get_chatgpt_user_id(),
++        auth.is_workspace_account(),
++    );
++    let client = codex_login::default_client::create_client();
++    codex_connectors::list_all_connectors_with_options(
++        ConnectorDirectoryCacheContext::new(test.home.path().to_path_buf(), cache_key),
++        auth.is_workspace_account(),
++        /*force_refetch*/ true,
++        |path| {
++            let request = client.get(format!("{}{path}", server.uri()));
++            async move { Ok(request.send().await?.json().await?) }
++        },
++    )
++    .await?;
+     test.submit_turn_with_approval_and_permission_profile(
+         "list tools",
+         AskForApproval::Never,
+@@ -781,11 +819,29 @@ async fn unavailable_recommendations_preserve_legacy_workflow(
+         .function_call_output_text(call_id)
+         .expect("list tool output");
+     let output: Value = serde_json::from_str(&output)?;
+-    assert!(output["tools"].as_array().is_some_and(|tools| {
+-        tools
+-            .iter()
+-            .any(|tool| tool["id"] == DISCOVERABLE_GMAIL_ID && tool["tool_type"] == "connector")
+-    }));
++    assert_eq!(
++        output["tools"],
++        json!([
++            {
++                "id": DISCOVERABLE_GMAIL_ID,
++                "name": "Gmail",
++                "description": "Find and summarize email threads.",
++                "tool_type": "connector",
++                "has_skills": false,
++                "mcp_server_names": [],
++                "app_connector_ids": []
++            },
++            {
++                "id": "connector_missing",
++                "name": "connector_missing",
++                "description": null,
++                "tool_type": "connector",
++                "has_skills": false,
++                "mcp_server_names": [],
++                "app_connector_ids": []
++            }
++        ])
++    );
+     Ok(())
+ }
+ 
 diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
 index f4a069507..e46fef988 100644
 --- a/codex-rs/core/tests/suite/retry_after.rs
@@ -32448,6 +34031,78 @@ index f5d35c64c..cd97e5c19 100644
          model: PROTECTED_MODEL.to_string(),
          collaboration_mode: initial.collaboration_mode.with_updates(
              Some(PROTECTED_MODEL.to_string()),
+diff --git a/codex-rs/core/tests/suite/user_notification.rs b/codex-rs/core/tests/suite/user_notification.rs
+index 5a3dc6279..b98da2308 100644
+--- a/codex-rs/core/tests/suite/user_notification.rs
++++ b/codex-rs/core/tests/suite/user_notification.rs
+@@ -2,6 +2,8 @@
+ 
+ use codex_core::TurnInputRequest;
+ 
++use codex_protocol::models::ImageReference;
++use codex_protocol::openai_models::InputModality;
+ use codex_protocol::protocol::EventMsg;
+ use codex_protocol::user_input::UserInput;
+ use core_test_support::fs_wait;
+@@ -22,14 +24,14 @@ use responses::start_mock_server;
+ use std::time::Duration;
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn summarize_context_three_requests_and_instructions() -> anyhow::Result<()> {
++async fn notify_receives_user_text_while_the_model_receives_attachments() -> anyhow::Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = start_mock_server().await;
+ 
+     let sse1 = sse(vec![ev_assistant_message("m1", "Done"), ev_completed("r1")]);
+ 
+-    responses::mount_sse_once(&server, sse1).await;
++    let response = responses::mount_sse_once(&server, sse1).await;
+ 
+     let notify_dir = TempDir::new()?;
+     // write a script to the notify that touches a file next to it
+@@ -48,18 +50,36 @@ mv "${tmp_path}" "${payload_path}""#,
+     let notify_script_str = notify_script.to_str().unwrap().to_string();
+ 
+     let TestCodex { codex, .. } = test_codex()
++        .with_model_info_override("gpt-5.5", |info| {
++            info.input_modalities.push(InputModality::Audio);
++        })
+         .with_config(move |cfg| cfg.notify = Some(vec![notify_script_str]))
+         .build(&server)
+         .await?;
+ 
+-    // 1) Normal user input – should hit server once.
++    let image_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
++    let audio_url = "data:audio/wav;base64,AAAA";
+     codex
+-        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+-            text: "hello world".into(),
+-            text_elements: Vec::new(),
+-        }]))
++        .start_or_steer_turn(TurnInputRequest::user_input(vec![
++            UserInput::Text {
++                text: "hello world".into(),
++                text_elements: Vec::new(),
++            },
++            UserInput::Image {
++                image: ImageReference::Inline {
++                    image_url: image_url.into(),
++                },
++                detail: None,
++            },
++            UserInput::Audio {
++                audio_url: audio_url.into(),
++            },
++        ]))
+         .await?;
+     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
++    let request = response.single_request();
++    assert_eq!(request.message_input_image_urls("user"), [image_url]);
++    assert_eq!(request.message_input_audio_urls("user"), [audio_url]);
+ 
+     // We fork the notify script, so we need to wait for it to write to the file.
+     fs_wait::wait_for_path_exists(&notify_file, Duration::from_secs(5)).await?;
 diff --git a/codex-rs/diagnostics/Cargo.toml b/codex-rs/diagnostics/Cargo.toml
 index 2eb2125a1..dd29700e7 100644
 --- a/codex-rs/diagnostics/Cargo.toml
@@ -33545,6 +35200,18 @@ index db35aaa6b..933d032c2 100644
  }
  
  async fn start_thread(
+diff --git a/codex-rs/ext/goal/tests/goal_extension_backend.rs b/codex-rs/ext/goal/tests/goal_extension_backend.rs
+index cc8812549..8faa045d7 100644
+--- a/codex-rs/ext/goal/tests/goal_extension_backend.rs
++++ b/codex-rs/ext/goal/tests/goal_extension_backend.rs
+@@ -1852,6 +1852,7 @@ impl GoalExtensionHarness {
+         let turn_store = ExtensionData::new(turn_id);
+         let token_usage = TokenUsageInfo {
+             total_token_usage: usage.clone(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: last_usage.clone(),
+             model_context_window: None,
+         };
 diff --git a/codex-rs/ext/memories/src/extension.rs b/codex-rs/ext/memories/src/extension.rs
 index 3d68e6f70..e18c5d048 100644
 --- a/codex-rs/ext/memories/src/extension.rs
@@ -34572,6 +36239,18 @@ index a299a2a6c..c9bfcdcae 100644
 +    );
 +    Ok(())
 +}
+diff --git a/codex-rs/external-agent-migration/src/sessions/export.rs b/codex-rs/external-agent-migration/src/sessions/export.rs
+index 3900ea129..31b4ff777 100644
+--- a/codex-rs/external-agent-migration/src/sessions/export.rs
++++ b/codex-rs/external-agent-migration/src/sessions/export.rs
+@@ -200,6 +200,7 @@ fn token_count_item(last_model_visible_tokens: i64) -> RolloutItem {
+     RolloutItem::EventMsg(EventMsg::TokenCount(TokenCountEvent {
+         info: Some(TokenUsageInfo {
+             total_token_usage: usage.clone(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: usage,
+             model_context_window: None,
+         }),
 diff --git a/codex-rs/external-agent-migration/src/sessions/records_cla.rs b/codex-rs/external-agent-migration/src/sessions/records_cla.rs
 index 957995074..f09602d22 100644
 --- a/codex-rs/external-agent-migration/src/sessions/records_cla.rs
@@ -35460,7 +37139,7 @@ index 3968bd199..6413ece8e 100644
  pub enum MemoryVersion {
      #[default]
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index 2ac7fe12a..aee0b2c3e 100644
+index 2ac7fe12a..c4165206d 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
 @@ -573,6 +573,8 @@ pub enum TurnSettingsUpdateOutcome {
@@ -35499,6 +37178,135 @@ index 2ac7fe12a..aee0b2c3e 100644
      pub model: String,
      pub model_provider_id: String,
      #[serde(skip_serializing_if = "Option::is_none")]
+@@ -2427,6 +2447,10 @@ pub struct TokenUsageRecord {
+ pub struct TokenUsageInfo {
+     pub total_token_usage: TokenUsage,
+     pub last_token_usage: TokenUsage,
++    /// Whether the last context count includes reasoning retained from earlier turns.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
++    pub last_usage_includes_reasoning: Option<bool>,
+     // TODO(aibrahim): make this not optional
+     #[ts(type = "number | null")]
+     pub model_context_window: Option<i64>,
+@@ -2435,33 +2459,26 @@ pub struct TokenUsageInfo {
+ impl TokenUsageInfo {
+     pub fn new_or_append(
+         info: &Option<TokenUsageInfo>,
+-        last: &Option<TokenUsage>,
++        last: &TokenUsage,
++        includes_reasoning: bool,
+         model_context_window: Option<i64>,
+-    ) -> Option<Self> {
+-        if info.is_none() && last.is_none() {
+-            return None;
+-        }
+-
++    ) -> Self {
+         let mut info = match info {
+             Some(info) => info.clone(),
+             None => Self {
+                 total_token_usage: TokenUsage::default(),
++                last_usage_includes_reasoning: None,
+                 last_token_usage: TokenUsage::default(),
+                 model_context_window,
+             },
+         };
+-        if let Some(last) = last {
+-            info.append_last_usage(last);
+-        }
++        info.total_token_usage.add_assign(last);
++        info.last_token_usage = last.clone();
++        info.last_usage_includes_reasoning = Some(includes_reasoning);
+         if let Some(model_context_window) = model_context_window {
+             info.model_context_window = Some(model_context_window);
+         }
+-        Some(info)
+-    }
+-
+-    pub fn append_last_usage(&mut self, last: &TokenUsage) {
+-        self.total_token_usage.add_assign(last);
+-        self.last_token_usage = last.clone();
++        info
+     }
+ 
+     pub fn fill_to_context_window(&mut self, context_window: i64) {
+@@ -2473,6 +2490,7 @@ impl TokenUsageInfo {
+             total_tokens: context_window,
+             ..TokenUsage::default()
+         };
++        self.last_usage_includes_reasoning = None;
+         self.last_token_usage = TokenUsage {
+             total_tokens: delta,
+             ..TokenUsage::default()
+@@ -2482,6 +2500,7 @@ impl TokenUsageInfo {
+     pub fn full_context_window(context_window: i64) -> Self {
+         let mut info = Self {
+             total_token_usage: TokenUsage::default(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage::default(),
+             model_context_window: Some(context_window),
+         };
+@@ -6552,10 +6571,11 @@ mod tests {
+     fn token_usage_info_new_or_append_updates_context_window_when_provided() {
+         let initial = Some(TokenUsageInfo {
+             total_token_usage: TokenUsage::default(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage::default(),
+             model_context_window: Some(258_400),
+         });
+-        let last = Some(TokenUsage {
++        let last = TokenUsage {
+             input_tokens: 10,
+             cached_input_tokens: 0,
+             cache_write_input_tokens: 0,
+@@ -6563,10 +6583,14 @@ mod tests {
+             reasoning_output_tokens: 0,
+             total_tokens: 10,
+             codex_rollout_budget_units: None,
+-        });
++        };
+ 
+-        let info = TokenUsageInfo::new_or_append(&initial, &last, Some(128_000))
+-            .expect("new_or_append should return info");
++        let info = TokenUsageInfo::new_or_append(
++            &initial,
++            &last,
++            /*includes_reasoning*/ true,
++            Some(128_000),
++        );
+ 
+         assert_eq!(info.model_context_window, Some(128_000));
+     }
+@@ -6575,10 +6599,11 @@ mod tests {
+     fn token_usage_info_new_or_append_preserves_context_window_when_not_provided() {
+         let initial = Some(TokenUsageInfo {
+             total_token_usage: TokenUsage::default(),
++            last_usage_includes_reasoning: None,
+             last_token_usage: TokenUsage::default(),
+             model_context_window: Some(258_400),
+         });
+-        let last = Some(TokenUsage {
++        let last = TokenUsage {
+             input_tokens: 10,
+             cached_input_tokens: 0,
+             cache_write_input_tokens: 0,
+@@ -6586,11 +6611,11 @@ mod tests {
+             reasoning_output_tokens: 0,
+             total_tokens: 10,
+             codex_rollout_budget_units: None,
+-        });
++        };
+ 
+-        let info =
+-            TokenUsageInfo::new_or_append(&initial, &last, /*model_context_window*/ None)
+-                .expect("new_or_append should return info");
++        let info = TokenUsageInfo::new_or_append(
++            &initial, &last, /*includes_reasoning*/ true, /*model_context_window*/ None,
++        );
+ 
+         assert_eq!(info.model_context_window, Some(258_400));
+     }
 diff --git a/codex-rs/rmcp-client/Cargo.toml b/codex-rs/rmcp-client/Cargo.toml
 index 4702b0f53..300125b8c 100644
 --- a/codex-rs/rmcp-client/Cargo.toml
@@ -37387,6 +39195,34 @@ index 000000000..154535587
 +    assert_eq!(std::fs::read_dir(fixture.path())?.count(), 1);
 +    Ok(())
 +}
+diff --git a/codex-rs/rollout-trace/src/inference.rs b/codex-rs/rollout-trace/src/inference.rs
+index 7cea4d0f9..aec924605 100644
+--- a/codex-rs/rollout-trace/src/inference.rs
++++ b/codex-rs/rollout-trace/src/inference.rs
+@@ -1,8 +1,9 @@
+ //! Hot-path helpers for recording upstream inference attempts.
+ //!
+-//! The model client should not need to know whether rollout tracing is enabled.
+ //! A disabled context records nothing, which keeps one-shot HTTP calls,
+-//! WebSocket reuse, and retry/fallback attempts on the same code path.
++//! WebSocket reuse, and retry/fallback attempts on the same lifecycle path.
++//! Transport callers can check whether terminal records need output items
++//! before retaining them.
+ 
+ use std::fmt::Display;
+ use std::sync::Arc;
+@@ -142,6 +143,11 @@ impl InferenceTraceAttempt {
+         }
+     }
+ 
++    /// Whether terminal trace records need the completed output items.
++    pub fn needs_output_items(&self) -> bool {
++        matches!(&self.state, InferenceTraceAttemptState::Enabled(_))
++    }
++
+     fn inference_call_id(&self) -> Option<&str> {
+         match &self.state {
+             InferenceTraceAttemptState::Disabled => None,
 diff --git a/codex-rs/state/src/extract.rs b/codex-rs/state/src/extract.rs
 index a50130155..0c9dc9402 100644
 --- a/codex-rs/state/src/extract.rs
@@ -38028,6 +39864,18 @@ index 767661f61..887a0dbee 100644
 +    tokio::fs::remove_dir_all(home).await?;
 +    Ok(())
 +}
+diff --git a/codex-rs/state/src/runtime/threads.rs b/codex-rs/state/src/runtime/threads.rs
+index c72a9222f..f3d827421 100644
+--- a/codex-rs/state/src/runtime/threads.rs
++++ b/codex-rs/state/src/runtime/threads.rs
+@@ -3739,6 +3739,7 @@ mod tests {
+                         total_tokens: 321,
+                         codex_rollout_budget_units: None,
+                     },
++                    last_usage_includes_reasoning: None,
+                     last_token_usage: codex_protocol::protocol::TokenUsage::default(),
+                     model_context_window: None,
+                 }),
 diff --git a/codex-rs/state/src/sqlite.rs b/codex-rs/state/src/sqlite.rs
 index 18b0a2b72..45d596adc 100644
 --- a/codex-rs/state/src/sqlite.rs

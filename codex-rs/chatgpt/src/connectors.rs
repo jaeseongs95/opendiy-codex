@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -90,7 +91,7 @@ pub async fn list_cached_all_connectors(
     let cache_context = connector_directory_cache_context(config, &auth);
     let connectors = codex_connectors::cached_directory_connectors(&cache_context)?;
     Some(merge_directory_and_plugin_connectors(
-        connectors,
+        connectors.to_vec(),
         plugin_apps,
     ))
 }

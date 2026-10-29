@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #![recursion_limit = "256"]
 #![allow(clippy::expect_used)]
 
@@ -1852,6 +1853,7 @@ impl GoalExtensionHarness {
         let turn_store = ExtensionData::new(turn_id);
         let token_usage = TokenUsageInfo {
             total_token_usage: usage.clone(),
+            last_usage_includes_reasoning: None,
             last_token_usage: last_usage.clone(),
             model_context_window: None,
         };
