@@ -36,6 +36,26 @@ async fn reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue() -> Result
         super::session_lifecycle_requests::start_recording_remote_app_server(&app.config).await?;
     let started_b = session_b.start_thread(&app.config).await?;
     let caller_b = started_b.session.thread_id;
+    let original_b = session_b
+        .thread_read(caller_b, /*include_turns*/ false)
+        .await?;
+    assert_eq!(original_b.id, caller_b.to_string());
+    assert!(!original_b.session_id.is_empty());
+    // This regression needs readable history for TUI selection, not an untouched
+    // thread's metadata-only rejoin. Prepare it through the real recording backend.
+    session_b
+        .thread_inject_items(caller_b, vec![App::side_boundary_prompt_item()])
+        .await?;
+    let prepared_b = session_b
+        .thread_read(caller_b, /*include_turns*/ true)
+        .await?;
+    assert_eq!(prepared_b.id, original_b.id);
+    assert_eq!(prepared_b.session_id, original_b.session_id);
+    assert_eq!(
+        prepared_b.status,
+        codex_app_server_protocol::ThreadStatus::Idle
+    );
+    assert!(prepared_b.path.as_ref().is_some_and(|path| path.is_file()));
     app.ensure_thread_channel(caller_b)
         .store
         .lock()
@@ -148,6 +168,16 @@ async fn reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue() -> Result
     app.select_agent_thread(&mut tui, backends.session_at_mut(slot_b), caller_b)
         .await?;
     assert!(!app.thread_unavailable(caller_b));
+    let resumes_b =
+        super::session_lifecycle_requests::recorded_params(&observed_b, "thread/resume");
+    assert_eq!(resumes_b.len(), 1);
+    assert_eq!(resumes_b[0]["threadId"], caller_b.to_string());
+    let reattached_b = backends
+        .session_at_mut(slot_b)
+        .thread_read(caller_b, /*include_turns*/ false)
+        .await?;
+    assert_eq!(reattached_b.id, original_b.id);
+    assert_eq!(reattached_b.session_id, original_b.session_id);
     app.handle_app_server_event(
         backends.session_at(slot_b),
         codex_app_server_client::AppServerEvent::ServerNotification(Box::new(

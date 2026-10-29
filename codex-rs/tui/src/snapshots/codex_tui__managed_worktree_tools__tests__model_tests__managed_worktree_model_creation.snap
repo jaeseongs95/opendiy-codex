@@ -14,9 +14,10 @@ Settings:
   store: false
   stream: true
   tool_choice: "auto"
-  tools (1; hash=291b147361c7e927):
-    - namespace/mcp__codex_worktrees: Tools in the mcp__codex_worktrees namespace.; hash=51011289080f7067
+  tools (1; hash=7e7b082efb6c22e0):
+    - namespace/mcp__codex_worktrees: Tools in the mcp__codex_worktrees namespace.; hash=19af27be43ac5f9a
       - function/create_worktree
+      - function/cron
       - function/get_worktree_creation_status
       - function/list_worktrees
 -- request 1 (request) --

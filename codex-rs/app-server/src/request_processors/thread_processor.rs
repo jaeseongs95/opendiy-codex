@@ -4869,6 +4869,9 @@ impl ThreadRequestProcessor {
             )
             .await?;
 
+            // An unmaterialized writer has no stored history to anchor pagination cursors.
+            let resume_cursor_store = (paginated_resume && source_thread.is_some())
+                .then(|| Arc::clone(&self.thread_store));
             let mut thread_summary = match source_thread {
                 Some(source_thread) => self.stored_thread_to_api_thread(
                     source_thread,
@@ -4954,7 +4957,6 @@ impl ThreadRequestProcessor {
             } else {
                 None
             };
-            let resume_cursor_store = paginated_resume.then(|| Arc::clone(&self.thread_store));
 
             let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
             let command = crate::thread_state::ThreadListenerCommand::SendThreadResumeResponse {

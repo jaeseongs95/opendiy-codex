@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609",
+  "sourceCommit": "9766a8b7b8c4d56d7076367ddc12f2917a3df197",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -14618,10 +14618,10 @@
     {
       "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
       "gitMode": "100644",
-      "gitBlob": "f6e933aabdd10403799ecb59279c073a607f2934",
-      "sourceSha256": "9546ae3a2823b02049c160f1a236b159af2977b77404f39c106b5501c47057c1",
-      "publishedSha256": "dda3355480101a76e361e5a0bd4b488785fb9ef17fa3668766c6136d17dc103e",
-      "bytes": 278538,
+      "gitBlob": "c39a385e90c3a769e2af4ad7b08257780d44cbb7",
+      "sourceSha256": "5ae98aeaf0e27dbf83f015fd1d375fcbc849cdce28464e7d9d781e3dfcdb8f61",
+      "publishedSha256": "774de62a94ea269bc8569c9a60f1ed928d52c7518cfe69c93df60eb09fc29866",
+      "bytes": 278676,
       "modified": true,
       "noticeOnly": true
     },
@@ -16798,10 +16798,10 @@
     {
       "path": "codex-rs/app-server/tests/suite/v2/thread_resume.rs",
       "gitMode": "100644",
-      "gitBlob": "e519bd617b3632e0bd138251190d0afdc353d62d",
-      "sourceSha256": "fed610c022e53df4b823c2e94b328f70ffbd75eb74fb4701702e0876a7b4479e",
-      "publishedSha256": "4fd306fe1d4582b72f2420ea6d70312910bb2947f0ee3b1079ad9aa4a94a39b4",
-      "bytes": 244825,
+      "gitBlob": "eb14763441173d26c80a5da8d8d14e1f31d130c7",
+      "sourceSha256": "825f0249abd78e26ff7a1c8164de86666bea7dbd78182b337a0f1831ae62f623",
+      "publishedSha256": "4b6b85ebecb7f16151c2dccc90a31b39ca5e90db77eb4e7487f058b0d22bc2b7",
+      "bytes": 245324,
       "modified": true,
       "noticeOnly": true
     },
@@ -62138,10 +62138,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/active_reconnect_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "2ba4e25dbed135cb26774e1d7f690256c2512c03",
-      "sourceSha256": "3a54a9817017657d202f9becfb410af5784e3fb6d32451a7b72fb4807ba687ab",
-      "publishedSha256": "26d42418b359e9f00ade0679374090c83225f67024709444546e5915795d0c7a",
-      "bytes": 46997,
+      "gitBlob": "21fc9b49f6413a38cff2843feb9f1f80b226f4c2",
+      "sourceSha256": "d412cb253afca247b48021b96242689e54639a293f006f6ac80930d96d57b294",
+      "publishedSha256": "f3427f4a96585cb158d1456f7342315bf623cdca5163436eb70768c9e2988ed5",
+      "bytes": 48327,
       "modified": true,
       "noticeOnly": true
     },
@@ -62648,10 +62648,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/session_lifecycle_requests.rs",
       "gitMode": "100644",
-      "gitBlob": "3faed0b96689e1cec9b645e63c9a2bde2db21893",
-      "sourceSha256": "086cafc679d5a5df504633c1d7507fdbb0643d901703ba3c8d6c221b9e764b22",
-      "publishedSha256": "2bbb4fdb1e44fbb56f21a8b7ed64faa411159e9d825099ff7f8a6bd866174dd5",
-      "bytes": 226323,
+      "gitBlob": "04c68aedec89a5939c120a8fb13ebdcfdd48731b",
+      "sourceSha256": "aa3dec19438792237a5dee258e14060b42721d2582dc0583c9eed1de9987902c",
+      "publishedSha256": "9c9797a335e4a4d1028abd32a05deb0a8f307be175448dca9883cb29433195ff",
+      "bytes": 226734,
       "modified": true,
       "noticeOnly": true
     },
@@ -81068,11 +81068,11 @@
     {
       "path": "codex-rs/tui/src/snapshots/codex_tui__managed_worktree_tools__tests__model_tests__managed_worktree_model_creation.snap",
       "gitMode": "100644",
-      "gitBlob": "24f5f48e8c1ea78682fd2248ba893641fc0f194c",
-      "sourceSha256": "248503d4280c50614c2310a221918a701c18f708d93eedffcd321a3cf5f419f6",
-      "publishedSha256": "248503d4280c50614c2310a221918a701c18f708d93eedffcd321a3cf5f419f6",
-      "bytes": 3615,
-      "modified": false,
+      "gitBlob": "e3e715f4b9acd7a03ee6a5738e4b632315ad7eb8",
+      "sourceSha256": "f3d2144847129deb26e4f66eaccb25bd0c8b7252f113038241abe0411e53b5f5",
+      "publishedSha256": "f3d2144847129deb26e4f66eaccb25bd0c8b7252f113038241abe0411e53b5f5",
+      "bytes": 3637,
+      "modified": true,
       "noticeOnly": false
     },
     {
@@ -85258,12 +85258,12 @@
     {
       "path": "codex-rs/uds/src/lib_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "91040b1253789125fe603205b5e3ad002178c400",
-      "sourceSha256": "3fac10a9cd0daf44d857f15ba08dd9b98698e04642b865f0730c32e534853eea",
-      "publishedSha256": "3fac10a9cd0daf44d857f15ba08dd9b98698e04642b865f0730c32e534853eea",
-      "bytes": 11399,
-      "modified": false,
-      "noticeOnly": false
+      "gitBlob": "d35c217e770126697e818bd423fe177abd0f052c",
+      "sourceSha256": "45e35c5056e5de8790642580d9035d394b82056be0c10f8ccf466f7bb3eb01ae",
+      "publishedSha256": "f7a54886514989d2027ab204703fcca8e7052316e4e1458b6da350a1592d3647",
+      "bytes": 11366,
+      "modified": true,
+      "noticeOnly": true
     },
     {
       "path": "codex-rs/uds/src/windows_peer.rs",
