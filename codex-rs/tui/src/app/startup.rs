@@ -1446,7 +1446,11 @@ See the Codex keymap documentation for supported actions and examples."
                                 if cell.as_any().is::<history_cell::SessionInfoCell>()
                         );
                         let had_active_modal = app.chat_widget.has_active_modal();
-                        match Box::pin(app.handle_event(tui, backends.session_at_mut(displayed_session), event)).await {
+                        let event_session = match &event {
+                            AppEvent::CronToolCall(request) => backends.slot(request.connection.backend).unwrap_or(displayed_session),
+                            _ => displayed_session,
+                        };
+                        match Box::pin(app.handle_event(tui, backends.session_at_mut(event_session), event)).await {
                             Ok(AppRunControl::Continue) => {
                                 if is_initial_session_header {
                                     waiting_for_initial_session_header = false;

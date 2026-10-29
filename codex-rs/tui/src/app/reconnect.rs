@@ -566,7 +566,11 @@ impl App {
         }
         // Only accept fresh task-tool calls once this connection and its event queue are adopted.
         if let ThreadToolTransport::Mcp(server) = app_server.thread_tool_transport() {
-            server.reconnect(app_server.request_handle(), self.app_event_tx.clone());
+            server.reconnect(
+                app_server.request_handle(),
+                self.app_event_tx.clone(),
+                Some(app_server.cron_tool_connection()),
+            );
         }
         self.reconnect.offline = false;
         self.chat_widget.update_account_state(

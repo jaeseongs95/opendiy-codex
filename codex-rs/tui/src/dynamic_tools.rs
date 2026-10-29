@@ -257,6 +257,14 @@ pub(crate) fn tool_specs() -> Vec<DynamicToolSpec> {
                     defer_loading: true,
                 })
             })
+            .chain(
+                crate::cron_tools::specs()
+                    .into_iter()
+                    .flat_map(|spec| match spec {
+                        DynamicToolSpec::Namespace(namespace) => namespace.tools,
+                        DynamicToolSpec::Function(_) => unreachable!(),
+                    }),
+            )
             .collect(),
     })]
 }

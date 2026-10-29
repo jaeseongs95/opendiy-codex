@@ -1310,7 +1310,7 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
         assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
         assert_eq!(
             params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
-            Some(6)
+            Some(7)
         );
         assert!(
             params["dynamicTools"][0]["tools"]
@@ -1610,7 +1610,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .find(|server| server.name == "codex_tui")
         .expect("local daemon must connect to the TUI MCP server")
         .tools;
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 10);
+    assert!(tools.contains_key(crate::cron_tools::NAME));
     for tool in crate::dynamic_tools::DELEGATION_TOOLS {
         assert!(tools.contains_key(tool));
     }
@@ -1753,7 +1754,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
     drop(events);
     let mut events = new_rx;
     assert!(app.app_event_tx.app_event_tx.is_closed());
-    tool_server.reconnect(replacement.request_handle(), new_sender);
+    tool_server.reconnect(
+        replacement.request_handle(),
+        new_sender,
+        Some(replacement.cron_tool_connection()),
+    );
     let previous = std::mem::replace(
         &mut app_server,
         replacement.with_thread_tool_transport(transport),
@@ -1944,7 +1949,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
         } else {
             assert_eq!(
                 start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
-                Some(6)
+                Some(7)
             );
             assert!(start["config"]["mcp_servers.codex_tui"].is_null());
         }
@@ -5350,21 +5355,30 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
             .await?;
             assert_eq!(
                 notice,
-                Some("Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable.")
+                Some(
+                    "Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable."
+                )
             );
             assert_eq!(
-                viewed.turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
+                viewed
+                    .turns
+                    .iter()
+                    .map(|turn| turn.id.clone())
+                    .collect::<Vec<_>>(),
                 (saved_turn_count.saturating_sub(100)..saved_turn_count)
                     .map(|index| format!("saved-turn-{index}"))
                     .collect::<Vec<_>>()
             );
             assert!(viewed.turns.iter().all(|turn| {
-                turn.items.iter().any(|item| matches!(item,
+                turn.items.iter().any(|item| {
+                    matches!(item,
                     ThreadItem::UserMessage { content, .. }
                         if content.iter().any(|input| matches!(input,
-                            UserInput::Text { text, .. } if text == "Locked task"))))
-                    && turn.items.iter().any(|item| matches!(item,
-                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer"))
+                            UserInput::Text { text, .. } if text == "Locked task")))
+                }) && turn.items.iter().any(|item| {
+                    matches!(item,
+                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer")
+                })
             }));
             assert!(
                 recorded_params(&requests, "thread/read")
@@ -5462,9 +5476,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                 assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                 assert_eq!(
                     turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
-                    (saved_turn_count.saturating_sub(
-                        100usize.min(crate::history_window::MAX_HISTORY_TURNS),
-                    )..saved_turn_count)
+                    (saved_turn_count
+                        .saturating_sub(100usize.min(crate::history_window::MAX_HISTORY_TURNS),)
+                        ..saved_turn_count)
                         .map(|index| format!("saved-turn-{index}"))
                         .collect::<Vec<_>>()
                 );
