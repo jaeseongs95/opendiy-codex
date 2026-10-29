@@ -1548,6 +1548,8 @@ See the Codex keymap documentation for supported actions and examples."
                                 if let Err(err) = app.finish_reconnect(tui, backends.session_at_mut(displayed_session), &mut app_event_rx, connected, CODEX_CLI_VERSION).await {
                                     break Err(err);
                                 }
+                                // finish_reconnect rotates the app queue for every backend.
+                                backends.update_tool_event_senders(&app.app_event_tx);
                                 backends.resume_events(initial_owner);
                                 waiting_for_initial_session_configured = app.pending_startup_thread_start;
                                 if app.pending_startup_thread_start {

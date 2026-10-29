@@ -98,6 +98,19 @@ impl BackendSessions {
         &mut self.entries[slot.0].session
     }
 
+    pub(super) fn update_tool_event_senders(
+        &self,
+        events: &crate::app_event_sender::AppEventSender,
+    ) {
+        for entry in &self.entries {
+            if let crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(server) =
+                entry.session.thread_tool_transport()
+            {
+                server.update_event_sender(events.clone());
+            }
+        }
+    }
+
     pub(super) fn is_listening(&self, owner: BackendId) -> bool {
         self.entries
             .iter()

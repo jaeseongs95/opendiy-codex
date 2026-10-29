@@ -374,8 +374,16 @@ impl App {
                                 format!("{}s", deadline.saturating_duration_since(now).as_secs())
                             })
                             .unwrap_or_else(|| "없음".into());
+                        let mut prompt = String::new();
+                        for ch in serde_json::json!(job.prompt).to_string().chars() {
+                            if ch.is_control() {
+                                prompt.push_str(&format!("\\u{:04x}", u32::from(ch)));
+                            } else {
+                                prompt.push(ch);
+                            }
+                        }
                         format!(
-                            "#{} thread={} {} next={} {}{}{} skipped={}",
+                            "#{} thread={} {} next={} {}{}{} skipped={} prompt={}",
                             job.id,
                             job.target.thread,
                             schedule,
@@ -387,7 +395,8 @@ impl App {
                             } else {
                                 ""
                             },
-                            job.skipped
+                            job.skipped,
+                            prompt
                         )
                     })
                     .collect::<Vec<_>>()
@@ -795,6 +804,79 @@ mod tests {
             },
             result,
         )
+    }
+
+    #[tokio::test]
+    async fn cron_list_identifies_same_interval_prompts_and_escapes_control_characters()
+    -> color_eyre::Result<()> {
+        let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let (session, _observed, worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let caller = ThreadId::new();
+        let other = ThreadId::new();
+        let prompts = [
+            format!(
+                "첫 요청 \"인용\" \\ 경로\n다음 줄\t탭\0널\u{1b}ESC\u{7f}DEL\u{85}C1 {}",
+                "긴 요청".repeat(1_500)
+            ),
+            "둘째 요청: 같은 주기, 다른 작업".to_string(),
+            "다른 대화의 요청".to_string(),
+        ];
+        for thread in [caller, other] {
+            app.ensure_thread_channel(thread)
+                .store
+                .lock()
+                .await
+                .set_active_turn_id("caller-turn".into());
+        }
+        for (thread, prompt) in [caller, caller, other].into_iter().zip(&prompts) {
+            app.active_thread_id = Some(thread);
+            app.cron_command(
+                &session,
+                Some(thread),
+                &format!("add --every 1m -- {prompt}"),
+            )
+            .await
+            .expect("valid manual scheduler fixture");
+        }
+        let manual = app
+            .cron_command(&session, None, "list")
+            .await
+            .expect("manual list");
+        assert_eq!(manual.lines().count(), 3);
+        assert!(!manual.chars().any(|ch| ch.is_control() && ch != '\n'));
+        let listed: Vec<String> = manual
+            .lines()
+            .map(|line| {
+                assert!(line.contains("every=60s"));
+                serde_json::from_str(line.split_once(" prompt=").expect("quoted prompt").1)
+                    .expect("valid JSON prompt")
+            })
+            .collect();
+        assert_eq!(listed, prompts);
+        for (thread, expected) in [(caller, &prompts[..2]), (other, &prompts[2..])] {
+            let (request, response) =
+                model_request(session.cron_tool_connection(), thread, "list", "list");
+            app.handle_cron_tool_call(&session, request).await;
+            let response = response.await?;
+            assert!(response.success);
+            let [codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }] =
+                response.content_items.as_slice()
+            else {
+                panic!("expected list text");
+            };
+            let listed: Vec<String> = text
+                .lines()
+                .map(|line| {
+                    serde_json::from_str(line.split_once(" prompt=").expect("quoted prompt").1)
+                        .expect("valid JSON prompt")
+                })
+                .collect();
+            assert_eq!(listed, expected);
+        }
+        session.shutdown().await?;
+        worker.await??;
+        Ok(())
     }
 
     #[tokio::test]

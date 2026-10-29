@@ -143,6 +143,18 @@ impl DynamicToolMcpServer {
         *connection = None;
     }
 
+    pub(crate) fn update_event_sender(&self, events: AppEventSender) {
+        if let Some((_, sender, _)) = self
+            .connection
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            // Keep the original handle and cron identity; suspended connections stay suspended.
+            *sender = events;
+        }
+    }
+
     pub(crate) fn reconnect(
         &self,
         handle: AppServerRequestHandle,

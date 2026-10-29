@@ -12,6 +12,293 @@ use tokio::net::TcpListener;
 use super::disconnect::serve_reconnect_requests;
 
 #[tokio::test]
+async fn reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue() -> Result<()> {
+    use crate::app::backend_sessions::BackendSessions;
+    use crate::dynamic_tools_mcp::{DynamicToolMcpServer, ThreadToolTransport, ToolServices};
+
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let caller_a = ThreadId::new();
+    let cwd = app.config.cwd.to_path_buf();
+    app.active_thread_id = Some(caller_a);
+    app.primary_thread_id = Some(caller_a);
+    let cached_a = test_thread_session(caller_a, cwd.clone());
+    app.ensure_thread_channel(caller_a)
+        .store
+        .lock()
+        .await
+        .set_session(cached_a.clone(), Vec::new());
+    app.chat_widget.handle_thread_session(cached_a);
+    let (session_a, _observed_a, worker_a) =
+        crate::app::app_server_requests::retained_reply_tests::connection().await?;
+    let owner_a = session_a.backend_id();
+    let (mut session_b, observed_b, worker_b) =
+        super::session_lifecycle_requests::start_recording_remote_app_server(&app.config).await?;
+    let started_b = session_b.start_thread(&app.config).await?;
+    let caller_b = started_b.session.thread_id;
+    app.ensure_thread_channel(caller_b)
+        .store
+        .lock()
+        .await
+        .set_session(started_b.session, started_b.turns);
+    let connection_b = session_b.cron_tool_connection();
+    let server_b = Arc::new(
+        DynamicToolMcpServer::start(
+            session_b.request_handle(),
+            codex_app_server_protocol::ThreadStartParams::default(),
+            app.config.features.get().clone(),
+            app.app_event_tx.clone(),
+            app.dynamic_tool_status_updates.clone(),
+            None,
+            ToolServices {
+                task_tools: true,
+                cron: Some(connection_b.clone()),
+                worktrees: None,
+            },
+        )
+        .await?,
+    );
+    let transport_b = ThreadToolTransport::Mcp(Arc::clone(&server_b));
+    let mut overrides = None;
+    transport_b.configure_mcp(&mut overrides);
+    let config_b = overrides.unwrap().remove("mcp_servers.codex_tui").unwrap();
+    let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
+    let call = |id, arguments| {
+        client.post(config_b["url"].as_str().unwrap())
+            .header("Authorization", config_b["http_headers"]["Authorization"].as_str().unwrap())
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2026-07-28")
+            .header("MCP-Method", "tools/call")
+            .header("MCP-Name", "cron")
+            .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params": {
+                "name":"cron", "arguments":arguments, "_meta": {
+                    "threadId":caller_b, "turnId":"caller-turn", "callId":format!("after-reconnect-{id}")
+                }
+            }}))
+    };
+    session_b = session_b.with_thread_tool_transport(transport_b);
+    let mut backends = BackendSessions::from_initial(session_a, vec![session_b]);
+    let slot_a = backends.slot(owner_a).unwrap();
+    let slot_b = backends.slot(connection_b.backend).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    app.app_server_target = AppServerTarget::Remote {
+        endpoint: crate::resolve_remote_addr(&format!("ws://{}", listener.local_addr()?))?,
+    };
+    let server_a = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let thread = json!({
+            "id": caller_a, "sessionId": caller_a, "preview": "A", "ephemeral": false,
+            "modelProvider": "test-provider", "createdAt": 1, "updatedAt": 2,
+            "status": {"type": "idle"}, "cwd": cwd, "cliVersion": "0.0.0",
+            "source": "cli", "turns": []
+        });
+        serve_reconnect_requests(tokio_tungstenite::accept_async(stream).await?, |request| {
+            std::future::ready(Some(match request.method.as_str() {
+                "thread/resume" => json!({"result": {"thread": thread,
+                    "model": "gpt-test", "modelProvider": "test-provider", "cwd": cwd,
+                    "approvalPolicy": "never", "approvalsReviewer": "user",
+                    "sandbox": {"type": "dangerFullAccess"}, "reasoningEffort": null}}),
+                "thread/read" => json!({"result": {"thread": thread}}),
+                "thread/list" | "thread/loaded/list" => {
+                    json!({"result": {"data": [], "nextCursor": null}})
+                }
+                "thread/goal/get" => json!({"result": {"goal": null}}),
+                method => panic!("unexpected reconnect request: {method}"),
+            }))
+        })
+        .await
+    });
+    let old_sender = app.app_event_tx.clone();
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    assert!(app.begin_reconnect());
+    let connected = reconnect(
+        owner_a,
+        app.app_server_target.clone(),
+        app.config.clone(),
+        app.local_settings.clone(),
+        Some(caller_a),
+        None,
+        backends.session_at(slot_a).thread_tool_transport(),
+        ReconnectPresentation::Conversation,
+    )
+    .await?;
+    app.finish_reconnect(
+        &mut tui,
+        backends.session_at_mut(slot_a),
+        &mut events,
+        connected,
+        CODEX_CLI_VERSION,
+    )
+    .await?;
+    assert!(old_sender.app_event_tx.is_closed());
+    // First observe the original failure through B's existing HTTP endpoint and closed queue.
+    let failed = call(0, json!({"action":"list"}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(failed.contains("예약 처리 결과 미확인"), "{failed}");
+    // This is the same collection-wide handoff used immediately after finish_reconnect in startup.
+    backends.update_tool_event_senders(&app.app_event_tx);
+    assert!(old_sender.app_event_tx.is_closed());
+    assert!(!app.reconnect.offline);
+    app.select_agent_thread(&mut tui, backends.session_at_mut(slot_b), caller_b)
+        .await?;
+    assert!(!app.thread_unavailable(caller_b));
+    app.handle_app_server_event(
+        backends.session_at(slot_b),
+        codex_app_server_client::AppServerEvent::ServerNotification(Box::new(
+            turn_started_notification(caller_b, "caller-turn"),
+        )),
+    )
+    .await;
+    assert_eq!(
+        app.active_turn_id_for_thread(caller_b).await.as_deref(),
+        Some("caller-turn")
+    );
+    let current_b = backends.session_at(slot_b).cron_tool_connection();
+    assert_eq!(current_b.id, connection_b.id);
+    assert!(Arc::ptr_eq(&current_b.live, &connection_b.live));
+    assert!(connection_b.live.load(std::sync::atomic::Ordering::Acquire));
+
+    fn mcp_result(body: &str) -> serde_json::Value {
+        if let Ok(response) = serde_json::from_str::<serde_json::Value>(body) {
+            return response.get("result").expect("MCP result").clone();
+        }
+        body.lines()
+            .filter_map(|line| line.strip_prefix("data:"))
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok())
+            .find_map(|response| response.get("result").cloned())
+            .expect("MCP result in event stream")
+    }
+    let mut original = None;
+    for (step, (id, arguments, expected)) in [
+        (0, json!({"action":"list"}), "등록된 예약이 없습니다"),
+        (
+            1,
+            json!({"action":"add","every":"1m","prompt":"B 기존 MCP의 새 예약"}),
+            "등록",
+        ),
+        (2, json!({"action":"list"}), "B 기존 MCP의 새 예약"),
+        (
+            1,
+            json!({"action":"add","every":"1m","prompt":"B 기존 MCP의 새 예약"}),
+            "등록",
+        ),
+        (
+            1,
+            json!({"action":"add","every":"2m","prompt":"거부해야 할 다른 요청"}),
+            "동일 호출 식별자에 다른 요청",
+        ),
+        (3, json!({"action":"list"}), "B 기존 MCP의 새 예약"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = call(id, arguments);
+        let pending = tokio::spawn(async move { request.send().await?.text().await });
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        assert_eq!(queued.connection.backend, connection_b.backend);
+        assert_eq!(queued.connection.id, connection_b.id);
+        assert_eq!(queued.params.thread_id, caller_b.to_string());
+        let origin = backends.slot(queued.connection.backend).unwrap();
+        app.handle_event(
+            &mut tui,
+            backends.session_at_mut(origin),
+            AppEvent::CronToolCall(queued),
+        )
+        .await?;
+        let body = pending.await??;
+        let result = mcp_result(&body);
+        let text = result["content"][0]["text"].as_str().expect("MCP text");
+        assert!(text.contains(expected), "{body}");
+        assert_eq!(result["isError"] == json!(true), step == 4, "{body}");
+        if step == 1 {
+            original = Some(result.clone());
+        } else if step == 3 {
+            assert_eq!(Some(&result), original.as_ref());
+        }
+        if matches!(step, 2 | 5) {
+            assert_eq!(text.lines().count(), 1);
+            assert!(text.contains(&caller_b.to_string()));
+            assert!(!text.contains(&caller_a.to_string()));
+        }
+    }
+    // The ordinary unscoped /cron list also proves there is only one job across A and B.
+    drain_history(
+        &mut app,
+        &mut tui,
+        backends.session_at_mut(slot_b),
+        &mut events,
+    )
+    .await?;
+    let before = app.transcript_cells.len();
+    app.handle_event(
+        &mut tui,
+        backends.session_at_mut(slot_b),
+        AppEvent::CronCommand {
+            thread_id: None,
+            args: "list".into(),
+        },
+    )
+    .await?;
+    drain_history(
+        &mut app,
+        &mut tui,
+        backends.session_at_mut(slot_b),
+        &mut events,
+    )
+    .await?;
+    let global = lines_to_single_string(
+        &app.transcript_cells[before..]
+            .iter()
+            .flat_map(|cell| cell.transcript_lines(200))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        global
+            .lines()
+            .filter(|line| line.contains("prompt="))
+            .count(),
+        1
+    );
+    assert_eq!(global.matches("B 기존 MCP의 새 예약").count(), 1);
+    assert!(global.contains(&caller_b.to_string()));
+    assert!(!global.contains(&caller_a.to_string()));
+    assert!(
+        observed_b
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| request.method == "thread/read")
+    );
+    // Updating only the queue must never revive a suspended MCP connection.
+    server_b.suspend();
+    backends.update_tool_event_senders(&app.app_event_tx);
+    let body = call(4, json!({"action":"list"}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        body.contains("TUI is reconnecting; tool was not sent"),
+        "{body}"
+    );
+    backends.shutdown().await?;
+    worker_a.await??;
+    worker_b.await??;
+    server_a.await??;
+    Ok(())
+}
+
+#[tokio::test]
 async fn reconnect_restores_launch_reviewer_without_a_profile_override() -> Result<()> {
     let (mut app, _events, _ops) = make_test_app_with_channels().await;
     let mut cached = test_thread_session(ThreadId::new(), app.config.cwd.to_path_buf());
