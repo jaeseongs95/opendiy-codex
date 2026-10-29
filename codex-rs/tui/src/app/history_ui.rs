@@ -51,6 +51,14 @@ impl App {
             return;
         }
         let is_session_header = cell.as_any().is::<history_cell::SessionInfoCell>();
+        let cell: Box<dyn HistoryCell> =
+            if cell.retained_source_bytes() > crate::history_window::MAX_HISTORY_BYTES {
+                Box::new(history_cell::new_error_event(
+                    crate::history_window::OVERSIZED_HISTORY.to_string(),
+                ))
+            } else {
+                cell
+            };
         let cell: Arc<dyn HistoryCell> = cell.into();
         if let Some(Overlay::Transcript(t)) = &mut self.overlay {
             t.insert_cell(cell.clone());
@@ -65,6 +73,7 @@ impl App {
         if is_session_header {
             self.merge_startup_warnings(tui, &history_cell::StartupWarningsCell::default());
         }
+        self.bound_history_window(/*prefer_older*/ false);
     }
 
     /// Track mutable status cards before choosing retained or terminal-owned rendering.
@@ -396,6 +405,7 @@ impl App {
         self.chat_widget.warning_display_state.transcript = Arc::default();
         self.chat_widget.warning_display_state.synced_cells = None;
         self.native_history = Default::default();
+        self.history_window = Default::default();
         self.cancel_pending_key_chord();
         self.transcript_view = Default::default();
         *self.chat_widget.rendered_selection.borrow_mut() = Default::default();

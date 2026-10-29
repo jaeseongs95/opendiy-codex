@@ -12,6 +12,17 @@ pub(crate) fn join_exploration_groups(
     newer: &Arc<dyn HistoryCell>,
     turns: &[Turn],
 ) -> Option<Arc<dyn HistoryCell>> {
+    if older
+        .retained_item_count()
+        .saturating_add(newer.retained_item_count())
+        > crate::history_window::MAX_HISTORY_ITEMS
+        || older
+            .retained_source_bytes()
+            .saturating_add(newer.retained_source_bytes())
+            > crate::history_window::MAX_HISTORY_BYTES
+    {
+        return None;
+    }
     let older = older.as_any().downcast_ref::<ExecCell>()?;
     let newer = newer.as_any().downcast_ref::<ExecCell>()?;
     let items = adjacent_items(older, newer, turns)?;

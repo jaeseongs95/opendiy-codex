@@ -304,3 +304,147 @@ async fn browsing_waits_for_a_prompt_outside_the_initial_history_window() -> Res
     tui.set_owned_screen(/*owned*/ false)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn history_window_releases_distant_cells_and_frozen_readers() {
+    let mut app = make_test_app().await;
+    let old = user_cell("old prompt");
+    let weak = Arc::downgrade(&old);
+    app.transcript_cells.push(old);
+    app.transcript_view.jump_to_entry(&app.transcript_cells, 0);
+    let bookmark = app.transcript_view.bookmark(&app.transcript_cells);
+    for _ in 0..450 {
+        app.transcript_cells.push(user_cell("recent prompt"));
+    }
+    app.transcript_view.jump_to_latest();
+    app.bound_history_window(/*prefer_older*/ false);
+    assert!(app.transcript_cells.len() <= crate::history_window::MAX_HISTORY_ITEMS);
+    assert!(
+        weak.upgrade().is_some(),
+        "the independent bookmark owns its revision"
+    );
+    // A caller-owned operation ends explicitly; its snapshot is not a display-cache owner.
+    drop(bookmark);
+    assert!(
+        weak.upgrade().is_none(),
+        "eviction must release every strong owner"
+    );
+}
+
+#[test]
+fn display_payload_budget_rejects_one_giant_item_without_copying_it() {
+    let item: ThreadItem = serde_json::from_value(serde_json::json!({
+        "type": "agentMessage", "id": "huge",
+        "text": "x".repeat(crate::history_window::MAX_HISTORY_BYTES + 1),
+        "phase": null, "questions": null
+    }))
+    .expect("agent item");
+    assert!(crate::history_window::payload_bytes(&item).is_err());
+}
+
+#[tokio::test]
+async fn history_window_byte_budget_releases_older_source() {
+    let mut app = make_test_app().await;
+    let old: Arc<dyn HistoryCell> = Arc::new(crate::history_cell::AgentMarkdownCell::new(
+        "a".repeat(5 * 1024 * 1024),
+        app.config.cwd.as_path(),
+    ));
+    let weak = Arc::downgrade(&old);
+    app.transcript_cells.push(old);
+    app.transcript_cells
+        .push(Arc::new(crate::history_cell::AgentMarkdownCell::new(
+            "b".repeat(5 * 1024 * 1024),
+            app.config.cwd.as_path(),
+        )));
+    assert!(app.bound_history_window(false));
+    assert_eq!(app.transcript_cells.len(), 1);
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn canonical_window_does_not_pin_an_entire_active_turn() {
+    let mut current = vec![turn(
+        "active",
+        TurnStatus::InProgress,
+        &(0..450).map(|_| "item").collect::<Vec<_>>(),
+    )];
+    bound_display_turns(&mut current, false);
+    assert_eq!(current[0].status, TurnStatus::InProgress);
+    assert_eq!(
+        current[0].items.len(),
+        crate::history_window::MAX_HISTORY_ITEMS
+    );
+}
+
+#[tokio::test]
+async fn display_window_counts_group_members_and_releases_older_cells() {
+    let mut app = make_test_app().await;
+    let older = user_cell("old");
+    let weak = Arc::downgrade(&older);
+    app.transcript_cells.push(older);
+    let mut group = ComputerActivityCell::default();
+    for index in 0..crate::history_window::MAX_HISTORY_ITEMS {
+        group.start(crate::history_cell::new_active_mcp_tool_call(
+            format!("call-{index}"),
+            crate::history_cell::McpInvocation {
+                server: "cua_repl".to_string(),
+                tool: "js".to_string(),
+                arguments: None,
+            },
+            false,
+        ));
+    }
+    assert_eq!(
+        group.retained_item_count(),
+        crate::history_window::MAX_HISTORY_ITEMS
+    );
+    app.transcript_cells.push(Arc::new(group));
+    app.bound_history_window(false);
+    assert_eq!(app.transcript_cells.len(), 1);
+    assert!(weak.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn display_window_reaccounts_mutable_tool_results() {
+    let mut app = make_test_app().await;
+    let older: Arc<dyn HistoryCell> = Arc::new(crate::history_cell::AgentMarkdownCell::new(
+        "a".repeat(4 * 1024 * 1024),
+        app.config.cwd.as_path(),
+    ));
+    let weak = Arc::downgrade(&older);
+    app.transcript_cells.push(older);
+    let started: ThreadItem = serde_json::from_value(serde_json::json!({
+        "type": "dynamicToolCall", "id": "tool", "namespace": null, "tool": "inspect",
+        "arguments": {}, "status": "inProgress", "contentItems": null,
+        "success": null, "durationMs": null,
+    }))
+    .unwrap();
+    let cell = crate::history_cell::DynamicToolCallCell::from_item(started).unwrap();
+    app.transcript_cells.push(Arc::new(cell.clone()));
+    app.bound_history_window(false);
+    assert!(weak.upgrade().is_some());
+    let completed: ThreadItem = serde_json::from_value(serde_json::json!({
+        "type": "dynamicToolCall", "id": "tool", "namespace": null, "tool": "inspect",
+        "arguments": {}, "status": "completed", "contentItems": [
+            {"type": "inputText", "text": "b".repeat(5 * 1024 * 1024)}
+        ], "success": true, "durationMs": 1,
+    }))
+    .unwrap();
+    assert!(cell.update_from_item(completed));
+    app.bound_history_window(false);
+    assert_eq!(app.transcript_cells.len(), 1);
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn canonical_window_retains_the_selected_edge_of_one_large_turn() {
+    let ids = (0..450).map(|index| index.to_string()).collect::<Vec<_>>();
+    let mut turns = vec![turn(
+        "active",
+        TurnStatus::InProgress,
+        &ids.iter().map(String::as_str).collect::<Vec<_>>(),
+    )];
+    bound_display_turns(&mut turns, false);
+    assert_eq!(turns[0].items.first().unwrap().id(), "50");
+    assert_eq!(turns[0].items.last().unwrap().id(), "449");
+}

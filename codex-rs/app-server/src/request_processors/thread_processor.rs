@@ -6430,9 +6430,12 @@ pub(super) fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErro
 pub(super) fn check_history_response_bytes<T: serde::Serialize + ?Sized>(
     response: &T,
 ) -> Result<(), JSONRPCErrorError> {
-    let actual_bytes = serde_json::to_vec(response)
-        .map_err(|_| internal_error("failed to serialize history response"))?
-        .len();
+    // Count the actual UTF-8/escape output without retaining a response buffer.
+    // Finish counting after the limit so actualBytes remains an exact measurement.
+    let mut counter = HistoryResponseByteCounter::default();
+    serde_json::to_writer(&mut counter, response)
+        .map_err(|_| internal_error("failed to serialize history response"))?;
+    let actual_bytes = counter.bytes;
     if actual_bytes > codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES {
         return Err(paginated_history_list_error(
             ThreadStoreError::HistoryPayloadTooLarge {
@@ -6443,6 +6446,25 @@ pub(super) fn check_history_response_bytes<T: serde::Serialize + ?Sized>(
         ));
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct HistoryResponseByteCounter {
+    bytes: usize,
+}
+
+impl std::io::Write for HistoryResponseByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_add(bytes.len())
+            .ok_or_else(|| std::io::Error::other("history serialized byte count overflow"))?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn deserialize_stored_thread_item(

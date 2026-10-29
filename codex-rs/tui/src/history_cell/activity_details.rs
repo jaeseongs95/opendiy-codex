@@ -28,6 +28,20 @@ impl ActivityDetails {
         *self = older;
     }
 
+    pub(crate) fn retained_item_count(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|(_, cell)| cell.retained_item_count())
+            .sum()
+    }
+
+    pub(crate) fn retained_source_bytes(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|(_, cell)| cell.retained_source_bytes())
+            .sum()
+    }
+
     pub(crate) fn lines_after(
         &self,
         after_calls: usize,

@@ -8,6 +8,8 @@ mod events;
 mod external_agent_config;
 pub(crate) mod fs;
 mod history;
+pub(crate) use history::HistoryDirection;
+pub(crate) use history::initial_history_page_limit;
 mod models;
 pub(crate) mod provider_selection;
 #[cfg(test)]

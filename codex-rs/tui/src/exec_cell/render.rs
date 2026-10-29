@@ -210,6 +210,29 @@ fn activity_marker(start_time: Option<Instant>, animations_enabled: bool) -> Spa
 }
 
 impl HistoryCell for ExecCell {
+    fn retained_item_count(&self) -> usize {
+        self.group.calls.len() + self.group.details.retained_item_count()
+    }
+
+    fn retained_source_bytes(&self) -> usize {
+        self.group
+            .calls
+            .iter()
+            .map(|call| {
+                call.call_id.capacity()
+                    + call.command.iter().map(String::capacity).sum::<usize>()
+                    + crate::history_window::payload_bytes(&call.parsed)
+                        .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1)
+                    + call.interaction_input.as_ref().map_or(0, String::capacity)
+                    + call
+                        .output
+                        .as_ref()
+                        .map_or(0, super::model::CommandOutput::retained_source_bytes)
+            })
+            .sum::<usize>()
+            + self.group.details.retained_source_bytes()
+    }
+
     fn append_reasoning(&mut self, cell: Box<dyn HistoryCell>) -> Result<(), Box<dyn HistoryCell>> {
         if self.is_exploring_cell() {
             self.group.push_detail(std::sync::Arc::from(cell));

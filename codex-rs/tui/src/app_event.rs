@@ -493,6 +493,8 @@ pub(crate) enum AppEvent {
     /// One background-loaded page of older Ctrl+T transcript history.
     OlderThreadHistoryLoaded {
         thread_id: ThreadId,
+        generation: u64,
+        token: Option<String>,
         cursor: String,
         result: Result<ThreadItemsListResponse, String>,
     },
@@ -1180,6 +1182,7 @@ pub(crate) enum AppEvent {
     FollowTranscript,
 
     InsertHistoryCell(Box<dyn HistoryCell>),
+    RefreshHistoryRetention,
     /// FIFO barrier after the completed turn's history insertions.
     TurnTipReady {
         thread_id: ThreadId,

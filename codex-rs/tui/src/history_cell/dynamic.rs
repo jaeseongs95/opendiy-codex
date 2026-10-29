@@ -27,6 +27,7 @@ pub(crate) struct DynamicToolCallCell {
 
 #[derive(Debug)]
 struct DynamicToolCallData {
+    revision: u64,
     name: String,
     arguments: Value,
     status: DynamicToolCallStatus,
@@ -57,16 +58,18 @@ impl DynamicToolCallCell {
 
     /// Updates the original retained row when concurrent calls complete in a different order.
     pub(crate) fn update_from_item(&self, item: ThreadItem) -> bool {
-        let Some((call_id, data)) = DynamicToolCallData::from_item(item) else {
+        let Some((call_id, mut data)) = DynamicToolCallData::from_item(item) else {
             return false;
         };
         if call_id != self.call_id {
             return false;
         }
-        *self
+        let mut current = self
             .data
             .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = data;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        data.revision = current.revision.wrapping_add(1);
+        *current = data;
         true
     }
 
@@ -78,6 +81,7 @@ impl DynamicToolCallCell {
         if !data.is_active() {
             return;
         }
+        data.revision = data.revision.wrapping_add(1);
         data.status = DynamicToolCallStatus::Failed;
         data.interrupted = true;
         data.output
@@ -104,6 +108,7 @@ impl DynamicToolCallData {
         Some((
             id,
             Self {
+                revision: 0,
                 name: namespace
                     .map_or_else(|| tool.clone(), |namespace| format!("{namespace}.{tool}")),
                 arguments,
@@ -173,6 +178,28 @@ impl DynamicToolCallData {
 }
 
 impl HistoryCell for DynamicToolCallCell {
+    fn retention_revision(&self) -> u64 {
+        self.data
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revision
+    }
+
+    fn retained_source_bytes(&self) -> usize {
+        let data = self
+            .data
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.call_id.capacity()
+            + data.name.capacity()
+            + crate::history_window::payload_bytes(&data.arguments)
+                .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1)
+            + data
+                .output
+                .as_ref()
+                .map_or(0, |output| output.iter().map(String::capacity).sum())
+    }
+
     fn has_stable_transcript_height(&self) -> bool {
         false
     }

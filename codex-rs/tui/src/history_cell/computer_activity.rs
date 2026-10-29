@@ -119,6 +119,19 @@ fn error_preview(call: &McpToolCallCell) -> Option<&str> {
 }
 
 impl HistoryCell for ComputerActivityCell {
+    fn retained_item_count(&self) -> usize {
+        self.group.calls.len() + self.group.details.retained_item_count()
+    }
+
+    fn retained_source_bytes(&self) -> usize {
+        self.group
+            .calls
+            .iter()
+            .map(HistoryCell::retained_source_bytes)
+            .sum::<usize>()
+            + self.group.details.retained_source_bytes()
+    }
+
     fn append_reasoning(&mut self, cell: Box<dyn HistoryCell>) -> Result<(), Box<dyn HistoryCell>> {
         if self.group.calls.is_empty() {
             Err(cell)

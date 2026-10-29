@@ -43,6 +43,7 @@ impl ChatWidget {
             }
             self.add_to_history(cell);
         }
+        self.app_event_tx.send(AppEvent::RefreshHistoryRetention);
         self.request_redraw();
     }
 

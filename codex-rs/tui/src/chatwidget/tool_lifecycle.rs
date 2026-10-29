@@ -175,6 +175,9 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_mcp_tool_call_started_now(&mut self, item: ThreadItem) {
+        let bytes = crate::history_window::payload_bytes(&item)
+            .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1);
+        self.prepare_active_display_item(bytes);
         let ThreadItem::McpToolCall {
             id,
             server,
@@ -208,11 +211,15 @@ impl ChatWidget {
             invocation,
             self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
         )));
+        self.enforce_active_display_window();
         self.bump_active_cell_revision();
         self.request_redraw();
     }
 
     pub(crate) fn handle_mcp_tool_call_completed_now(&mut self, item: ThreadItem) {
+        let bytes = crate::history_window::payload_bytes(&item)
+            .unwrap_or(crate::history_window::MAX_HISTORY_BYTES + 1);
+        self.prepare_active_display_item(bytes);
         self.flush_answer_stream_with_separator();
 
         let Some(McpHistory {
@@ -270,6 +277,17 @@ impl ChatWidget {
             cell.as_any_mut()
                 .downcast_mut::<history_cell::ComputerActivityCell>()
         })?;
+        if older
+            .retained_item_count()
+            .saturating_add(active.retained_item_count())
+            > crate::history_window::MAX_HISTORY_ITEMS
+            || older
+                .retained_source_bytes()
+                .saturating_add(active.retained_source_bytes())
+                > crate::history_window::MAX_HISTORY_BYTES
+        {
+            return None;
+        }
         let older = crate::thread_transcript::older_computer_group(older, active, turns)?;
         active.prepend(older);
         self.bump_active_cell_revision();
@@ -292,6 +310,7 @@ impl ChatWidget {
             update(&mut cell);
             self.transcript.active_cell = Some(Box::new(cell));
         }
+        self.enforce_active_display_window();
     }
 
     pub(crate) fn handle_queued_item_started_now(&mut self, item: ThreadItem) {

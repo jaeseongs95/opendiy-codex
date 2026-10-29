@@ -615,6 +615,9 @@ impl App {
             }
         }
         let previous_thread_id = self.active_thread_id;
+        if let Some(previous) = previous_thread_id {
+            app_server.cancel_history_page(previous);
+        }
         // Notifications already routed to the active channel must reach the old
         // widget before its transcript state is transferred. Events routed after
         // deactivation are retained separately for that thread.

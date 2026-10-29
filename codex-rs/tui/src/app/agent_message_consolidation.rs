@@ -86,6 +86,7 @@ impl App {
             self.maybe_finish_stream_reflow(tui)?;
         }
 
+        self.bound_history_window(/*prefer_older*/ false);
         Ok(())
     }
 

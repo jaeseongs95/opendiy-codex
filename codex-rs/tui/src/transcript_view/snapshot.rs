@@ -141,3 +141,67 @@ impl TranscriptView {
         }
     }
 }
+
+impl ViewSnapshot {
+    pub(super) fn retain_window(&mut self, cells: &[Arc<dyn HistoryCell>]) {
+        let keys = cells
+            .iter()
+            .map(EntryKey::cell)
+            .chain([EntryKey::Live])
+            .collect::<std::collections::HashSet<_>>();
+        self.cells = self
+            .cells
+            .iter()
+            .filter(|cell| keys.contains(&EntryKey::cell(cell)))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into();
+        self.pinned.retain(|key, _| keys.contains(key));
+        self.activities.retain(|key, _| keys.contains(key));
+    }
+}
+
+impl TranscriptView {
+    pub(crate) fn window_focus(&self, cells: &[Arc<dyn HistoryCell>]) -> usize {
+        match self.position {
+            Position::Latest => cells.len().saturating_sub(1),
+            Position::Reading(anchor) => self.resolve(cells, anchor),
+        }
+    }
+
+    /// Release ordinary reading/layout owners outside the canonical display window.
+    /// Retained anchors resolve by identity, so prepending and trimming do not change content.
+    pub(crate) fn retain_window(&mut self, cells: &[Arc<dyn HistoryCell>]) {
+        let keys = cells
+            .iter()
+            .map(EntryKey::cell)
+            .chain([EntryKey::Live])
+            .collect::<std::collections::HashSet<_>>();
+        // A user's selection/search is an explicit operation with its own source lifetime.
+        // Ordinary reading/layout owners are released below; operation snapshots end normally.
+        if let Some(snapshot) = self.held_reading.as_mut() {
+            snapshot.retain_window(cells);
+        }
+        self.visible.retain(|row| keys.contains(&row.key));
+        self.cache.clear();
+        if let Position::Reading(anchor) = self.position {
+            let index = cells
+                .iter()
+                .position(|cell| EntryKey::cell(cell) == anchor.key)
+                .unwrap_or_else(|| anchor.index.min(cells.len().saturating_sub(1)));
+            self.position = Position::Reading(Anchor {
+                index,
+                key: self.entry_key(cells, index),
+                ..anchor
+            });
+        }
+    }
+}
+
+impl TranscriptView {
+    pub(crate) fn near_window_end(&self, cells: &[Arc<dyn HistoryCell>]) -> bool {
+        self.visible
+            .last()
+            .is_some_and(|row| row.index.saturating_add(2) >= cells.len())
+    }
+}

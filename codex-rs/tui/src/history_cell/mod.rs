@@ -213,6 +213,31 @@ pub(crate) trait HistoryCell: std::fmt::Debug + Send + Sync + Any {
         Vec::new()
     }
 
+    /// Logical source held by a committed display cell. Called once when admitted to the
+    /// window, never per streaming delta. Source-backed cells override this to avoid rendering.
+    fn retained_source_bytes(&self) -> usize {
+        self.raw_lines()
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.len())
+                    .sum::<usize>()
+                    + 1
+            })
+            .sum()
+    }
+
+    /// Protocol-sized activity members, including hidden detail cells.
+    fn retained_item_count(&self) -> usize {
+        1
+    }
+
+    /// Mutable shared sources invalidate admission accounting only when their data changes.
+    fn retention_revision(&self) -> u64 {
+        0
+    }
+
     /// Original Markdown for semantic copy targets, independent of presentation.
     fn copy_source(&self) -> Option<&str> {
         None

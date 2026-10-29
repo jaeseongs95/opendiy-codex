@@ -163,6 +163,7 @@ mod git_action_directives;
 mod goal_display;
 mod goal_files;
 mod history_cell;
+mod history_window;
 mod hooks_rpc;
 mod ide_context;
 mod inline_visualization;

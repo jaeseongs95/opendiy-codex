@@ -445,6 +445,8 @@ async fn stale_history_completions_preserve_the_current_request_and_failure_can_
         );
     }
     let failure = AppEvent::OlderThreadHistoryLoaded {
+        generation: app.history_window.generation,
+        token: None,
         thread_id,
         cursor: cursor.clone(),
         result: Err("current request failed".to_string()),

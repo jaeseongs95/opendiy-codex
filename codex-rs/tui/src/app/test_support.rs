@@ -46,6 +46,7 @@ pub(crate) async fn make_test_app() -> Box<App> {
         file_search,
         transcript_cells: Vec::new(),
         native_history: Default::default(),
+        history_window: Default::default(),
         turn_tips: Default::default(),
         transcript_view: Default::default(),
         last_rendered_history_tail: None,

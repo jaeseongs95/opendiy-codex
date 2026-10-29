@@ -225,6 +225,8 @@ async fn history_hydration_metadata_tracks_missing_turns_and_stale_completions_k
             &mut tui,
             &mut server,
             AppEvent::OlderThreadHistoryLoaded {
+                generation: app.history_window.generation,
+                token: None,
                 thread_id: target.thread_id,
                 cursor: old_cursor.clone(),
                 result,
@@ -329,5 +331,243 @@ async fn history_hydration_archived_retry_uses_first_attempt_runtime_settings() 
             proxy.await??;
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn official_history_pages_reuse_global_cursor_and_fence_superseded_latest() -> Result<()> {
+    use crate::app_server_session::HistoryDirection;
+    let (mut app, _home, target) = history_fixture(&[1; 12]).await?;
+    app.local_settings.transcript_mode = TranscriptMode::Terminal;
+    app.local_settings.tui.terminal_resize_reflow_max_rows = Some(1);
+    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let _: ThreadResumeResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadResume {
+            request_id: server.next_request_id(),
+            params: ThreadResumeParams {
+                thread_id: target.thread_id.to_string(),
+                exclude_turns: true,
+                ..Default::default()
+            },
+        })
+        .await?;
+    let mut thread = server.thread_read(target.thread_id, false).await?;
+    server
+        .hydrate_initial_thread_history(
+            &mut thread,
+            None,
+            None,
+            Some(&app.config),
+            Some(&app.local_settings),
+            HistoryHydrationScope::Initial,
+        )
+        .await?;
+    assert_eq!(
+        thread.turns.len(),
+        crate::app_server_session::INITIAL_HISTORY_TURN_LIMIT as usize
+    );
+    assert_eq!(thread.turns.iter().flat_map(|turn| &turn.items).count(), 1);
+    let older = server
+        .begin_history_page(target.thread_id, HistoryDirection::Older)
+        .unwrap();
+    assert!(
+        older.params.turn_id.is_none(),
+        "ordinary history uses the official global item cursor"
+    );
+    assert!(matches!(
+        older.params.cursor,
+        Some(codex_app_server_protocol::ThreadItemsListCursor::Opaque(_))
+    ));
+    let stale = older.token;
+    let latest = server
+        .begin_history_page(target.thread_id, HistoryDirection::Latest)
+        .unwrap();
+    assert!(!server.is_history_token_pending(target.thread_id, &stale));
+    assert!(server.is_history_token_pending(target.thread_id, &latest.token));
+    let page: ThreadItemsListResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadItemsList {
+            request_id: latest.request_id,
+            params: latest.params,
+        })
+        .await?;
+    server
+        .apply_older_history_page(target.thread_id, &latest.token, page, &mut thread.turns)
+        .await?;
+    assert!(!server.is_history_token_pending(target.thread_id, &latest.token));
+    assert!(
+        thread
+            .turns
+            .iter()
+            .flat_map(|turn| &turn.items)
+            .any(|item| item.id() == "item-11-0")
+    );
+    assert!(
+        recorded_params(&requests, "thread/items/list")
+            .iter()
+            .all(|params| params["limit"].as_u64().unwrap() <= 100)
+    );
+    assert!(
+        recorded_params(&requests, "thread/read")
+            .iter()
+            .all(|params| params["includeTurns"] == false)
+    );
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn explicit_complete_history_does_not_inherit_the_display_item_budget() -> Result<()> {
+    let (app, _home, target) = history_fixture(&[450]).await?;
+    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let _: ThreadResumeResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadResume {
+            request_id: server.next_request_id(),
+            params: ThreadResumeParams {
+                thread_id: target.thread_id.to_string(),
+                exclude_turns: true,
+                ..Default::default()
+            },
+        })
+        .await?;
+    let mut thread = server.thread_read(target.thread_id, false).await?;
+    server
+        .hydrate_initial_thread_history(
+            &mut thread,
+            None,
+            None,
+            None,
+            None,
+            HistoryHydrationScope::Complete,
+        )
+        .await?;
+    assert_eq!(
+        thread.turns.iter().flat_map(|turn| &turn.items).count(),
+        450
+    );
+    assert!(recorded_params(&requests, "thread/items/list").len() >= 5);
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fifty_turn_window_returns_through_every_evicted_turn_in_both_directions() -> Result<()> {
+    use crate::app_server_session::HistoryDirection;
+    let (mut app, _home, target) = history_fixture(&[1; 50]).await?;
+    app.local_settings.transcript_mode = TranscriptMode::Terminal;
+    app.local_settings.tui.terminal_resize_reflow_max_rows = Some(1);
+    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let _: ThreadResumeResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadResume {
+            request_id: server.next_request_id(),
+            params: ThreadResumeParams {
+                thread_id: target.thread_id.to_string(),
+                exclude_turns: true,
+                ..Default::default()
+            },
+        })
+        .await?;
+    let mut thread = server.thread_read(target.thread_id, false).await?;
+    server
+        .hydrate_initial_thread_history(
+            &mut thread,
+            None,
+            None,
+            Some(&app.config),
+            Some(&app.local_settings),
+            HistoryHydrationScope::Initial,
+        )
+        .await?;
+    let older = server
+        .begin_history_page(target.thread_id, HistoryDirection::Older)
+        .unwrap();
+    assert!(older.params.turn_id.is_none());
+    let page: ThreadItemsListResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadItemsList {
+            request_id: older.request_id,
+            params: older.params,
+        })
+        .await?;
+    server
+        .apply_older_history_page(target.thread_id, &older.token, page, &mut thread.turns)
+        .await?;
+    // This is the canonical source window's oldest-edge retention policy, not a server limit.
+    thread
+        .turns
+        .truncate(crate::history_window::MAX_HISTORY_TURNS);
+    assert_eq!(thread.turns.last().unwrap().id, "turn-29");
+    server.reanchor_history_window(target.thread_id, &thread.turns, HistoryDirection::Older);
+    let mut traversed = Vec::new();
+    for _ in 0..64 {
+        let Some(request) = server.begin_history_page(target.thread_id, HistoryDirection::Newer)
+        else {
+            break;
+        };
+        let page: ThreadItemsListResponse = server
+            .request_handle()
+            .request_typed(ClientRequest::ThreadItemsList {
+                request_id: request.request_id,
+                params: request.params,
+            })
+            .await?;
+        let items = server
+            .apply_older_history_page(target.thread_id, &request.token, page, &mut thread.turns)
+            .await?;
+        traversed.extend(items.into_iter().map(|item| item.id().to_string()));
+        let excess = thread
+            .turns
+            .len()
+            .saturating_sub(crate::history_window::MAX_HISTORY_TURNS);
+        thread.turns.drain(..excess);
+        server.reanchor_history_window(target.thread_id, &thread.turns, HistoryDirection::Newer);
+    }
+    assert!(!server.has_newer_history(target.thread_id));
+    assert_eq!(
+        traversed,
+        (30..50)
+            .map(|index| format!("item-{index}-0"))
+            .collect::<Vec<_>>()
+    );
+    let mut returned = Vec::new();
+    for _ in 0..4 {
+        let request = server
+            .begin_history_page(target.thread_id, HistoryDirection::Older)
+            .unwrap();
+        let page: ThreadItemsListResponse = server
+            .request_handle()
+            .request_typed(ClientRequest::ThreadItemsList {
+                request_id: request.request_id,
+                params: request.params,
+            })
+            .await?;
+        returned.extend(
+            server
+                .apply_older_history_page(target.thread_id, &request.token, page, &mut thread.turns)
+                .await?,
+        );
+        if !returned.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(returned.first().unwrap().id(), "item-28-0");
+    let metadata = recorded_params(&requests, "thread/turns/list");
+    assert!(
+        metadata
+            .iter()
+            .any(|params| params["sortDirection"] == "asc")
+    );
+    assert!(
+        metadata
+            .iter()
+            .all(|params| params["itemsView"] == "notLoaded")
+    );
+    server.shutdown().await?;
+    proxy.await??;
     Ok(())
 }

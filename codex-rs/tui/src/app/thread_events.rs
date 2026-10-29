@@ -65,6 +65,8 @@ pub(super) struct ThreadEventStore {
     pub(super) turns: Vec<Turn>,
     pub(super) buffer: VecDeque<ThreadBufferedEvent>,
     pub(super) pending_interactive_replay: PendingInteractiveReplayState,
+    pending_patch_changes:
+        HashMap<(String, String), Vec<codex_app_server_protocol::FileUpdateChange>>,
     pub(super) active_turn_id: Option<String>,
     // Retain the active item even if its start falls out of the bounded replay buffer.
     pub(super) active_reasoning_item: Option<codex_app_server_protocol::ItemStartedNotification>,
@@ -75,6 +77,8 @@ pub(super) struct ThreadEventStore {
     pub(super) capacity: usize,
     pub(super) active: bool,
     pub(super) buffered_agent_message_delta_bytes: usize,
+    pub(super) buffered_display_bytes: usize,
+    pub(super) buffered_event_sizes: VecDeque<usize>,
     delegated_turns: VecDeque<String>,
     recap_progress: recap::RecapProgress,
 }
@@ -91,6 +95,12 @@ impl ThreadEventStore {
         {
             // Refreshed turns contain the text; retain only the live question state.
             text.clear();
+            return true;
+        }
+        if matches!(event, ThreadBufferedEvent::Notification(notification)
+            if matches!(notification.as_ref(), ServerNotification::ItemStarted(started)
+                if matches!(&started.item, ThreadItem::FileChange { status: codex_app_server_protocol::PatchApplyStatus::InProgress, .. })))
+        {
             return true;
         }
         match event {
@@ -112,6 +122,7 @@ impl ThreadEventStore {
             turns: Vec::new(),
             buffer: VecDeque::new(),
             pending_interactive_replay: PendingInteractiveReplayState::default(),
+            pending_patch_changes: HashMap::new(),
             active_turn_id: None,
             active_reasoning_item: None,
             latest_turn_id: None,
@@ -120,6 +131,8 @@ impl ThreadEventStore {
             capacity,
             active: false,
             buffered_agent_message_delta_bytes: 0,
+            buffered_display_bytes: 0,
+            buffered_event_sizes: VecDeque::new(),
             delegated_turns: VecDeque::new(),
             recap_progress: recap::RecapProgress::default(),
         }
@@ -137,6 +150,26 @@ impl ThreadEventStore {
         store
     }
 
+    pub(super) fn set_display_session(&mut self, session: ThreadSessionState, turns: &[Turn]) {
+        for turn in turns
+            .iter()
+            .filter(|turn| turn.status == TurnStatus::InProgress)
+        {
+            for item in &turn.items {
+                if let ThreadItem::FileChange {
+                    id,
+                    changes,
+                    status: codex_app_server_protocol::PatchApplyStatus::InProgress,
+                } = item
+                {
+                    self.pending_patch_changes
+                        .insert((turn.id.clone(), id.clone()), changes.clone());
+                }
+            }
+        }
+        self.set_session(session, display_turn_shells(turns));
+    }
+
     pub(super) fn set_session(&mut self, session: ThreadSessionState, turns: Vec<Turn>) {
         self.session = Some(session);
         self.set_turns(turns);
@@ -145,6 +178,8 @@ impl ThreadEventStore {
     pub(super) fn rebase_buffer_after_session_refresh(&mut self) {
         self.buffer.retain_mut(Self::event_survives_session_refresh);
         self.buffered_agent_message_delta_bytes = 0;
+        self.buffered_event_sizes = self.buffer.iter().map(Self::display_event_bytes).collect();
+        self.buffered_display_bytes = self.buffered_event_sizes.iter().sum();
     }
 
     pub(super) fn set_turns(&mut self, turns: Vec<Turn>) {
@@ -195,6 +230,24 @@ impl ThreadEventStore {
         }
         self.pending_interactive_replay
             .note_server_notification(notification.as_ref());
+        match notification.as_ref() {
+            ServerNotification::ItemStarted(started) => {
+                if let ThreadItem::FileChange { id, changes, .. } = &started.item {
+                    self.pending_patch_changes
+                        .insert((started.turn_id.clone(), id.clone()), changes.clone());
+                }
+            }
+            ServerNotification::ItemCompleted(completed) => {
+                self.pending_patch_changes
+                    .remove(&(completed.turn_id.clone(), completed.item.id().to_string()));
+            }
+            ServerNotification::TurnCompleted(completed) => {
+                self.pending_patch_changes
+                    .retain(|(turn, _), _| turn != &completed.turn.id);
+            }
+            ServerNotification::ThreadClosed(_) => self.pending_patch_changes.clear(),
+            _ => {}
+        }
         match notification.as_ref() {
             ServerNotification::TurnStarted(turn) => {
                 self.set_active_turn_id(turn.turn.id.clone());
@@ -350,19 +403,53 @@ impl ThreadEventStore {
         turn_id: &str,
         item_id: &str,
     ) -> Option<Vec<codex_app_server_protocol::FileUpdateChange>> {
-        file_change_changes(self.buffer.iter(), &self.turns, turn_id, item_id)
+        self.pending_patch_changes
+            .get(&(turn_id.to_string(), item_id.to_string()))
+            .cloned()
+            .or_else(|| file_change_changes(self.buffer.iter(), &self.turns, turn_id, item_id))
     }
 
+    /// Runtime replay transfers payload ownership instead of cloning an entire history.
+    pub(super) fn take_snapshot(&mut self) -> ThreadEventSnapshot {
+        let turns = std::mem::take(&mut self.turns);
+        self.turns = display_turn_shells(&turns);
+        let events = std::mem::take(&mut self.buffer)
+            .into_iter()
+            .collect::<Vec<_>>();
+        // Pending interactive data is operational state, not an expendable display cache.
+        self.buffer = events
+            .iter()
+            .filter(|event| {
+                matches!(event,
+            ThreadBufferedEvent::Request(request)
+                if self.pending_interactive_replay.should_replay_snapshot_request(request))
+            })
+            .cloned()
+            .collect();
+        self.buffered_agent_message_delta_bytes = 0;
+        self.buffered_event_sizes = self.buffer.iter().map(|_| 0).collect();
+        self.buffered_display_bytes = 0;
+        self.snapshot_with_payload(turns, events)
+    }
+
+    #[cfg(test)]
     pub(super) fn snapshot(&self) -> ThreadEventSnapshot {
+        self.snapshot_with_payload(self.turns.clone(), self.buffer.iter().cloned().collect())
+    }
+
+    fn snapshot_with_payload(
+        &self,
+        turns: Vec<Turn>,
+        events: Vec<ThreadBufferedEvent>,
+    ) -> ThreadEventSnapshot {
         let mut snapshot = ThreadEventSnapshot {
             session: self.session.clone(),
             delegated_turns: self.delegated_turns.iter().cloned().collect(),
-            turns: self.turns.clone(),
+            turns,
             // Thread switches replay buffered events into a rebuilt ChatWidget. Only replay
             // interactive prompts that are still pending, or answered approvals/input will reappear.
-            events: self
-                .buffer
-                .iter()
+            events: events
+                .into_iter()
                 .filter(|event| match event {
                     ThreadBufferedEvent::Request(request) => self
                         .pending_interactive_replay
@@ -371,11 +458,48 @@ impl ThreadEventStore {
                     | ThreadBufferedEvent::HistoryEntryResponse(_)
                     | ThreadBufferedEvent::FeedbackSubmission(_) => true,
                 })
-                .cloned()
                 .collect(),
             active_reasoning_item: self.active_reasoning_item.clone(),
             input_state: self.input_state.clone(),
         };
+        if let Some(session) = &self.session {
+            for ((turn_id, item_id), changes) in &self.pending_patch_changes {
+                let needed = snapshot.events.iter().any(|event| {
+                    matches!(event,
+                    ThreadBufferedEvent::Request(request) if matches!(request.as_ref(),
+                        ServerRequest::FileChangeRequestApproval { params, .. }
+                            if &params.turn_id == turn_id && &params.item_id == item_id))
+                });
+                if needed
+                    && file_change_changes(
+                        snapshot.events.iter(),
+                        &snapshot.turns,
+                        turn_id,
+                        item_id,
+                    )
+                    .is_none()
+                {
+                    snapshot.events.insert(
+                        0,
+                        ThreadBufferedEvent::Notification(Box::new(
+                            ServerNotification::ItemStarted(
+                                codex_app_server_protocol::ItemStartedNotification {
+                                    thread_id: session.thread_id.to_string(),
+                                    turn_id: turn_id.clone(),
+                                    started_at_ms: 0,
+                                    item: ThreadItem::FileChange {
+                                        id: item_id.clone(),
+                                        changes: changes.clone(),
+                                        status:
+                                            codex_app_server_protocol::PatchApplyStatus::InProgress,
+                                    },
+                                },
+                            ),
+                        )),
+                    );
+                }
+            }
+        }
         if let Some(latest_turn_id) = &self.latest_turn_id {
             replay_filter::omit_resolved_misalignment_errors(&mut snapshot, latest_turn_id);
         }
@@ -575,6 +699,29 @@ fn file_change_item_changes(
         ThreadItem::FileChange { id, changes, .. } if id == item_id => Some(changes.clone()),
         _ => None,
     }
+}
+
+/// Copy bounded turn metadata while leaving payload ownership with its display projection.
+pub(super) fn display_turn_shells(turns: &[Turn]) -> Vec<Turn> {
+    turns
+        .iter()
+        .rev()
+        .take(crate::history_window::MAX_HISTORY_TURNS)
+        .map(|turn| Turn {
+            id: turn.id.clone(),
+            root_turn_id: turn.root_turn_id.clone(),
+            items: Vec::new(),
+            items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
+            status: turn.status.clone(),
+            error: turn.error.clone(),
+            started_at: turn.started_at,
+            completed_at: turn.completed_at,
+            duration_ms: turn.duration_ms,
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
 }
 
 #[derive(Debug)]
@@ -1136,5 +1283,34 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(retained, vec!["Typed tail", "Typed tail"]);
+    }
+
+    #[test]
+    fn runtime_snapshot_moves_payload_and_preserves_pending_requests() {
+        let thread_id = ThreadId::new();
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "agentMessage", "id": "body", "text": "x".repeat(4096),
+            "phase": null, "questions": null
+        }))
+        .unwrap();
+        let mut store = ThreadEventStore::new(2);
+        store.set_turns(vec![test_turn("turn", TurnStatus::InProgress, vec![item])]);
+        let ThreadItem::AgentMessage { text, .. } = &store.turns[0].items[0] else {
+            panic!("agent item")
+        };
+        let original = text.as_ptr();
+        store.push_request(exec_approval_request(thread_id, "turn", "approval", None));
+        let snapshot = store.take_snapshot();
+        let ThreadItem::AgentMessage { text, .. } = &snapshot.turns[0].items[0] else {
+            panic!("agent item")
+        };
+        assert_eq!(
+            text.as_ptr(),
+            original,
+            "runtime replay must move, not deep clone"
+        );
+        assert!(store.turns[0].items.is_empty());
+        assert!(store.has_pending_thread_approvals());
+        assert_eq!(store.pending_replay_requests().len(), 1);
     }
 }

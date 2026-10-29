@@ -134,6 +134,13 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
     assert_eq!(
         snapshot_events(&store),
         vec![
+            serde_json::to_value(exec_approval_request(
+                thread_id,
+                "turn-2",
+                "approval-1",
+                None
+            ))
+            .unwrap(),
             serde_json::to_value(delta(
                 "turn-2",
                 "item-2",
@@ -149,7 +156,7 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
             serde_json::to_value(delta("turn-2", "item-2", "🙂")).expect("delta should serialize"),
         ]
     );
-    assert!(!store.has_pending_thread_approvals());
+    assert!(store.has_pending_thread_approvals());
 
     let mut store = ThreadEventStore::new(/*capacity*/ THREAD_EVENT_CHANNEL_CAPACITY);
     store.push_request(exec_approval_request(
@@ -168,18 +175,26 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
 
     assert_eq!(
         snapshot_events(&store),
-        (1..65)
-            .map(|chunk| {
-                serde_json::to_value(delta(
-                    "turn-budget",
-                    "item-budget",
-                    &format!("{chunk:08}").repeat(MAX_COALESCED_AGENT_MESSAGE_DELTA_BYTES / 8),
-                ))
-                .expect("delta should serialize")
-            })
-            .collect::<Vec<_>>()
+        std::iter::once(
+            serde_json::to_value(exec_approval_request(
+                thread_id,
+                "turn-budget",
+                "approval-budget",
+                None
+            ))
+            .unwrap()
+        )
+        .chain((1..65).map(|chunk| {
+            serde_json::to_value(delta(
+                "turn-budget",
+                "item-budget",
+                &format!("{chunk:08}").repeat(MAX_COALESCED_AGENT_MESSAGE_DELTA_BYTES / 8),
+            ))
+            .expect("delta should serialize")
+        }))
+        .collect::<Vec<_>>()
     );
-    assert!(!store.has_pending_thread_approvals());
+    assert!(store.has_pending_thread_approvals());
 
     let mut store = ThreadEventStore::new(/*capacity*/ 4);
     store.push_notification(turn_started_notification(thread_id, "turn-oversized"));

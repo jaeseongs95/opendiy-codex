@@ -35,6 +35,14 @@ impl CommandOutput {
         }
     }
 
+    pub(super) fn retained_source_bytes(&self) -> usize {
+        self.aggregated_output.capacity()
+            + self
+                .live_output
+                .as_ref()
+                .map_or(0, LiveCommandOutput::retained_source_bytes)
+    }
+
     /// Returns the total number of logical lines and the number retained for rendering.
     pub(super) fn line_counts(&self) -> (usize, usize) {
         match self.live_output.as_ref() {

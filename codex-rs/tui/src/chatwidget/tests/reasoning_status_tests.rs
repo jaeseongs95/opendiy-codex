@@ -315,3 +315,20 @@ async fn completed_reasoning_stays_in_expanded_transcript_for_live_and_replay() 
         • The playback clock preserves elapsed time.
         ");
 }
+
+#[tokio::test]
+async fn oversized_reasoning_does_not_poison_later_answer_or_item() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(None).await;
+    chat.on_agent_reasoning_delta("x".repeat(crate::history_window::MAX_HISTORY_BYTES + 1));
+    assert!(chat.transcript.live_display_oversized[2]);
+    assert!(chat.reasoning_buffer.is_empty());
+    chat.on_agent_reasoning_final();
+    assert!(!chat.transcript.live_display_oversized[2]);
+    chat.on_agent_message_delta("usable answer".to_string());
+    assert!(chat.stream_controller.is_some());
+    assert!(!chat.transcript.live_display_oversized[0]);
+    chat.flush_answer_stream_with_separator();
+    assert_eq!(chat.transcript.live_display_bytes[0], 0);
+    chat.on_agent_message_delta("next answer".to_string());
+    assert!(chat.stream_controller.is_some());
+}

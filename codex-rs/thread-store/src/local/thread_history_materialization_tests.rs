@@ -474,17 +474,21 @@ async fn unavailable_projection_recovers_without_rewriting_rollout_or_partial_li
     let path = store.live_rollout_path(thread_id).await.unwrap();
     let before = fs::read(&path).unwrap();
     let pool = store.thread_history_db().await.unwrap();
-    for table in [
-        "thread_turns",
-        "thread_items",
-        "thread_history_projection_state",
-    ] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE thread_id = ?"))
-            .bind(thread_id.to_string())
-            .execute(pool)
-            .await
-            .unwrap();
-    }
+    sqlx::query("DELETE FROM thread_turns WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM thread_items WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM thread_history_projection_state WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
     let params = ListTurnsParams {
         thread_id,
         include_archived: false,

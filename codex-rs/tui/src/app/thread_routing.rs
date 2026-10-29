@@ -127,7 +127,7 @@ impl App {
         let receiver = channel.receiver.take()?;
         let mut store = channel.store.lock().await;
         store.active = true;
-        let snapshot = store.snapshot();
+        let snapshot = store.take_snapshot();
         Some((receiver, snapshot))
     }
 
@@ -1627,7 +1627,7 @@ impl App {
         let channel = self.ensure_thread_channel(thread_id);
         {
             let mut store = channel.store.lock().await;
-            store.set_session(session.clone(), turns.clone());
+            store.set_display_session(session.clone(), &turns);
         }
         self.activate_thread_channel(thread_id).await;
         self.chat_widget
@@ -1726,6 +1726,36 @@ impl App {
         snapshot: &mut ThreadEventSnapshot,
     ) -> bool {
         if !self.should_refresh_snapshot_session(thread_id, is_replay_only, snapshot) {
+            if !self.side_threads.contains_key(&thread_id) {
+                let display = async {
+                    let mut thread = app_server
+                        .thread_read(thread_id, /*include_turns*/ false)
+                        .await?;
+                    app_server
+                        .hydrate_initial_thread_history(
+                            &mut thread,
+                            None,
+                            None,
+                            Some(&self.config),
+                            Some(&self.local_settings),
+                            crate::app_server_session::HistoryHydrationScope::Initial,
+                        )
+                        .await?;
+                    Ok::<_, color_eyre::Report>(thread.turns)
+                }
+                .await;
+                match display {
+                    Ok(turns) => {
+                        snapshot.turns = turns;
+                        snapshot
+                            .events
+                            .retain_mut(ThreadEventStore::event_survives_session_refresh);
+                    }
+                    Err(error) => {
+                        tracing::warn!(%thread_id, %error, "display window refresh failed")
+                    }
+                }
+            }
             return true;
         }
 
@@ -1785,7 +1815,7 @@ impl App {
         let AppServerStartedThread { session, turns, .. } = started;
         if let Some(channel) = self.thread_event_channels.get(&thread_id) {
             let mut store = channel.store.lock().await;
-            store.set_session(session.clone(), turns.clone());
+            store.set_display_session(session.clone(), &turns);
             store.rebase_buffer_after_session_refresh();
             snapshot.active_reasoning_item = store.active_reasoning_item.clone();
         }

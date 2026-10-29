@@ -19,6 +19,7 @@ impl ChatWidget {
         {
             return Err(cell);
         }
+        self.prepare_active_display_item(cell.retained_source_bytes());
         let Some(active) = self.transcript.active_cell.as_mut() else {
             return Err(cell);
         };
@@ -53,6 +54,17 @@ impl ChatWidget {
             .as_mut()?
             .as_any_mut()
             .downcast_mut::<ExecCell>()?;
+        if older
+            .retained_item_count()
+            .saturating_add(active.retained_item_count())
+            > crate::history_window::MAX_HISTORY_ITEMS
+            || older
+                .retained_source_bytes()
+                .saturating_add(active.retained_source_bytes())
+                > crate::history_window::MAX_HISTORY_BYTES
+        {
+            return None;
+        }
         let older = crate::thread_transcript::older_exploration_group(older, active, turns)?;
         active.prepend(older);
         self.bump_active_cell_revision();

@@ -117,6 +117,20 @@ impl CompositeHistoryCell {
 }
 
 impl HistoryCell for CompositeHistoryCell {
+    fn retained_item_count(&self) -> usize {
+        self.parts
+            .iter()
+            .map(|part| part.retained_item_count())
+            .sum()
+    }
+
+    fn retained_source_bytes(&self) -> usize {
+        self.parts
+            .iter()
+            .map(|part| part.retained_source_bytes())
+            .sum()
+    }
+
     fn warning_entries(&self) -> Vec<WarningEntry> {
         self.parts
             .iter()
