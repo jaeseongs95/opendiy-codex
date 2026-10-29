@@ -366,6 +366,8 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum HistoryCapabilities {
     Current,
+    ForwardLiveEvents,
+    ItemsProjectionUnavailable,
     LegacyOnly,
     LegacyOnlyUnsupportedVariant,
     LegacyDynamicToolsAndHistory,
@@ -526,7 +528,8 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                 event = embedded.next_event() => {
                     let Some(event) = event else { break };
                     if let codex_app_server_client::InProcessServerEvent::ServerNotification(notification) = event
-                        && matches!(*notification, ServerNotification::ThreadSettingsUpdated(_))
+                        && (history_capabilities == HistoryCapabilities::ForwardLiveEvents
+                            || matches!(*notification, ServerNotification::ThreadSettingsUpdated(_)))
                     {
                         let result = websocket.send(Message::Text(serde_json::to_string(&notification)?.into())).await;
                         if result.as_ref().is_err_and(is_recording_client_disconnect) {
@@ -623,6 +626,18 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                         JSONRPCMessage::Response(JSONRPCResponse {
                             id: request_id,
                             result: serde_json::json!({}),
+                        })
+                    } else if history_capabilities
+                        == HistoryCapabilities::ItemsProjectionUnavailable
+                        && request.method == "thread/items/list"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32603,
+                                data: Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
+                                message: "display history projection is unavailable; retry after history persistence".to_string(),
+                            },
                         })
                     } else if (matches!(
                         history_capabilities,

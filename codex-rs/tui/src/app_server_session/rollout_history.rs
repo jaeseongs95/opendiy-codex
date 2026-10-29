@@ -236,15 +236,24 @@ impl AppServerSession {
                 ));
             }
         };
-        self.hydrate_initial_thread_history(
-            &mut response.thread,
-            response.turns_backwards_cursor.clone(),
-            response.items_backwards_cursor.clone(),
-            Some(&config),
-            Some(local_settings),
-            HistoryHydrationScope::Initial,
-        )
-        .await?;
+        if let Err(error) = self
+            .hydrate_initial_thread_history(
+                &mut response.thread,
+                response.turns_backwards_cursor.clone(),
+                response.items_backwards_cursor.clone(),
+                Some(&config),
+                Some(local_settings),
+                HistoryHydrationScope::Initial,
+            )
+            .await
+        {
+            if !super::history::is_unmaterialized_history_error(&error) {
+                return Err(error);
+            }
+            // Resume succeeded. Keep its original session and live subscription while
+            // explicitly retaining that history has not been queried successfully.
+            self.mark_initial_history_unavailable(thread_id, response.thread.history_mode, &error);
+        }
         let fork_parent_title = self
             .fork_parent_title_from_app_server(response.thread.forked_from_id.as_deref())
             .await;

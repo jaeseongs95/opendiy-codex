@@ -724,6 +724,13 @@ impl App {
             }
         }
         if !self.scrollback_has_older_history {
+            if self
+                .chat_widget
+                .thread_id()
+                .is_some_and(|thread_id| app_server.has_incomplete_history(thread_id))
+            {
+                self.transcript_view.history = TranscriptHistoryState::Failed;
+            }
             return;
         }
         let browsing_needs_history = self.browsing_needs_history();

@@ -220,9 +220,45 @@ pub(crate) struct ThreadHistoryPagination {
     newer_anchor: Option<ThreadItemsListCursor>,
     oldest_item: Option<(String, String)>,
     errors: Vec<String>,
+    incomplete: bool,
+}
+
+pub(super) fn is_unmaterialized_history_error(error: &color_eyre::Report) -> bool {
+    error
+        .downcast_ref::<codex_app_server_client::TypedRequestError>()
+        .is_some_and(|error| {
+            matches!(
+                error,
+                codex_app_server_client::TypedRequestError::Server { source, .. }
+                    if source.code == super::JSONRPC_INVALID_REQUEST
+                        && source.data.as_ref().is_some_and(|data|
+                        data.get("kind").and_then(serde_json::Value::as_str)
+                            == Some("historyProjectionUnavailable")
+                        && data.get("reason").and_then(serde_json::Value::as_str)
+                            == Some("unmaterialized"))
+            )
+        })
 }
 
 impl AppServerSession {
+    pub(crate) fn has_incomplete_history(&self, thread_id: ThreadId) -> bool {
+        self.history_pagination
+            .get(&thread_id)
+            .is_some_and(|state| state.incomplete)
+    }
+
+    pub(super) fn mark_initial_history_unavailable(
+        &mut self,
+        thread_id: ThreadId,
+        history_mode: ThreadHistoryMode,
+        error: &color_eyre::Report,
+    ) {
+        let state = self.history_pagination.entry(thread_id).or_default();
+        state.history_mode = history_mode;
+        state.incomplete = true;
+        state.errors.push(format!("{error:#}"));
+    }
+
     pub(crate) fn take_history_errors(&mut self, thread_id: ThreadId) -> Vec<String> {
         self.history_pagination
             .get_mut(&thread_id)
@@ -679,6 +715,9 @@ impl AppServerSession {
         }
         state.loading_older = false;
         state.loading_token = None;
+        if state.direction == HistoryDirection::Latest {
+            state.incomplete = false;
+        }
         self.history_pagination.insert(thread_id, state);
         Ok(items)
     }
@@ -868,7 +907,10 @@ impl AppServerSession {
                     .await?
                     .turns;
             }
-            self.history_pagination.entry(thread_id).or_default();
+            self.history_pagination
+                .entry(thread_id)
+                .or_default()
+                .incomplete = false;
             return Ok(());
         }
 
@@ -901,6 +943,10 @@ impl AppServerSession {
             let page = match result {
                 Ok(page) => page,
                 Err(error) if scope == HistoryHydrationScope::Initial => {
+                    // A successful resume owns recovery for an unmaterialized writer.
+                    if is_unmaterialized_history_error(&error) {
+                        return Err(error);
+                    }
                     // Compatibility and transport failures keep their official caller recovery.
                     // Only explicit unavailable projection payloads become an unloaded UI state.
                     let structured = error
@@ -916,6 +962,7 @@ impl AppServerSession {
                     if structured != Some("historyProjectionUnavailable") {
                         return Err(error);
                     }
+                    state.incomplete = true;
                     state.errors.push(format!("{error:#}"));
                     break;
                 }

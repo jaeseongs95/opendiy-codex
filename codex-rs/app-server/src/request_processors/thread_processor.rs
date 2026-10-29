@@ -927,13 +927,80 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    async fn loaded_thread_for_history(&self, thread_id: &str) -> Option<Arc<CodexThread>> {
+        let thread_id = ThreadId::from_string(thread_id).ok()?;
+        self.thread_manager.get_thread(thread_id).await.ok()
+    }
+
+    async fn mark_unmaterialized_history_error(
+        &self,
+        observed_thread: Option<Arc<CodexThread>>,
+        mut error: JSONRPCErrorError,
+    ) -> JSONRPCErrorError {
+        if error.code != crate::error_code::INVALID_REQUEST_ERROR_CODE
+            || error.data.is_some()
+            || !self.thread_store.as_any().is::<LocalThreadStore>()
+        {
+            return error;
+        }
+        let Some(thread) = observed_thread else {
+            return error;
+        };
+        if thread.config_snapshot().await.ephemeral {
+            return error;
+        }
+        let Some(path) = thread.rollout_path() else {
+            return error;
+        };
+        // A missing file alone also describes deleted history. The owning writer must
+        // still report intentional deferred creation, ordered with its persistence.
+        if !matches!(tokio::fs::try_exists(&path).await, Ok(false))
+            || !matches!(thread.feedback_rollout_path().await, Ok(None))
+        {
+            return error;
+        }
+        let thread_id = thread.startup_metadata().thread_id;
+        let unloading = self
+            .pending_thread_unloads
+            .lock()
+            .await
+            .contains_key(&thread_id);
+        if unloading
+            || !self
+                .thread_manager
+                .get_thread(thread_id)
+                .await
+                .is_ok_and(|current| Arc::ptr_eq(&current, &thread))
+        {
+            return error;
+        }
+        // This is unavailable history, never evidence of an empty projection.
+        error.data = Some(serde_json::json!({
+            "kind": "historyProjectionUnavailable",
+            "reason": "unmaterialized",
+        }));
+        error
+    }
+
     pub(crate) async fn thread_read(
         &self,
         request_id: &ConnectionRequestId,
         params: ThreadReadParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         let include_turns = params.include_turns;
-        let response = self.thread_read_response_inner(params).await?;
+        let observed_thread = if include_turns {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        let response = match self.thread_read_response_inner(params).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(self
+                    .mark_unmaterialized_history_error(observed_thread, error)
+                    .await);
+            }
+        };
         if include_turns
             && matches!(
                 response.thread.history_mode,
@@ -953,18 +1020,34 @@ impl ThreadRequestProcessor {
         &self,
         params: ThreadTurnsListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_turns_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let observed_thread = if params.cursor.is_none() {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        match self.thread_turns_list_response_inner(params).await {
+            Ok(response) => Ok(Some(response.into())),
+            Err(error) => Err(self
+                .mark_unmaterialized_history_error(observed_thread, error)
+                .await),
+        }
     }
 
     pub(crate) async fn thread_items_list(
         &self,
         params: ThreadItemsListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_items_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let observed_thread = if params.cursor.is_none() && params.turn_id.is_none() {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        match self.thread_items_list_response_inner(params).await {
+            Ok(response) => Ok(Some(response.into())),
+            Err(error) => Err(self
+                .mark_unmaterialized_history_error(observed_thread, error)
+                .await),
+        }
     }
 
     pub(crate) async fn thread_items_read(
