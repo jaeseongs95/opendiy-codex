@@ -145,3 +145,9 @@ Source update `da5893f12d012899c29336db426868d94942ec3a` (integration in progres
 - `codex-rs/app-server/src/lib.rs`
 - `codex-rs/exec/src/lib.rs`
 - `codex-rs/tui/src/startup_orchestration.rs`
+
+Source update `012b105ff548caa7bbd64e67e6fb86d192320077` (integration in progress):
+
+- `tools/windows-cli/README.md`
+- `tools/windows-cli/package_cli.py`
+- `tools/windows-cli/test_package_cli.py`

@@ -1,4 +1,3 @@
-# Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
 """Prepare a separate Windows CLI package; never replace an existing installation."""
 
 import argparse
@@ -75,6 +74,10 @@ def package(source, freeze_file, binary, vendor, output, expected_version):
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     (output / "codex-patched.cmd").write_text(
+        '@echo off\n"%~dp0bin\\codex.exe" %*\nexit /b %errorlevel%\n',
+        encoding="utf-8", newline="\r\n",
+    )
+    (output / "codex-local.cmd").write_text(
         '@echo off\n"%~dp0bin\\codex.exe" --no-daemon %*\nexit /b %errorlevel%\n',
         encoding="utf-8", newline="\r\n",
     )
