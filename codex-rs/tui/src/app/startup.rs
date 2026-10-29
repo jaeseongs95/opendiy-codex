@@ -1529,6 +1529,9 @@ See the Codex keymap documentation for supported actions and examples."
                             }
                             Some(_) => {}
                             None => {
+                                if let Some(session) = backends.session(owner) {
+                                    app.handle_backend_stream_closed(session);
+                                }
                                 if owner == initial_owner {
                                     if app.reconnect.offline && app.pending_startup_thread_start {
                                         reconnect = None;

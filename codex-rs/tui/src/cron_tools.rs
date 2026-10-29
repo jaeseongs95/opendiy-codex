@@ -171,6 +171,133 @@ pub(crate) async fn execute(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cron_execute_verifies_real_thread_read_policy_before_queueing()
+    -> color_eyre::Result<()> {
+        use codex_app_server_protocol::{JSONRPCMessage, SessionSource};
+        use codex_protocol::ThreadId;
+        use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+        for case in ["wrong-id", "direct-input-denied", "subagent", "valid"] {
+            let caller = ThreadId::new();
+            let returned = if case == "wrong-id" {
+                ThreadId::new()
+            } else {
+                caller
+            };
+            let source = if case == "subagent" {
+                SessionSource::SubAgent(codex_protocol::protocol::SubAgentSource::Review)
+            } else {
+                SessionSource::Cli
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let endpoint = crate::resolve_remote_addr(&format!("ws://{}", listener.local_addr()?))?;
+            let reads = Arc::new(AtomicU8::new(0));
+            let observed = Arc::clone(&reads);
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await?;
+                let mut socket = tokio_tungstenite::accept_async(stream).await?;
+                while let Some(frame) = socket.next().await {
+                    let Message::Text(text) = frame? else {
+                        continue;
+                    };
+                    let JSONRPCMessage::Request(request) = serde_json::from_str(&text)? else {
+                        continue;
+                    };
+                    let result = match request.method.as_str() {
+                        "initialize" => json!({
+                            "userAgent":"cron-policy-test", "codexHome":std::env::temp_dir(),
+                            "platformFamily":std::env::consts::FAMILY, "platformOs":std::env::consts::OS
+                        }),
+                        "thread/read" => {
+                            let params: codex_app_server_protocol::ThreadReadParams =
+                                serde_json::from_value(
+                                    request.params.as_ref().expect("read params").clone(),
+                                )?;
+                            assert_eq!(params.thread_id, caller.to_string());
+                            assert!(!params.include_turns);
+                            observed.fetch_add(1, Ordering::AcqRel);
+                            json!({"thread": {
+                                "id":returned, "sessionId":returned, "preview":"caller", "ephemeral":false,
+                                "modelProvider":"test-provider", "createdAt":1, "updatedAt":2,
+                                "status":{"type":"idle"}, "cwd":std::env::temp_dir(), "cliVersion":"0.0.0",
+                                "source":source, "canAcceptDirectInput":case != "direct-input-denied", "turns":[]
+                            }})
+                        }
+                        method => panic!("unexpected policy fixture request: {method}"),
+                    };
+                    if request.method == "initialize" {
+                        let _: codex_app_server_protocol::InitializeResponse =
+                            serde_json::from_value(result.clone())?;
+                    } else {
+                        let _: codex_app_server_protocol::ThreadReadResponse =
+                            serde_json::from_value(result.clone())?;
+                    }
+                    socket
+                        .send(Message::Text(
+                            json!({"id":request.id,"result":result}).to_string().into(),
+                        ))
+                        .await?;
+                }
+                Ok::<_, color_eyre::Report>(())
+            });
+            let session = crate::app_server_session::AppServerSession::new(
+                BackendId::new(),
+                crate::connect_remote_app_server(endpoint).await?,
+                crate::app_server_session::ThreadParamsMode::Remote,
+            );
+            let (tx, mut events) = tokio::sync::mpsc::unbounded_channel();
+            let sender = AppEventSender::new(tx);
+            let connection = session.cron_tool_connection();
+            let handle = session.request_handle();
+            let event_sender = sender.clone();
+            let pending = tokio::spawn(async move {
+                execute(
+                    connection,
+                    handle,
+                    DynamicToolCallParams {
+                        thread_id: caller.to_string(),
+                        turn_id: "caller-turn".into(),
+                        call_id: case.into(),
+                        namespace: Some(dynamic_tools::NAMESPACE.into()),
+                        tool: NAME.into(),
+                        arguments: json!({"action":"add","every":"1m","prompt":"권한 확인"}),
+                    },
+                    &event_sender,
+                    CancellationToken::new(),
+                )
+                .await
+            });
+            if case == "valid" {
+                let Some(AppEvent::CronToolCall(request)) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), events.recv()).await?
+                else {
+                    panic!("valid source must reach the app queue")
+                };
+                assert_eq!(request.params.thread_id, caller.to_string());
+                assert_eq!(request.command, "add --every 1m -- 권한 확인");
+                let _ = request.reply.send(DynamicToolCallResponse {
+                    success: true,
+                    content_items: Vec::new(),
+                });
+            }
+            let response =
+                tokio::time::timeout(std::time::Duration::from_secs(5), pending).await??;
+            assert_eq!(response.success, case == "valid", "{case}: {response:?}");
+            assert_eq!(reads.load(Ordering::Acquire), 1);
+            assert!(
+                matches!(
+                    events.try_recv(),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+                ),
+                "{case}"
+            );
+            session.shutdown().await?;
+            server.await??;
+        }
+        Ok(())
+    }
+
     #[test]
     fn cron_arguments_reject_target_injection_and_ambiguous_schedules() {
         assert_eq!(
