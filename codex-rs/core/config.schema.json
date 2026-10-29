@@ -2774,6 +2774,14 @@
           "format": "int64",
           "type": "integer"
         },
+        "scope": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/MemoryScope"
+            }
+          ],
+          "description": "Project scope isolates sources, generated files, and memory jobs by repository."
+        },
         "use_memories": {
           "description": "When `false`, skip injecting memory usage instructions into developer prompts.",
           "type": "boolean"
@@ -2788,6 +2796,14 @@
         }
       },
       "type": "object"
+    },
+    "MemoryScope": {
+      "description": "Storage and source-selection boundary for generated memory.",
+      "enum": [
+        "global",
+        "project"
+      ],
+      "type": "string"
     },
     "MemoryVersion": {
       "enum": [
@@ -4948,6 +4964,7 @@
               "open_thread": null
             },
             "chat": {
+              "background_terminal": null,
               "decrease_reasoning_effort": null,
               "edit_queued_message": null,
               "increase_reasoning_effort": null,
@@ -5457,6 +5474,14 @@
       "additionalProperties": false,
       "description": "Chat context keybindings.",
       "properties": {
+        "background_terminal": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Return the current unified-exec startup response early, preserving its process."
+        },
         "decrease_reasoning_effort": {
           "allOf": [
             {
@@ -5951,6 +5976,7 @@
             }
           ],
           "default": {
+            "background_terminal": null,
             "decrease_reasoning_effort": null,
             "edit_queued_message": null,
             "increase_reasoning_effort": null,

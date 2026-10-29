@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Content-free tracing batches. The producer never performs filesystem I/O.
 //! Completed local batches are copied once to an optional streaming-drive path.
 use chrono::Local;
@@ -299,9 +299,14 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for BatchLayer {
         }
         let mut fields = SafeFields::default();
         attrs.record(&mut fields);
+        // The registry has resolved explicit, contextual and detached ancestry.
+        // Attributes::parent only contains explicitly supplied parent IDs.
+        let parent = ctx
+            .span(id)
+            .and_then(|span| span.parent().map(|parent| parent.id().into_u64()));
         self.submit(json!({"kind":"span_open", "at":Local::now().to_rfc3339(),
             "pid":std::process::id(), "span":id.into_u64(),
-            "parent":attrs.parent().map(Id::into_u64),
+            "parent":parent,
             "target":attrs.metadata().target(), "name":attrs.metadata().name(), "fields":fields.0}));
         if let Some(span) = ctx.span(id) {
             span.extensions_mut().insert(SpanData {
@@ -586,6 +591,70 @@ mod tests {
     }
 
     #[test]
+    fn tracing_parent_correlation_matches_contextual_explicit_and_root_spans() {
+        let (sender, receiver) = mpsc::sync_channel(64);
+        let counters = Arc::new(Counters::default());
+        let layer = BatchLayer {
+            sender,
+            counters: counters.clone(),
+            settings: Settings {
+                enabled: true,
+                ..Settings::default()
+            },
+        };
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let (outer_id, implicit_id, detached_id, explicit_id) =
+            tracing::subscriber::with_default(subscriber, || {
+                let outer = tracing::info_span!(target: "codex_test", "outer");
+                let _outer_scope = outer.enter();
+                let implicit = tracing::info_span!(target: "codex_test", "implicit");
+                {
+                    let _child_scope = implicit.enter();
+                    tracing::info!(target: "codex_test", count = 1_u64);
+                }
+                let detached = tracing::info_span!(target: "codex_test", parent: None, "detached");
+                let explicit =
+                    tracing::info_span!(target: "codex_test", parent: &detached, "explicit");
+                tracing::info!(target: "codex_test", parent: &explicit, count = 2_u64);
+                tracing::info!(target: "codex_test", parent: None, count = 3_u64);
+                (
+                    outer.id().unwrap().into_u64(),
+                    implicit.id().unwrap().into_u64(),
+                    detached.id().unwrap().into_u64(),
+                    explicit.id().unwrap().into_u64(),
+                )
+            });
+        let rows = receiver
+            .try_iter()
+            .filter_map(|command| match command {
+                Command::Event(bytes) => Some(serde_json::from_slice::<Value>(&bytes).unwrap()),
+                Command::Shutdown => None,
+            })
+            .collect::<Vec<_>>();
+        let opened = |name| {
+            rows.iter()
+                .find(|row| row["kind"] == "span_open" && row["name"] == name)
+                .unwrap()
+        };
+        assert_eq!(opened("outer")["span"], json!(outer_id));
+        assert_eq!(opened("outer")["parent"], Value::Null);
+        assert_eq!(opened("implicit")["parent"], json!(outer_id));
+        assert_eq!(opened("detached")["span"], json!(detached_id));
+        assert_eq!(opened("detached")["parent"], Value::Null);
+        assert_eq!(opened("explicit")["parent"], json!(detached_id));
+        let event_span = |count| {
+            rows.iter()
+                .find(|row| row["kind"] == "event" && row["fields"]["count"] == json!(count))
+                .unwrap()["span"]
+                .clone()
+        };
+        assert_eq!(event_span(1_u64), json!(implicit_id));
+        assert_eq!(event_span(2_u64), json!(explicit_id));
+        assert_eq!(event_span(3_u64), Value::Null);
+        assert_eq!(counters.dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
     fn tracing_boundary_keeps_ids_and_durations_but_never_secret_payloads() {
         let root = tempfile::tempdir().unwrap();
         let (layer, guard) = start_with(
@@ -698,7 +767,8 @@ mod tests {
         let mut children = Vec::new();
         for source in &sources {
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-            command.args(["--exact", "batch_log::tests::exporter_child", "--ignored"])
+            command
+                .args(["--exact", "batch_log::tests::exporter_child", "--ignored"])
                 .env("CODEX_TEST_EXPORT_SOURCE", source)
                 .env("CODEX_TEST_EXPORT_TARGET", &target)
                 .stdout(std::process::Stdio::null());

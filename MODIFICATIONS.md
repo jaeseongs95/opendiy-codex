@@ -236,3 +236,8 @@ Source update `6b4628988df39ae5995f0f3706687d73e9d89ea9` (integration in progres
 - `codex-rs/tui/src/chatwidget/status_controls.rs`
 - `codex-rs/tui/src/i18n.rs`
 - `codex-rs/tui/src/slash_command.rs`
+
+Source update `a7bd64a5888e7a6ccc58b175c4363584bd7ecc61` (integration in progress):
+
+- `codex-rs/core/config.schema.json`
+- `codex-rs/diagnostics/src/batch_log.rs`
