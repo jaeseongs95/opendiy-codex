@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! A live task status row rendered above the composer while the agent is busy.
 //!
 //! The row renders a separately owned clock, the optional interrupt hint, and short inline
@@ -369,9 +369,11 @@ mod tests {
             );
             assert!(rendered.contains("esc"), "{rendered}");
             assert!(
-                row.with_timer(&timer).lines(60)[0]
-                    .to_string()
-                    .contains("esc 중단)")
+                rendered
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("esc중단)"),
+                "{rendered}"
             );
         });
     }

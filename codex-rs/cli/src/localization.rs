@@ -20,11 +20,16 @@ pub(super) fn localize_help(mut command: Command, locale: Locale) -> Command {
     command
         .subcommand_help_heading("명령어")
         .help_template("{before-help}{name} {version}\n{about-with-newline}\n사용법: {usage}\n\n{all-args}{after-help}")
-        .mut_args(|arg| {
+        .mut_args(|mut arg| {
             let help = arg.get_help().map(|help| text_for(locale, &help.to_string()).to_string());
             let long_help = arg.get_long_help().map(|help| text_for(locale, &help.to_string()).to_string());
-            let heading = if arg.is_positional() { "인수" } else { "옵션" };
-            arg.help(help).long_help(long_help).help_heading(heading)
+            if let Some(help) = help {
+                arg = arg.help(help);
+            }
+            if let Some(long_help) = long_help {
+                arg = arg.long_help(long_help);
+            }
+            arg
         })
         .mut_subcommands(|child| localize_help(child, locale))
 }
@@ -157,6 +162,57 @@ mod tests {
             .to_string();
         assert!(help.contains("Start with remote control disabled"));
         assert!(help.contains("--no-remote-control"));
+    }
+
+    #[test]
+    fn localized_arguments_preserve_optional_help_and_custom_headings() {
+        let original = Command::new("metadata")
+            .arg(Arg::new("absent").long("absent"))
+            .arg(Arg::new("short").long("short").help("Print help"))
+            .arg(Arg::new("long").long("long").long_help("Print version"))
+            .arg(
+                Arg::new("both")
+                    .long("both")
+                    .help("custom short")
+                    .long_help("custom long")
+                    .help_heading("Original section"),
+            );
+        let localized = localize_help(original.clone(), Locale::Korean);
+        assert_eq!(
+            original.get_arguments().count(),
+            localized.get_arguments().count()
+        );
+        for (before, after) in original.get_arguments().zip(localized.get_arguments()) {
+            assert_eq!(before.get_id(), after.get_id());
+            assert_eq!(before.get_long(), after.get_long());
+            assert_eq!(before.get_help().is_some(), after.get_help().is_some());
+            assert_eq!(
+                before.get_long_help().is_some(),
+                after.get_long_help().is_some()
+            );
+            assert_eq!(before.get_help_heading(), after.get_help_heading());
+            match after.get_id().as_str() {
+                "short" => assert_eq!(
+                    after.get_help().expect("short help").to_string(),
+                    "도움말 표시"
+                ),
+                "long" => assert_eq!(
+                    after.get_long_help().expect("long help").to_string(),
+                    "버전 표시"
+                ),
+                "both" => {
+                    assert_eq!(
+                        after.get_help().expect("short help").to_string(),
+                        "custom short"
+                    );
+                    assert_eq!(
+                        after.get_long_help().expect("long help").to_string(),
+                        "custom long"
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]

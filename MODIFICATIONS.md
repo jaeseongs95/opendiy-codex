@@ -241,3 +241,9 @@ Source update `a7bd64a5888e7a6ccc58b175c4363584bd7ecc61` (integration in progres
 
 - `codex-rs/core/config.schema.json`
 - `codex-rs/diagnostics/src/batch_log.rs`
+
+Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progress):
+
+- `codex-rs/cli/src/localization.rs`
+- `codex-rs/tui/src/onboarding/trust_directory.rs`
+- `codex-rs/tui/src/status_indicator_widget.rs`
