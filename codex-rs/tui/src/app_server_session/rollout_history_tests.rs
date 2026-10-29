@@ -454,7 +454,10 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()> 
         )
         .await?;
     assert_eq!(resumed.session.thread_id, thread_id);
-    assert!(app_server.next_request_id >= next_request_id + 4);
+    // Resume itself revalidates the stale mode; the official turn/item pages follow it.
+    // No extra metadata read is needed before the excluded-turn resume request.
+    assert!(app_server.next_request_id >= next_request_id + 3);
+    assert!(!resumed.turns.is_empty());
     assert_eq!(
         app_server
             .history_pagination

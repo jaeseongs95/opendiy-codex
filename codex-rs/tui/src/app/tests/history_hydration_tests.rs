@@ -411,7 +411,11 @@ async fn official_history_pages_reuse_global_cursor_and_fence_superseded_latest(
     assert!(
         recorded_params(&requests, "thread/read")
             .iter()
-            .all(|params| params["includeTurns"] == false)
+            .all(
+                |params| !serde_json::from_value::<ThreadReadParams>(params.clone())
+                    .expect("recorded thread/read params")
+                    .include_turns
+            )
     );
     server.shutdown().await?;
     proxy.await??;
@@ -549,11 +553,13 @@ async fn fifty_turn_window_returns_through_every_evicted_turn_in_both_directions
             .map(|index| format!("item-{index}-0"))
             .collect::<Vec<_>>()
     );
+    assert_eq!(thread.turns.first().unwrap().id, "turn-20");
     let mut returned = Vec::new();
-    for _ in 0..4 {
-        let request = server
-            .begin_history_page(target.thread_id, HistoryDirection::Older)
-            .unwrap();
+    for _ in 0..128 {
+        let Some(request) = server.begin_history_page(target.thread_id, HistoryDirection::Older)
+        else {
+            break;
+        };
         let page: ThreadItemsListResponse = server
             .request_handle()
             .request_typed(ClientRequest::ThreadItemsList {
@@ -564,13 +570,23 @@ async fn fifty_turn_window_returns_through_every_evicted_turn_in_both_directions
         returned.extend(
             server
                 .apply_older_history_page(target.thread_id, &request.token, page, &mut thread.turns)
-                .await?,
+                .await?
+                .into_iter()
+                .map(|item| item.id().to_string()),
         );
-        if !returned.is_empty() {
-            break;
-        }
+        thread
+            .turns
+            .truncate(crate::history_window::MAX_HISTORY_TURNS);
+        server.reanchor_history_window(target.thread_id, &thread.turns, HistoryDirection::Older);
     }
-    assert_eq!(returned.first().unwrap().id(), "item-28-0");
+    assert!(!server.has_older_history(target.thread_id));
+    assert_eq!(
+        returned,
+        (0..20)
+            .rev()
+            .map(|index| format!("item-{index}-0"))
+            .collect::<Vec<_>>()
+    );
     let metadata = recorded_params(&requests, "thread/turns/list");
     assert!(
         metadata

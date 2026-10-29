@@ -352,6 +352,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let frame = dir.path().join("frame.png");
         std::fs::write(&frame, b"png").unwrap();
+        let expected_path = frame.canonicalize().unwrap();
         let request = AmbientPetDraw {
             frame,
             protocol: ImageProtocol::KittyLocalFile,
@@ -372,7 +373,21 @@ mod tests {
         assert!(output.contains("a=d,d=I,i=49374,q=2;"));
         assert!(output.contains("\x1b[4;3H"));
         assert!(output.contains("a=T,t=f,f=100,c=4,r=2,q=2,i=49374,C=1;"));
-        assert!(!output.contains("cG5n"));
+        use base64::Engine as _;
+        let payload = output
+            .split("C=1;")
+            .nth(1)
+            .unwrap()
+            .split("\x1b\\")
+            .next()
+            .unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(payload)
+                .unwrap(),
+            expected_path.to_string_lossy().as_bytes()
+        );
+        assert!(!output.contains("t=d"));
         assert!(output.contains("\x1b8"));
     }
 
