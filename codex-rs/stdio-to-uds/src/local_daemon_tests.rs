@@ -2,6 +2,7 @@ use super::connect_local_daemon;
 use codex_uds::UnixListener;
 use codex_uds::UnixStream;
 use std::io::ErrorKind;
+use std::os::windows::process::CommandExt;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -53,6 +54,7 @@ async fn implicit_proxy_authenticates_real_peer_before_transferring_bytes() {
     // An independent OS query determines whether this process's actual token is
     // elevated; neither the caller nor this test changes the token or its rights.
     let output = std::process::Command::new("powershell.exe")
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
         .output()
         .unwrap();
