@@ -105,3 +105,35 @@ cargo metadata --manifest-path codex-rs/Cargo.toml --no-deps --offline --locked 
 ## English summary
 
 Historical r22 Windows testing passed a locked/offline CLI and App Server all-targets check and 18 targeted Cargo tests. A separate socket fixture checked IO, inheritance, cleanup and named pipes; its Mio artifact matched the App Server test artifact, not the entire Tokio/RMCP graph. Source-import checks separately verified provenance, local build inputs and Cargo metadata. Verifier self-tests had five passes and one real-symlink skip. Desktop typing/navigation traces and external memory/TCP/process observations at one-minute intervals were separate diagnostics. A fresh public-clone release build, full desktop reproduction and complete resolution of performance or connection issues are not claimed. Private UI assets and raw operational evidence are excluded.
+
+## 공유 로컬 서버 후속 회귀시험—미실행
+
+고정 소스 `a3edca405d1eddf138f549764459394603576804`의 후속 후보는 컴파일·제품 회귀시험·독립감사·설치 전이다. 프록시 3개 시험 함수의 3사례와 재개 4개 함수의 10사례, 총 13사례를 작성했으며 새 제품 시험 실행은 0건이다. 아래는 실행할 시험 필터이며 통과 기록이 아니다. 소스 내보내기 검증기와 검증기 자체 시험은 제품 시험과 별개다.
+
+이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `a3edca405d1eddf138f549764459394603576804`는 그 판정을 이어받지 않으며 아직 독립감사·컴파일·제품 실행시험·설치 전이다. 이 갱신은 제품 코드를 더 바꾸지 않고 SQLite 설정별 회귀와 MCP 시험 요청·판정을 보강한다.
+
+MCP 큐 회귀는 필수 `io.modelcontextprotocol/protocolVersion`·`io.modelcontextprotocol/clientCapabilities` 메타데이터, 정확한 부정 응답 코드·메시지, 큐 도착 전 응답 본문 판정을 보강했다. 제품 전달 성공이나 새 후보의 시험 통과를 주장하지 않는다.
+
+프록시 시험은 Windows에서 넓은 디렉터리를 접속 전에 거부하고, 없는 디렉터리를 생성·복구하지 않으며, 실제 운영체제 토큰에 따라 연결 상대를 검사한 뒤 바이트 왕복 또는 전송 전 거부를 확인하도록 작성했다. 상대 토큰을 조회하는 PowerShell 자식은 숨김으로 실행한다.
+
+- `implicit_proxy_rejects_broad_directory_before_connecting`
+- `implicit_proxy_does_not_create_or_repair_missing_directory`
+- `implicit_proxy_authenticates_real_peer_before_transferring_bytes`
+
+재개 시험은 두 이력 모드의 이력 요구 거부 4사례, 다른 실제 연결의 미저장 대화 재접속 2사례, SQLite 사용 여부에 따른 기존 삭제 파일 조회 계약 2사례, 미로딩 런타임·임의 UUID 거부 2사례다. SQLite 메타데이터가 `Some`인 로드된 대화의 메타데이터 전용 재개는 기존 조회 계약을 유지하며 파일 삭제만으로 거부한다고 주장하지 않는다. 마지막 두 사례는 각 이력 모드에서 다른 프로세스에만 로드된 미저장 대화와 임의 UUID를 모두 검사한다.
+
+- `thread_resume_rejects_unmaterialized_thread_history`
+- `thread_resume_rejoins_unmaterialized_thread_from_another_connection`
+- `thread_resume_metadata_preserves_deleted_rollout_contract`
+- `thread_resume_metadata_does_not_create_missing_runtime`
+
+```sh
+cd codex-rs
+cargo test --locked -p codex-stdio-to-uds --lib implicit_proxy_
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_rejects_unmaterialized_thread_history
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_rejoins_unmaterialized_thread_from_another_connection
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_metadata_preserves_deleted_rollout_contract
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_metadata_does_not_create_missing_runtime
+cargo test --locked -p codex-tui --lib model_cron_mcp_metadata_and_cancelled_queue_fail_closed
+cargo test --locked -p codex-tui --lib reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue
+```

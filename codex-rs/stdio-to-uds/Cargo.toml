@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 [package]
 name = "codex-stdio-to-uds"
 version.workspace = true
@@ -11,7 +12,6 @@ path = "src/main.rs"
 [lib]
 name = "codex_stdio_to_uds"
 path = "src/lib.rs"
-test = false
 doctest = false
 
 [lints]

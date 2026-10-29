@@ -21294,7 +21294,7 @@ index b58ea6e8b..7c2f9a597 100644
      }
  }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 941e32e5c..77c53acbb 100644
+index 941e32e5c..f6e933aab 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -852,6 +852,24 @@ impl ThreadRequestProcessor {
@@ -21366,7 +21366,157 @@ index 941e32e5c..77c53acbb 100644
                  ThreadStoreError::ThreadNotFound { thread_id } => {
                      invalid_request(format!("no rollout found for thread id {thread_id}"))
                  }
-@@ -6353,8 +6385,15 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
+@@ -4646,12 +4678,26 @@ impl ThreadRequestProcessor {
+             && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
+         {
+             let source_thread = self
+-                .read_stored_thread_for_resume(
+-                    &params.thread_id,
+-                    /*path*/ None,
+-                    /*include_history*/ false,
+-                )
+-                .await?;
++                .read_stored_thread_for_read(existing_thread_id, /*include_history*/ false)
++                .await
++                .map_err(thread_read_view_error)?;
++            if source_thread.is_none()
++                && !(params.exclude_turns
++                    && params.initial_turns_page.is_none()
++                    && self.thread_store.as_any().is::<LocalThreadStore>()
++                    && existing_thread.rollout_path().is_some()
++                    && existing_thread
++                        .feedback_rollout_path()
++                        .await
++                        .map_err(thread_store_resume_read_error)?
++                        .is_none())
++            {
++                return Err(invalid_request(format!(
++                    "no rollout found for thread id {existing_thread_id}"
++                )));
++            }
++            // Only the owning, unmaterialized local writer can rejoin without stored metadata.
++            // feedback_rollout_path retains Some(path) for a materialized but deleted rollout.
+             Some((existing_thread_id, existing_thread, source_thread))
+         } else {
+             let source_thread = self
+@@ -4663,7 +4709,9 @@ impl ThreadRequestProcessor {
+                 .await?;
+             let existing_thread_id = source_thread.thread_id;
+             match self.thread_manager.get_thread(existing_thread_id).await {
+-                Ok(existing_thread) => Some((existing_thread_id, existing_thread, source_thread)),
++                Ok(existing_thread) => {
++                    Some((existing_thread_id, existing_thread, Some(source_thread)))
++                }
+                 Err(_) => {
+                     return Ok(RunningThreadResumeResult::NotRunning(Some(Box::new(
+                         source_thread,
+@@ -4673,12 +4721,25 @@ impl ThreadRequestProcessor {
+         };
+ 
+         if let Some((existing_thread_id, existing_thread, mut source_thread)) = running_thread {
+-            let paginated_resume =
+-                matches!(source_thread.history_mode, ThreadHistoryMode::Paginated);
+-            let existing_thread_rollout_path = existing_thread.rollout_path();
+-            let active_path = existing_thread_rollout_path
++            if let Some(source_thread) = source_thread.as_ref()
++                && source_thread.archived_at.is_some()
++            {
++                return Err(invalid_request(format!(
++                    "session {existing_thread_id} is archived. Run `codex unarchive {existing_thread_id}` to unarchive it first."
++                )));
++            }
++            let (config_snapshot, selected_service_tier) =
++                existing_thread.resume_config_snapshot().await;
++            let history_mode = source_thread
+                 .as_ref()
+-                .or(source_thread.rollout_path.as_ref());
++                .map_or(config_snapshot.history_mode, |thread| thread.history_mode);
++            let paginated_resume = matches!(history_mode, ThreadHistoryMode::Paginated);
++            let existing_thread_rollout_path = existing_thread.rollout_path();
++            let active_path = existing_thread_rollout_path.as_ref().or_else(|| {
++                source_thread
++                    .as_ref()
++                    .and_then(|thread| thread.rollout_path.as_ref())
++            });
+             if let (Some(requested_path), Some(active_path)) = (params.path.as_ref(), active_path)
+                 && !path_utils::paths_match_after_normalization(requested_path, active_path)
+             {
+@@ -4688,8 +4749,6 @@ impl ThreadRequestProcessor {
+                     active_path.display()
+                 )));
+             }
+-            let (config_snapshot, selected_service_tier) =
+-                existing_thread.resume_config_snapshot().await;
+             let mismatch_details = collect_resume_override_mismatches(
+                 params,
+                 &config_snapshot,
+@@ -4709,10 +4768,12 @@ impl ThreadRequestProcessor {
+                     matches!(existing_thread.agent_status().await, AgentStatus::Running);
+ 
+                 // Parent-owned V2 children must not be rebuilt from public resume overrides.
+-                if can_accept_direct_input(
+-                    existing_thread.multi_agent_version(),
+-                    &config_snapshot.session_source,
+-                ) && !has_subscribers
++                if source_thread.is_some()
++                    && can_accept_direct_input(
++                        existing_thread.multi_agent_version(),
++                        &config_snapshot.session_source,
++                    )
++                    && !has_subscribers
+                     && matches!(loaded_status, ThreadStatus::Idle)
+                     && !is_running
+                 {
+@@ -4757,9 +4818,12 @@ impl ThreadRequestProcessor {
+             let needs_history =
+                 !paginated_resume && (include_turns || params.initial_turns_page.is_some());
+             if needs_history {
++                let source_thread = source_thread.as_mut().ok_or_else(|| {
++                    internal_error(format!("thread {existing_thread_id} has no stored history"))
++                })?;
+                 let source_thread_id = source_thread.thread_id.to_string();
+                 let source_rollout_path = source_thread.rollout_path.clone();
+-                source_thread = self
++                *source_thread = self
+                     .read_stored_thread_for_resume(
+                         &source_thread_id,
+                         source_rollout_path.as_ref(),
+@@ -4775,8 +4839,8 @@ impl ThreadRequestProcessor {
+             }
+             let history_items = if needs_history {
+                 source_thread
+-                    .history
+-                    .take()
++                    .as_mut()
++                    .and_then(|thread| thread.history.take())
+                     .map(|history| history.items)
+                     .ok_or_else(|| {
+                         internal_error(format!(
+@@ -4804,11 +4868,18 @@ impl ThreadRequestProcessor {
+             )
+             .await?;
+ 
+-            let mut thread_summary = self.stored_thread_to_api_thread(
+-                source_thread,
+-                config_snapshot.model_provider_id.as_str(),
+-                /*include_turns*/ false,
+-            );
++            let mut thread_summary = match source_thread {
++                Some(source_thread) => self.stored_thread_to_api_thread(
++                    source_thread,
++                    config_snapshot.model_provider_id.as_str(),
++                    /*include_turns*/ false,
++                ),
++                None => build_thread_from_loaded_snapshot(
++                    existing_thread_id,
++                    &config_snapshot,
++                    &existing_thread,
++                ),
++            };
+             thread_summary.session_id = existing_thread.startup_metadata().session_id.to_string();
+             thread_summary.thread_source = config_snapshot.thread_source.clone().map(Into::into);
+             apply_live_thread_settings(&mut thread_summary, &config_snapshot);
+@@ -6353,8 +6424,15 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
      }
  }
  
@@ -21383,7 +21533,7 @@ index 941e32e5c..77c53acbb 100644
          ThreadStoreError::InvalidRequest { message } => invalid_request(message),
          ThreadStoreError::Unsupported { operation } => {
              unsupported_thread_store_operation(operation)
-@@ -6362,7 +6401,12 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
+@@ -6362,7 +6440,12 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
          ThreadStoreError::ThreadNotFound { thread_id } => {
              invalid_request(format!("no rollout found for thread id {thread_id}"))
          }
@@ -22427,6 +22577,363 @@ index f1c704e90..aca321343 100644
  #[tokio::test]
  async fn paginated_history_lists_and_legacy_reads_use_projected_turns_and_items() -> Result<()> {
      let server = create_mock_responses_server_repeating_assistant("Done").await;
+diff --git a/codex-rs/app-server/tests/suite/v2/thread_resume.rs b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
+index 19cd962b1..e519bd617 100644
+--- a/codex-rs/app-server/tests/suite/v2/thread_resume.rs
++++ b/codex-rs/app-server/tests/suite/v2/thread_resume.rs
+@@ -448,13 +448,13 @@ async fn wait_for_responses_request_count(
+ }
+ 
+ #[test_case(ThreadHistoryMode::Legacy, false; "legacy with turns")]
+-#[test_case(ThreadHistoryMode::Legacy, true; "legacy without turns")]
+ #[test_case(ThreadHistoryMode::Paginated, false; "paginated with turns")]
+-#[test_case(ThreadHistoryMode::Paginated, true; "paginated without turns")]
++#[test_case(ThreadHistoryMode::Legacy, true; "legacy initial page")]
++#[test_case(ThreadHistoryMode::Paginated, true; "paginated initial page")]
+ #[tokio::test]
+-async fn thread_resume_rejects_unmaterialized_thread(
++async fn thread_resume_rejects_unmaterialized_thread_history(
+     history_mode: ThreadHistoryMode,
+-    exclude_turns: bool,
++    initial_page: bool,
+ ) -> Result<()> {
+     let server = create_mock_responses_server_repeating_assistant("Done").await;
+     let codex_home = TempDir::new()?;
+@@ -476,11 +476,16 @@ async fn thread_resume_rejects_unmaterialized_thread(
+     let ThreadStartResponse { thread, .. } =
+         timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(start_id)).await??;
+ 
+-    // Resume should fail before the first user message materializes rollout storage.
++    // Metadata-only rejoin must not make stored history available before materialization.
+     let resume_id = mcp
+         .send_thread_resume_request(ThreadResumeParams {
+             thread_id: thread.id.clone(),
+-            exclude_turns,
++            exclude_turns: initial_page,
++            initial_turns_page: initial_page.then_some(ThreadResumeInitialTurnsPageParams {
++                limit: Some(1),
++                sort_direction: None,
++                items_view: None,
++            }),
+             ..Default::default()
+         })
+         .await?;
+@@ -501,6 +506,315 @@ async fn thread_resume_rejects_unmaterialized_thread(
+     Ok(())
+ }
+ 
++#[test_case(ThreadHistoryMode::Legacy; "legacy")]
++#[test_case(ThreadHistoryMode::Paginated; "paginated")]
++#[tokio::test]
++async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
++    history_mode: ThreadHistoryMode,
++) -> Result<()> {
++    use super::connection_handling_websocket as websocket;
++    use futures::SinkExt;
++
++    let server = create_mock_responses_server_repeating_assistant("Done").await;
++    let codex_home = TempDir::new()?;
++    websocket::create_config_toml(codex_home.path(), &server.uri(), "on-request")?;
++    let (mut process, address) = websocket::spawn_websocket_server(codex_home.path()).await?;
++    let mut owner = websocket::connect_websocket(address).await?;
++    websocket::send_request(
++        &mut owner,
++        "initialize",
++        1,
++        Some(json!({
++            "clientInfo": { "name": "thread_owner", "version": "0" },
++            "capabilities": { "experimentalApi": true },
++        })),
++    )
++    .await?;
++    websocket::read_response_for_id(&mut owner, 1).await?;
++    websocket::send_request(
++        &mut owner,
++        "thread/start",
++        2,
++        Some(serde_json::to_value(ThreadStartParams {
++            history_mode: Some(history_mode),
++            ..Default::default()
++        })?),
++    )
++    .await?;
++    let started: ThreadStartResponse =
++        to_response(websocket::read_response_for_id(&mut owner, 2).await?)?;
++    let path = started.thread.path.as_ref().expect("local rollout path");
++    assert!(
++        !path.exists(),
++        "untouched thread must remain unmaterialized"
++    );
++
++    let mut joining = websocket::connect_websocket(address).await?;
++    websocket::send_request(
++        &mut joining,
++        "initialize",
++        3,
++        Some(json!({
++            "clientInfo": { "name": "thread_joining", "version": "0" },
++            "capabilities": { "experimentalApi": true },
++        })),
++    )
++    .await?;
++    websocket::read_response_for_id(&mut joining, 3).await?;
++    // Rejoining must retain the live writer, permissions, and session identity.
++    websocket::send_request(
++        &mut joining,
++        "thread/resume",
++        4,
++        Some(serde_json::to_value(ThreadResumeParams {
++            thread_id: started.thread.id.clone(),
++            exclude_turns: true,
++            approval_policy: Some(AskForApproval::Never),
++            model: Some("ignored-rejoin-model".to_string()),
++            ..Default::default()
++        })?),
++    )
++    .await?;
++    let resumed: ThreadResumeResponse =
++        to_response(websocket::read_response_for_id(&mut joining, 4).await?)?;
++    assert_eq!(resumed.thread.id, started.thread.id);
++    assert_eq!(resumed.thread.session_id, started.thread.session_id);
++    assert_eq!(resumed.thread.history_mode, history_mode);
++    assert_eq!(resumed.thread.path, started.thread.path);
++    assert_eq!(resumed.thread.can_accept_direct_input, Some(true));
++    assert_eq!(resumed.thread.status, ThreadStatus::Idle);
++    assert!(resumed.thread.turns.is_empty());
++    assert_eq!(resumed.model, started.model);
++    assert_eq!(resumed.approval_policy, started.approval_policy);
++    assert_eq!(resumed.approvals_reviewer, started.approvals_reviewer);
++    assert_eq!(resumed.sandbox, started.sandbox);
++    assert_eq!(
++        resumed.active_permission_profile,
++        started.active_permission_profile
++    );
++    assert!(
++        !path.exists(),
++        "rejoin must not materialize an empty rollout"
++    );
++
++    // A mismatched path must not switch this live thread to another source.
++    websocket::send_request(
++        &mut joining,
++        "thread/resume",
++        5,
++        Some(json!({
++            "threadId": started.thread.id,
++            "excludeTurns": true,
++            "path": codex_home.path().join("other-rollout.jsonl"),
++        })),
++    )
++    .await?;
++    let error = websocket::read_error_for_id(&mut joining, 5).await?;
++    assert_eq!(error.error.code, -32600);
++    assert!(error.error.message.contains("stale path"));
++    websocket::send_request(
++        &mut joining,
++        "thread/resume",
++        8,
++        Some(json!({ "threadId": started.thread.id, "excludeTurns": true, "history": [] })),
++    )
++    .await?;
++    let error = websocket::read_error_for_id(&mut joining, 8).await?;
++    assert_eq!(error.error.code, -32600);
++    assert!(
++        error
++            .error
++            .message
++            .contains("with history while it is already running")
++    );
++
++    // Disconnect only the joining client; the original runtime must remain usable.
++    joining.close(None).await?;
++    websocket::send_request(
++        &mut owner,
++        "thread/read",
++        6,
++        Some(json!({ "threadId": started.thread.id, "includeTurns": false })),
++    )
++    .await?;
++    let read: ThreadReadResponse =
++        to_response(websocket::read_response_for_id(&mut owner, 6).await?)?;
++    assert_eq!(read.thread.session_id, started.thread.session_id);
++    websocket::send_request(&mut owner, "thread/loaded/list", 7, Some(json!({}))).await?;
++    let loaded: ThreadLoadedListResponse =
++        to_response(websocket::read_response_for_id(&mut owner, 7).await?)?;
++    assert_eq!(loaded.data, vec![started.thread.id]);
++    process.kill().await?;
++    Ok(())
++}
++
++#[test_case(false; "without sqlite metadata")]
++#[test_case(true; "with sqlite metadata")]
++#[tokio::test]
++async fn thread_resume_metadata_preserves_deleted_rollout_contract(
++    sqlite_enabled: bool,
++) -> Result<()> {
++    let server = create_mock_responses_server_repeating_assistant("Done").await;
++    let codex_home = TempDir::new()?;
++    let config = mock_responses_config(&server.uri());
++    let config = if sqlite_enabled {
++        config.enable_feature(Feature::Sqlite)
++    } else {
++        config.disable_feature(Feature::Sqlite)
++    };
++    config.write(codex_home.path())?;
++    let mut mcp = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .build_initialized()
++        .await?;
++    let started = mcp
++        .start_thread(ThreadStartParams {
++            history_mode: Some(ThreadHistoryMode::Legacy),
++            ..Default::default()
++        })
++        .await?;
++    mcp.start_turn_and_wait_for_completion(TurnStartParams {
++        thread_id: started.thread.id.clone(),
++        input: vec![UserInput::Text {
++            text: "materialize rollout".to_string(),
++            text_elements: Vec::new(),
++        }],
++        ..Default::default()
++    })
++    .await?;
++    let path = started.thread.path.as_ref().expect("local rollout path");
++    assert!(path.exists());
++    if sqlite_enabled {
++        let state_db = StateRuntime::init(
++            codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
++            "mock_provider".into(),
++        )
++        .await?;
++        let thread_id = ThreadId::from_string(&started.thread.id)?;
++        // Wait for the real backing record before deleting JSONL. A live thread/read
++        // snapshot alone cannot prove that the metadata-only stored source exists.
++        let metadata = timeout(DEFAULT_READ_TIMEOUT, async {
++            loop {
++                if let Some(metadata) = state_db.get_thread(thread_id).await? {
++                    break Ok::<_, anyhow::Error>(metadata);
++                }
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++        })
++        .await??;
++        assert_eq!(metadata.id, thread_id);
++        assert_eq!(&metadata.rollout_path, path);
++        assert_eq!(
++            metadata.history_mode,
++            codex_protocol::protocol::ThreadHistoryMode::Legacy
++        );
++    }
++    std::fs::remove_file(path)?;
++    let request = mcp
++        .send_thread_resume_request(ThreadResumeParams {
++            thread_id: started.thread.id.clone(),
++            exclude_turns: true,
++            ..Default::default()
++        })
++        .await?;
++    if sqlite_enabled {
++        let resumed: ThreadResumeResponse =
++            timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request)).await??;
++        assert_eq!(resumed.thread.id, started.thread.id);
++        assert_eq!(resumed.thread.session_id, started.thread.session_id);
++        assert_eq!(resumed.thread.history_mode, started.thread.history_mode);
++        assert_eq!(resumed.thread.path, started.thread.path);
++        assert!(resumed.thread.turns.is_empty());
++        assert_eq!(resumed.model, started.model);
++        assert_eq!(resumed.approval_policy, started.approval_policy);
++        assert_eq!(resumed.approvals_reviewer, started.approvals_reviewer);
++        assert_eq!(resumed.sandbox, started.sandbox);
++        assert_eq!(
++            resumed.active_permission_profile,
++            started.active_permission_profile
++        );
++    } else {
++        let error = timeout(
++            DEFAULT_READ_TIMEOUT,
++            mcp.read_stream_until_error_message(RequestId::Integer(request)),
++        )
++        .await??;
++        assert_eq!(error.error.code, -32600);
++        assert_eq!(
++            error.error.message,
++            format!("no rollout found for thread id {}", started.thread.id)
++        );
++    }
++    let read_id = mcp
++        .send_thread_read_request(ThreadReadParams {
++            thread_id: started.thread.id.clone(),
++            include_turns: false,
++        })
++        .await?;
++    let read: ThreadReadResponse =
++        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(read_id)).await??;
++    assert_eq!(read.thread.session_id, started.thread.session_id);
++    let loaded_id = mcp
++        .send_thread_loaded_list_request(ThreadLoadedListParams::default())
++        .await?;
++    let loaded: ThreadLoadedListResponse =
++        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(loaded_id)).await??;
++    assert_eq!(loaded.data, vec![started.thread.id]);
++    assert!(!path.exists());
++    Ok(())
++}
++
++#[test_case(ThreadHistoryMode::Legacy; "legacy")]
++#[test_case(ThreadHistoryMode::Paginated; "paginated")]
++#[tokio::test]
++async fn thread_resume_metadata_does_not_create_missing_runtime(
++    history_mode: ThreadHistoryMode,
++) -> Result<()> {
++    let server = create_mock_responses_server_repeating_assistant("Done").await;
++    let codex_home = TempDir::new()?;
++    mock_responses_config(&server.uri()).write(codex_home.path())?;
++    let mut owner = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .build_initialized()
++        .await?;
++    let started = owner
++        .start_thread(ThreadStartParams {
++            history_mode: Some(history_mode),
++            ..Default::default()
++        })
++        .await?;
++    let mut other_process = TestAppServer::builder()
++        .with_codex_home(codex_home.path())
++        .build_initialized()
++        .await?;
++    for thread_id in [started.thread.id, Uuid::new_v4().to_string()] {
++        let request = other_process
++            .send_thread_resume_request(ThreadResumeParams {
++                thread_id: thread_id.clone(),
++                exclude_turns: true,
++                ..Default::default()
++            })
++            .await?;
++        let error = timeout(
++            DEFAULT_READ_TIMEOUT,
++            other_process.read_stream_until_error_message(RequestId::Integer(request)),
++        )
++        .await??;
++        assert_eq!(error.error.code, -32600);
++        assert_eq!(
++            error.error.message,
++            format!("no rollout found for thread id {thread_id}")
++        );
++    }
++    let loaded = other_process
++        .send_thread_loaded_list_request(ThreadLoadedListParams::default())
++        .await?;
++    let loaded: ThreadLoadedListResponse =
++        timeout(DEFAULT_READ_TIMEOUT, other_process.read_response(loaded)).await??;
++    assert!(loaded.data.is_empty());
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn thread_resume_with_empty_path_uses_running_thread_id() -> Result<()> {
+     let server = create_mock_responses_server_repeating_assistant("Done").await;
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 index ab688b12e..351971c4a 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
@@ -23213,7 +23720,7 @@ index 000000000..fbc1feb0d
 +    }
 +}
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index f87786eaf..c7fbcdac6 100644
+index f87786eaf..58c40bc28 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -69,6 +69,7 @@ mod exec_server_auth;
@@ -23284,7 +23791,35 @@ index f87786eaf..c7fbcdac6 100644
                              (true, _) => {
                                  codex_app_server::RemoteControlStartupMode::EnabledEphemeral
                              }
-@@ -2391,6 +2411,19 @@ fn unsupported_subcommand_name_for_strict_config(
+@@ -1475,16 +1495,17 @@ async fn cli_main(
+                         }
+                     }
+                 },
+-                Some(AppServerSubcommand::Proxy(proxy_cli)) => {
+-                    let socket_path = match proxy_cli.socket_path {
+-                        Some(socket_path) => socket_path,
+-                        None => {
+-                            let codex_home = find_codex_home()?;
+-                            codex_app_server::app_server_control_socket_path(&codex_home)?
+-                        }
+-                    };
+-                    codex_stdio_to_uds::run(socket_path.as_path()).await?;
+-                }
++                Some(AppServerSubcommand::Proxy(proxy_cli)) => match proxy_cli.socket_path {
++                    Some(socket_path) => {
++                        codex_stdio_to_uds::run(socket_path.as_path()).await?;
++                    }
++                    None => {
++                        let codex_home = find_codex_home()?;
++                        let socket_path =
++                            codex_app_server::app_server_control_socket_path(&codex_home)?;
++                        codex_stdio_to_uds::run_local_daemon(socket_path.as_path()).await?;
++                    }
++                },
+                 Some(AppServerSubcommand::GenerateTs(gen_cli)) => {
+                     let options = codex_app_server_protocol::GenerateTsOptions {
+                         experimental_api: gen_cli.experimental,
+@@ -2391,6 +2412,19 @@ fn unsupported_subcommand_name_for_strict_config(
      }
  }
  
@@ -23304,7 +23839,7 @@ index f87786eaf..c7fbcdac6 100644
  fn reject_strict_config_for_app_server_subcommand(
      strict_config: bool,
      subcommand: Option<&AppServerSubcommand>,
-@@ -4333,6 +4366,7 @@ enabled = true
+@@ -4333,6 +4367,7 @@ enabled = true
          let app_server = app_server_from_args(["codex", "app-server"].as_ref());
          assert!(!app_server.analytics_default_enabled);
          assert!(!app_server.remote_control);
@@ -23312,7 +23847,7 @@ index f87786eaf..c7fbcdac6 100644
          assert_eq!(
              app_server.listen,
              codex_app_server::AppServerTransport::Stdio
-@@ -4343,6 +4377,114 @@ enabled = true
+@@ -4343,6 +4378,114 @@ enabled = true
      fn app_server_remote_control_startup_flag_enables_remote_control() {
          let enabled = app_server_from_args(["codex", "app-server", "--remote-control"].as_ref());
          assert!(enabled.remote_control);
@@ -37493,6 +38028,170 @@ index b837bbbaa..acbd3f98e 100644
 +    tokio::fs::remove_dir_all(fixture).await?;
 +    Ok(())
 +}
+diff --git a/codex-rs/stdio-to-uds/Cargo.toml b/codex-rs/stdio-to-uds/Cargo.toml
+index 6b5c037d7..35fd15294 100644
+--- a/codex-rs/stdio-to-uds/Cargo.toml
++++ b/codex-rs/stdio-to-uds/Cargo.toml
+@@ -11,7 +11,6 @@ path = "src/main.rs"
+ [lib]
+ name = "codex_stdio_to_uds"
+ path = "src/lib.rs"
+-test = false
+ doctest = false
+ 
+ [lints]
+diff --git a/codex-rs/stdio-to-uds/src/lib.rs b/codex-rs/stdio-to-uds/src/lib.rs
+index a103de331..7adb43d9f 100644
+--- a/codex-rs/stdio-to-uds/src/lib.rs
++++ b/codex-rs/stdio-to-uds/src/lib.rs
+@@ -13,6 +13,37 @@ pub async fn run(socket_path: &Path) -> anyhow::Result<()> {
+     let stream = UnixStream::connect(socket_path)
+         .await
+         .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
++    relay(stream).await
++}
++
++/// Relays to an implicitly discovered local daemon, applying the same Windows
++/// rendezvous and peer policy as the TUI before forwarding any application data.
++pub async fn run_local_daemon(socket_path: &Path) -> anyhow::Result<()> {
++    #[cfg(windows)]
++    let stream = connect_local_daemon(socket_path).await?;
++    #[cfg(not(windows))]
++    let stream = UnixStream::connect(socket_path)
++        .await
++        .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
++    relay(stream).await
++}
++
++#[cfg(windows)]
++async fn connect_local_daemon(socket_path: &Path) -> anyhow::Result<UnixStream> {
++    // Retain the directory handle through connection and peer authentication so
++    // validation cannot race with replacement of the rendezvous directory.
++    let (socket_path, _directory) = codex_uds::validate_private_socket_path(socket_path)
++        .context("untrusted local daemon socket directory")?;
++    let stream = UnixStream::connect(&socket_path)
++        .await
++        .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
++    stream
++        .ensure_non_elevated_peer()
++        .context("untrusted local daemon socket peer")?;
++    Ok(stream)
++}
++
++async fn relay(stream: UnixStream) -> anyhow::Result<()> {
+     let (mut socket_reader, mut socket_writer) = tokio::io::split(stream);
+ 
+     let copy_socket_to_stdout = async {
+@@ -44,3 +75,6 @@ pub async fn run(socket_path: &Path) -> anyhow::Result<()> {
+ 
+     Ok(())
+ }
++
++#[cfg(all(test, windows))]
++mod local_daemon_tests;
+diff --git a/codex-rs/stdio-to-uds/src/local_daemon_tests.rs b/codex-rs/stdio-to-uds/src/local_daemon_tests.rs
+new file mode 100644
+index 000000000..25583bd11
+--- /dev/null
++++ b/codex-rs/stdio-to-uds/src/local_daemon_tests.rs
+@@ -0,0 +1,97 @@
++use super::connect_local_daemon;
++use codex_uds::UnixListener;
++use codex_uds::UnixStream;
++use std::io::ErrorKind;
++use std::os::windows::process::CommandExt;
++use std::time::Duration;
++use tokio::io::AsyncReadExt;
++use tokio::io::AsyncWriteExt;
++
++#[tokio::test]
++async fn implicit_proxy_rejects_broad_directory_before_connecting() {
++    let temp = tempfile::TempDir::new().unwrap();
++    let path = temp.path().join("socket");
++    let mut listener = UnixListener::bind(&path).await.unwrap();
++    let error = match connect_local_daemon(&path).await {
++        Ok(_) => panic!("broad directory was accepted"),
++        Err(error) => error,
++    };
++    assert_eq!(
++        error.downcast_ref::<std::io::Error>().unwrap().kind(),
++        ErrorKind::PermissionDenied
++    );
++    assert!(
++        tokio::time::timeout(Duration::from_millis(200), listener.accept())
++            .await
++            .is_err()
++    );
++    // The listener is reachable: refusal came from policy, not a dead socket.
++    let _raw = UnixStream::connect(&path).await.unwrap();
++    let _accepted = listener.accept().await.unwrap();
++}
++
++#[tokio::test]
++async fn implicit_proxy_does_not_create_or_repair_missing_directory() {
++    let temp = tempfile::TempDir::new().unwrap();
++    let directory = temp.path().join("missing");
++    assert!(
++        connect_local_daemon(&directory.join("socket"))
++            .await
++            .is_err()
++    );
++    assert!(!directory.exists());
++}
++
++#[tokio::test]
++async fn implicit_proxy_authenticates_real_peer_before_transferring_bytes() {
++    let temp = tempfile::TempDir::new().unwrap();
++    let directory = temp.path().join("private");
++    codex_uds::prepare_private_socket_directory(&directory)
++        .await
++        .unwrap();
++    let path = directory.join("socket");
++    let mut listener = UnixListener::bind(&path).await.unwrap();
++    // An independent OS query determines whether this process's actual token is
++    // elevated; neither the caller nor this test changes the token or its rights.
++    let output = std::process::Command::new("powershell.exe")
++        .creation_flags(0x08000000) // CREATE_NO_WINDOW
++        .args(["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"])
++        .output()
++        .unwrap();
++    assert!(output.status.success());
++    let elevated = match String::from_utf8(output.stdout).unwrap().trim() {
++        "True" => true,
++        "False" => false,
++        other => panic!("unexpected elevation result: {other}"),
++    };
++    let client = connect_local_daemon(&path).await;
++    let mut server = listener.accept().await.unwrap();
++    if elevated {
++        let error = match client {
++            Ok(_) => panic!("elevated peer was accepted"),
++            Err(error) => error,
++        };
++        assert_eq!(
++            error.downcast_ref::<std::io::Error>().unwrap().kind(),
++            ErrorKind::PermissionDenied
++        );
++        let mut byte = [0];
++        assert_eq!(
++            tokio::time::timeout(Duration::from_secs(2), server.read(&mut byte))
++                .await
++                .unwrap()
++                .unwrap(),
++            0
++        );
++    } else {
++        let mut client = client.unwrap();
++        client.write_all(b"request").await.unwrap();
++        let mut bytes = [0; 7];
++        server.read_exact(&mut bytes).await.unwrap();
++        assert_eq!(&bytes, b"request");
++        server.write_all(b"response").await.unwrap();
++        let mut bytes = [0; 8];
++        client.read_exact(&mut bytes).await.unwrap();
++        assert_eq!(&bytes, b"response");
++    }
++}
 diff --git a/codex-rs/thread-store/src/error.rs b/codex-rs/thread-store/src/error.rs
 index d0ab6d882..f075f96ea 100644
 --- a/codex-rs/thread-store/src/error.rs
@@ -39461,10 +40160,10 @@ index ef5b91278..16f0b825d 100644
      pub(super) fn reasoning_label(reasoning_effort: Option<&ReasoningEffortConfig>) -> String {
 diff --git a/codex-rs/tui/src/app/cron_jobs.rs b/codex-rs/tui/src/app/cron_jobs.rs
 new file mode 100644
-index 000000000..083db41e1
+index 000000000..e88f46dcb
 --- /dev/null
 +++ b/codex-rs/tui/src/app/cron_jobs.rs
-@@ -0,0 +1,2141 @@
+@@ -0,0 +1,2165 @@
 +//! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 +use super::*;
 +use crate::backend_id::BackendId;
@@ -41134,7 +41833,16 @@ index 000000000..083db41e1
 +        transport.configure_mcp(&mut overrides);
 +        let config = overrides.unwrap().remove("mcp_servers.codex_tui").unwrap();
 +        let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
-+        let call = |id, metadata| {
++        let call = |id, mut metadata: serde_json::Value| {
++            let metadata = metadata.as_object_mut().unwrap();
++            metadata.insert(
++                "io.modelcontextprotocol/protocolVersion".into(),
++                json!("2026-07-28"),
++            );
++            metadata.insert(
++                "io.modelcontextprotocol/clientCapabilities".into(),
++                json!({}),
++            );
 +            client.post(config["url"].as_str().unwrap())
 +            .header("Authorization", config["http_headers"]["Authorization"].as_str().unwrap())
 +            .header("Accept", "application/json, text/event-stream")
@@ -41143,30 +41851,43 @@ index 000000000..083db41e1
 +            .header("MCP-Name", crate::cron_tools::NAME)
 +            .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"cron","arguments":{"action":"add","every":"1m","prompt":"MCP 확인"},"_meta":metadata}}))
 +        };
-+        for (id, metadata) in [
-+            (1, json!({"threadId":caller,"turnId":"caller-turn"})),
++        for (id, metadata, expected_error) in [
++            (
++                1,
++                json!({"threadId":caller,"turnId":"caller-turn"}),
++                "예약에는 실제 turn·call 메타데이터가 필요합니다.",
++            ),
 +            (
 +                2,
 +                json!({"threadId":caller,"turnId":"caller-turn","callId":"conflict","x-codex-turn-metadata":{"thread_id":ThreadId::new().to_string(),"turn_id":"caller-turn"}}),
++                "호출 메타데이터가 서로 다릅니다.",
 +            ),
 +        ] {
 +            let body = call(id, metadata).send().await?.text().await?;
-+            assert!(body.contains("error"), "{body}");
++            let payload: serde_json::Value = serde_json::from_str(
++                body.lines()
++                    .find_map(|line| line.strip_prefix("data: "))
++                    .unwrap_or(&body),
++            )?;
++            assert_eq!(payload["error"]["code"], json!(-32602), "{body}");
++            assert_eq!(payload["error"]["message"], json!(expected_error), "{body}");
 +            assert!(app.cron.scheduler.jobs.is_empty());
 +        }
 +        let request = call(
 +            3,
 +            json!({"threadId":caller,"turnId":"caller-turn","callId":"cancelled-mcp"}),
 +        );
-+        let response = tokio::spawn(async move { request.send().await?.text().await });
-+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++        let mut response = tokio::spawn(async move { request.send().await?.text().await });
++        let queued = tokio::select! {
++            queued = tokio::time::timeout(Duration::from_secs(10), async {
 +            loop {
 +                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
 +                    break request;
 +                }
 +            }
-+        })
-+        .await?;
++            }) => queued?,
++            early = &mut response => panic!("예약이 앱 대기열에 도달하기 전에 응답됨: {early:?}"),
++        };
 +        // This is the actual RequestContext.ct clone held by the HTTP handler.
 +        // Do not yield to that handler after cancelling it and before actor admission.
 +        queued.cancellation.cancel();
@@ -41182,15 +41903,17 @@ index 000000000..083db41e1
 +            4,
 +            json!({"threadId":caller,"turnId":"caller-turn","callId":"old-connection"}),
 +        );
-+        let response = tokio::spawn(async move { request.send().await?.text().await });
-+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
++        let mut response = tokio::spawn(async move { request.send().await?.text().await });
++        let queued = tokio::select! {
++            queued = tokio::time::timeout(Duration::from_secs(10), async {
 +            loop {
 +                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
 +                    break request;
 +                }
 +            }
-+        })
-+        .await?;
++            }) => queued?,
++            early = &mut response => panic!("예약이 앱 대기열에 도달하기 전에 응답됨: {early:?}"),
++        };
 +        server.suspend();
 +        app.handle_cron_tool_call(&session, *queued).await;
 +        let body = response.await??;
@@ -43342,10 +44065,10 @@ index ae4532818..e64defe35 100644
              cwd: test_absolute_path("/tmp/thread-settings"),
              approval_policy: AskForApproval::OnRequest,
 diff --git a/codex-rs/tui/src/app/tests/active_reconnect_tests.rs b/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
-index f102e25b4..0a2291a34 100644
+index f102e25b4..2ba4e25db 100644
 --- a/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
 +++ b/codex-rs/tui/src/app/tests/active_reconnect_tests.rs
-@@ -11,6 +11,293 @@ use tokio::net::TcpListener;
+@@ -11,6 +11,295 @@ use tokio::net::TcpListener;
  
  use super::disconnect::serve_reconnect_requests;
  
@@ -43409,7 +44132,9 @@ index f102e25b4..0a2291a34 100644
 +            .header("MCP-Name", "cron")
 +            .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params": {
 +                "name":"cron", "arguments":arguments, "_meta": {
-+                    "threadId":caller_b, "turnId":"caller-turn", "callId":format!("after-reconnect-{id}")
++                    "threadId":caller_b, "turnId":"caller-turn", "callId":format!("after-reconnect-{id}"),
++                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
++                    "io.modelcontextprotocol/clientCapabilities":{}
 +                }
 +            }}))
 +    };
@@ -43639,7 +44364,7 @@ index f102e25b4..0a2291a34 100644
  #[tokio::test]
  async fn reconnect_restores_launch_reviewer_without_a_profile_override() -> Result<()> {
      let (mut app, _events, _ops) = make_test_app_with_channels().await;
-@@ -190,6 +477,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -190,6 +479,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
                  /*managed_requirement*/ None,
                  crate::dynamic_tools_mcp::ToolServices {
                      task_tools: true,
@@ -43647,7 +44372,7 @@ index f102e25b4..0a2291a34 100644
                      worktrees: None,
                  },
              )
-@@ -241,6 +529,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -241,6 +531,7 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
              let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
              app.chat_widget.show_bottom_pane_view(Box::new(view));
          }
@@ -43655,7 +44380,7 @@ index f102e25b4..0a2291a34 100644
          app.begin_reconnect();
          if deferred_notice {
              assert_eq!(
-@@ -315,6 +604,10 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -315,6 +606,10 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
          app.finish_reconnect(&mut tui, &mut session, &mut events, connected, "2.1.0")
              .await?;
          assert_eq!(session.backend_id(), backend_id);
@@ -43666,7 +44391,7 @@ index f102e25b4..0a2291a34 100644
          if edit_offline {
              assert!(!app.chat_widget.has_active_view());
              assert!(
-@@ -464,8 +757,52 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
+@@ -464,8 +759,52 @@ async fn reconnect_restores_history_permissions_and_resumes_unsent_input() -> Re
          while let Ok(event) = events.try_recv() {
              app.handle_event(&mut tui, &mut session, event).await?;
          }

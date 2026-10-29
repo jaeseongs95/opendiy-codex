@@ -1496,16 +1496,17 @@ async fn cli_main(
                         }
                     }
                 },
-                Some(AppServerSubcommand::Proxy(proxy_cli)) => {
-                    let socket_path = match proxy_cli.socket_path {
-                        Some(socket_path) => socket_path,
-                        None => {
-                            let codex_home = find_codex_home()?;
-                            codex_app_server::app_server_control_socket_path(&codex_home)?
-                        }
-                    };
-                    codex_stdio_to_uds::run(socket_path.as_path()).await?;
-                }
+                Some(AppServerSubcommand::Proxy(proxy_cli)) => match proxy_cli.socket_path {
+                    Some(socket_path) => {
+                        codex_stdio_to_uds::run(socket_path.as_path()).await?;
+                    }
+                    None => {
+                        let codex_home = find_codex_home()?;
+                        let socket_path =
+                            codex_app_server::app_server_control_socket_path(&codex_home)?;
+                        codex_stdio_to_uds::run_local_daemon(socket_path.as_path()).await?;
+                    }
+                },
                 Some(AppServerSubcommand::GenerateTs(gen_cli)) => {
                     let options = codex_app_server_protocol::GenerateTsOptions {
                         experimental_api: gen_cli.experimental,
