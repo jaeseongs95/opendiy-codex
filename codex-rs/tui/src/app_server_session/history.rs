@@ -502,12 +502,22 @@ impl AppServerSession {
     pub(crate) async fn fail_history_page(
         &mut self,
         thread_id: ThreadId,
+        rejected_turn: Option<&str>,
         turns: &mut Vec<Turn>,
     ) -> Result<()> {
         let Some(mut state) = self.history_pagination.get(&thread_id).cloned() else {
             return Ok(());
         };
         let newer = state.direction == HistoryDirection::Newer;
+        if let Some(turn_id) = rejected_turn {
+            if newer {
+                state.newer_scope = Some(turn_id.to_string());
+                state.newer_anchor = None;
+            } else {
+                state.older_scope = Some(turn_id.to_string());
+                state.older_anchor = None;
+            }
+        }
         let scoped = if newer {
             state.newer_scope.is_some()
         } else {
@@ -898,7 +908,17 @@ impl AppServerSession {
                 let bytes = page.data.iter().try_fold(0usize, |sum, entry| {
                     crate::history_window::payload_bytes(&entry.item)
                         .map(|size| sum.saturating_add(size))
-                })?;
+                });
+                let Ok(bytes) = bytes else {
+                    state
+                        .errors
+                        .push(crate::history_window::OVERSIZED_HISTORY.to_string());
+                    state.older_scope = page.data.first().map(|entry| entry.turn_id.clone());
+                    state.next_item_cursor = None;
+                    self.advance_scoped_history(thread_id, &mut state, &mut thread.turns)
+                        .await?;
+                    break;
+                };
                 if initial_bytes.saturating_add(bytes) > crate::history_window::MAX_HISTORY_BYTES {
                     break;
                 }

@@ -11,11 +11,6 @@ use std::path::Path;
 fn storage_failures_remain_fatal_during_session_initialization() {
     for error in [
         ThreadStoreError::HistoryProjectionUnavailable,
-        ThreadStoreError::HistoryPayloadTooLarge {
-            max_bytes: 8,
-            actual_bytes: 9,
-            item: true,
-        },
         ThreadStoreError::ThreadNotFound {
             thread_id: ThreadId::new(),
         },

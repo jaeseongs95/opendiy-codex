@@ -4,7 +4,9 @@
 //! allocator overhead and renderer caches have separate lifetimes and are not included. Measure
 //! process peak memory separately. Canonical item payload and committed cell source each have
 //! this admission ceiling. Explicit export/copy-range/search/selection operations retain their
-//! own temporary sources until they end; input and approval/lifecycle state are separate. A single oversized payload fails explicitly rather than
+//! own temporary sources until they end. The latest response/plan copy source, input,
+//! approval/lifecycle state, and still-unprinted
+//! native FIFO output have separate operational lifetimes. A single oversized payload fails explicitly rather than
 //! silently dropping a prefix and presenting the suffix as the original item.
 
 use codex_app_server_protocol::{Turn, TurnItemsView};

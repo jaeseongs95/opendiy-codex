@@ -168,3 +168,105 @@ async fn completed_copy_source_survives_replay_and_stream_consolidation() {
         assert_eq!(retained.as_deref(), Some(source));
     }
 }
+
+#[tokio::test]
+async fn oversized_completed_responses_keep_one_exact_copy_source_outside_display_budget() {
+    let (mut chat, mut events, _ops) = make_chatwidget_manual(None).await;
+    chat.local_settings.transcript_mode = crate::transcript_mode::TranscriptMode::Terminal;
+    let mut display_bytes = 0usize;
+    for index in 0..2 {
+        let source = format!(
+            "Original {index}: {}",
+            "x".repeat(crate::history_window::MAX_HISTORY_BYTES + 1)
+        );
+        chat.on_agent_message_delta(source.clone());
+        assert!(chat.stream_controller.is_none());
+        assert!(chat.transcript.live_display_oversized[0]);
+        complete_assistant_message(
+            &mut chat,
+            &format!("large-{index}"),
+            &source,
+            Some(MessagePhase::FinalAnswer),
+        );
+        assert_eq!(chat.last_agent_markdown_text(), Some(source.as_str()));
+        assert_eq!(
+            chat.transcript.last_agent_source.as_deref(),
+            Some(source.as_str())
+        );
+        assert!(chat.stream_controller.is_none());
+        assert_eq!(chat.transcript.live_display_bytes[0], 0);
+        chat.show_copy_picker();
+        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+        let mut copied = None;
+        while let Ok(event) = events.try_recv() {
+            match event {
+                AppEvent::InsertHistoryCell(cell) => {
+                    let bytes = cell.retained_source_bytes();
+                    assert!(bytes < crate::history_window::MAX_HISTORY_BYTES);
+                    display_bytes += bytes;
+                }
+                AppEvent::CopySelection { text, format, .. } => copied = Some((text, format)),
+                _ => {}
+            }
+        }
+        let (text, format) = copied.expect("the original response remains available to /copy");
+        assert_eq!(&*text, source);
+        assert_eq!(format, CopyFormat::Markdown);
+    }
+    assert!(display_bytes < crate::history_window::MAX_HISTORY_BYTES);
+    complete_assistant_message(
+        &mut chat,
+        "replacement",
+        "Next response",
+        Some(MessagePhase::FinalAnswer),
+    );
+    assert_eq!(chat.last_agent_markdown_text(), Some("Next response"));
+    assert_eq!(
+        chat.transcript.last_agent_source.as_deref(),
+        Some("Next response")
+    );
+    assert!(
+        chat.transcript
+            .last_agent_source
+            .as_ref()
+            .unwrap()
+            .capacity()
+            < crate::history_window::MAX_HISTORY_BYTES
+    );
+    assert!(
+        chat.transcript
+            .last_agent_markdown
+            .as_ref()
+            .unwrap()
+            .capacity()
+            < crate::history_window::MAX_HISTORY_BYTES
+    );
+}
+
+#[tokio::test]
+async fn oversized_completed_plan_keeps_its_existing_copy_source() {
+    let (mut chat, _events, _ops) = make_chatwidget_manual(None).await;
+    let source = "p".repeat(crate::history_window::MAX_HISTORY_BYTES + 1);
+    chat.on_plan_item_completed(source.clone());
+    assert!(chat.plan_stream_controller.is_none());
+    assert!(chat.transcript.plan_delta_buffer.is_empty());
+    assert_eq!(chat.last_agent_markdown_text(), Some(source.as_str()));
+    assert_eq!(
+        chat.transcript.last_agent_source.as_deref(),
+        Some(source.as_str())
+    );
+    assert_eq!(
+        chat.transcript.latest_proposed_plan_markdown.as_deref(),
+        Some(source.as_str())
+    );
+    chat.on_plan_item_completed("Next plan".to_string());
+    assert_eq!(chat.last_agent_markdown_text(), Some("Next plan"));
+    assert_eq!(
+        chat.transcript.last_agent_source.as_deref(),
+        Some("Next plan")
+    );
+    assert_eq!(
+        chat.transcript.latest_proposed_plan_markdown.as_deref(),
+        Some("Next plan")
+    );
+}

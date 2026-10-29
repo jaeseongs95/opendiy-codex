@@ -287,7 +287,8 @@ fn thread_attachment_store_error(
         error @ (ThreadStoreError::Conflict { .. }
         | ThreadStoreError::Retryable { .. }
         | ThreadStoreError::OutcomeUnknown { .. }
-        | ThreadStoreError::Internal { .. }) => {
+        | ThreadStoreError::Internal { .. }
+        | ThreadStoreError::HistoryProjectionUnavailable) => {
             internal_error(format!("failed to process {operation}: {error}"))
         }
     }

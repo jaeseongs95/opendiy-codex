@@ -16,10 +16,9 @@ mod thread_metadata_sync;
 mod thread_sections;
 mod types;
 
-/// Maximum serialized UTF-8 bytes in one display-history page response.
-pub const HISTORY_PAGE_MAX_SERIALIZED_BYTES: usize = 8 * 1024 * 1024;
-/// Maximum serialized UTF-8 bytes in one display-history item entry.
-pub const HISTORY_ITEM_MAX_SERIALIZED_BYTES: usize = 4 * 1024 * 1024;
+/// Target persisted UTF-8 payload bytes per ordinary history page, excluding
+/// response metadata. A single item or summary turn may exceed this target.
+pub const HISTORY_PAGE_TARGET_BYTES: usize = 8 * 1024 * 1024;
 
 pub use codex_state::AddThreadAttachmentOutcome;
 pub use codex_state::MAX_QUEUE_ITEMS;

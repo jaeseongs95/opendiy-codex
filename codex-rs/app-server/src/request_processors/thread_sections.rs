@@ -226,7 +226,8 @@ fn thread_section_store_error(
         | ThreadStoreError::Conflict { .. }
         | ThreadStoreError::Retryable { .. }
         | ThreadStoreError::OutcomeUnknown { .. }
-        | ThreadStoreError::Internal { .. }) => {
+        | ThreadStoreError::Internal { .. }
+        | ThreadStoreError::HistoryProjectionUnavailable) => {
             let action = operation
                 .strip_prefix("threadSection/")
                 .unwrap_or(operation);

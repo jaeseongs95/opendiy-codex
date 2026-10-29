@@ -351,7 +351,7 @@ async fn item_byte_pages_preserve_prefix_and_reverse_cursors() {
             SortDirection::Asc,
         ))
         .await
-        .expect("byte-bounded first page");
+        .expect("soft byte-target first page");
     assert_eq!(item_ids(&first), vec!["agent-1", "agent-2"]);
     let second = store
         .list_items(item_params(
@@ -388,35 +388,28 @@ async fn item_byte_pages_preserve_prefix_and_reverse_cursors() {
         .expect("reverse continuation");
     assert_eq!(item_ids(&last), vec!["agent-1"]);
 
-    // An ID lookup has no continuation cursor: it must fail rather than silently
-    // returning only the first two requested IDs.
-    let error = store
+    // Explicit ID reads cannot paginate and must preserve every requested item.
+    let lookup = store
         .list_items(item_lookup_params(
             thread_id,
             "turn",
             &["agent-1", "agent-2", "agent-3"],
         ))
         .await
-        .expect_err("lookup cannot be partial");
-    assert!(matches!(
-        error,
-        ThreadStoreError::HistoryPayloadTooLarge { item: false, .. }
-    ));
+        .expect("complete lookup beyond page target");
+    assert_eq!(item_ids(&lookup), vec!["agent-1", "agent-2", "agent-3"]);
+    assert!(lookup.next_cursor.is_none());
 }
 
 #[tokio::test]
-async fn oversized_utf8_item_is_not_skipped_or_deserialized() {
+async fn large_utf8_item_is_read_intact_as_a_single_page() {
     let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
     let db = history_db(&store).await;
     insert_item(db, thread_id, "turn", "agent-1", 11).await;
     insert_item(db, thread_id, "turn", "agent-2", 12).await;
-    let bytes = set_agent_payload(
-        db,
-        thread_id,
-        "agent-2",
-        &"한".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES / 3 + 1),
-    )
-    .await;
+    insert_item(db, thread_id, "turn", "agent-3", 13).await;
+    let text = "한".repeat(crate::HISTORY_PAGE_TARGET_BYTES / 3 + 1);
+    let bytes = set_agent_payload(db, thread_id, "agent-2", &text).await;
     let first = store
         .list_items(item_params(
             thread_id,
@@ -426,9 +419,9 @@ async fn oversized_utf8_item_is_not_skipped_or_deserialized() {
             SortDirection::Asc,
         ))
         .await
-        .expect("prefix before giant item");
+        .unwrap();
     assert_eq!(item_ids(&first), vec!["agent-1"]);
-    let error = store
+    let large = store
         .list_items(item_params(
             thread_id,
             Some("turn"),
@@ -437,28 +430,23 @@ async fn oversized_utf8_item_is_not_skipped_or_deserialized() {
             SortDirection::Asc,
         ))
         .await
-        .expect_err("giant UTF-8 item");
-    assert!(
-        matches!(error, ThreadStoreError::HistoryPayloadTooLarge { max_bytes: crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES, actual_bytes, item: true } if actual_bytes == bytes)
-    );
-
-    // Invalid JSON larger than the limit proves admission precedes deserialization.
-    sqlx::query("UPDATE thread_items SET item_json = CAST(zeroblob(?) AS TEXT) WHERE thread_id = ? AND item_id = 'agent-1'")
-        .bind(i64::try_from(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1).unwrap()).bind(thread_id.to_string()).execute(db).await.unwrap();
-    let error = store
+        .expect("large item remains readable");
+    assert_eq!(item_ids(&large), vec!["agent-2"]);
+    assert_eq!(large.items[0].item_json.len(), bytes);
+    let payload: serde_json::Value = serde_json::from_slice(&large.items[0].item_json).unwrap();
+    assert_eq!(payload["text"].as_str(), Some(text.as_str()));
+    let tail = store
         .list_items(item_params(
             thread_id,
             Some("turn"),
-            None,
-            1,
+            large.next_cursor,
+            100,
             SortDirection::Asc,
         ))
         .await
-        .expect_err("preflight precedes JSON parse");
-    assert!(matches!(
-        error,
-        ThreadStoreError::HistoryPayloadTooLarge { item: true, .. }
-    ));
+        .unwrap();
+    assert_eq!(item_ids(&tail), vec!["agent-3"]);
+    assert!(tail.next_cursor.is_none());
     let lineage = store
         .resolve_rollout_lineage_for_history_page(thread_id)
         .await
@@ -472,8 +460,25 @@ async fn oversized_utf8_item_is_not_skipped_or_deserialized() {
         &item_params(thread_id, Some("turn"), None, 1, SortDirection::Asc),
     )
     .await
+    .expect("read releases transaction");
+    timeout_for_connection(&single).await;
+    sqlx::query("DELETE FROM thread_history_projection_state WHERE thread_id = ?")
+        .bind(thread_id.to_string())
+        .execute(db)
+        .await
+        .unwrap();
+    let error = super::super::segment_paging::page_item_rows(
+        &single,
+        &lineage,
+        &item_params(thread_id, Some("turn"), None, 1, SortDirection::Asc),
+    )
+    .await
     .err()
-    .expect("oversized read releases transaction");
+    .expect("projection failure releases transaction");
+    assert!(matches!(
+        error,
+        ThreadStoreError::HistoryProjectionUnavailable
+    ));
     timeout_for_connection(&single).await;
 }
 
@@ -504,49 +509,21 @@ async fn item_size_probe_and_payload_share_update_snapshot() {
     let mut transaction = db.begin().await.unwrap();
     let candidate = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ?")
         .bind(thread_id.to_string()).fetch_one(&mut *transaction).await.unwrap();
-    set_agent_payload(
+    let bytes = set_agent_payload(
         db,
         thread_id,
         "agent-1",
-        &"x".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1),
+        &"x".repeat(crate::HISTORY_PAGE_TARGET_BYTES + 1),
     )
     .await;
-    let mut budget = ItemPageByteBudget::new(thread_id).unwrap();
+    let mut budget = HistoryPageByteTarget::default();
     let row = load_admitted_item(&mut transaction, thread_id, candidate, &mut budget)
         .await
         .unwrap()
         .expect("old snapshot remains admitted");
     assert_eq!(row.item, expected_item("turn", "agent-1", 11));
     drop(transaction);
-    assert!(matches!(
-        store
-            .list_items(item_params(
-                thread_id,
-                Some("turn"),
-                None,
-                1,
-                SortDirection::Asc
-            ))
-            .await,
-        Err(ThreadStoreError::HistoryPayloadTooLarge { item: true, .. })
-    ));
-}
-
-#[tokio::test]
-async fn serialized_entry_limit_includes_wire_metadata() {
-    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
-    let db = history_db(&store).await;
-    insert_item(db, thread_id, "turn", "agent-1", 11).await;
-    let base = set_agent_payload(db, thread_id, "agent-1", "").await;
-    let bytes = set_agent_payload(
-        db,
-        thread_id,
-        "agent-1",
-        &"x".repeat(crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES - base - 1),
-    )
-    .await;
-    assert!(bytes < crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES);
-    let error = store
+    let current = store
         .list_items(item_params(
             thread_id,
             Some("turn"),
@@ -555,10 +532,105 @@ async fn serialized_entry_limit_includes_wire_metadata() {
             SortDirection::Asc,
         ))
         .await
-        .expect_err("wire metadata also counts");
-    assert!(
-        matches!(error, ThreadStoreError::HistoryPayloadTooLarge { max_bytes: crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES, actual_bytes, item: true } if actual_bytes > crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES)
-    );
+        .expect("new snapshot keeps large item readable");
+    assert_eq!(current.items[0].item_json.len(), bytes);
+}
+
+#[tokio::test]
+async fn large_escaped_item_keeps_all_valid_json_content() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    insert_item(db, thread_id, "turn", "agent-1", 11).await;
+    let text = "\0".repeat(crate::HISTORY_PAGE_TARGET_BYTES / 6 + 1);
+    let bytes = set_agent_payload(db, thread_id, "agent-1", &text).await;
+    assert!(bytes > crate::HISTORY_PAGE_TARGET_BYTES);
+    let page = store
+        .list_items(item_params(
+            thread_id,
+            Some("turn"),
+            None,
+            100,
+            SortDirection::Asc,
+        ))
+        .await
+        .expect("JSON escaping must not make valid item unreadable");
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].item_json.len(), bytes);
+    let payload: serde_json::Value = serde_json::from_slice(&page.items[0].item_json).unwrap();
+    assert_eq!(payload["text"].as_str(), Some(text.as_str()));
+}
+
+#[tokio::test]
+async fn large_summary_turn_is_indivisible_and_keeps_continuation() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    for (turn, ordinal, first, last) in [
+        ("large", 10, "first", "last"),
+        ("small", 20, "next-first", "next-last"),
+    ] {
+        insert_turn(
+            db,
+            thread_id,
+            turn,
+            ordinal,
+            "completed",
+            None,
+            Some(first),
+            Some(last),
+        )
+        .await;
+        insert_item(db, thread_id, turn, first, ordinal + 1).await;
+        insert_item(db, thread_id, turn, last, ordinal + 2).await;
+    }
+    for item in ["first", "last"] {
+        set_agent_payload(db, thread_id, item, &"x".repeat(5 * 1024 * 1024)).await;
+    }
+    let large = store
+        .list_turns(turn_params(
+            thread_id,
+            None,
+            100,
+            SortDirection::Asc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .expect("whole large summary turn");
+    assert_eq!(turn_ids(&large), vec!["large"]);
+    assert_eq!(large.turns[0].items.len(), 2);
+    let next = store
+        .list_turns(turn_params(
+            thread_id,
+            large.next_cursor,
+            100,
+            SortDirection::Asc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(turn_ids(&next), vec!["small"]);
+    let reverse = store
+        .list_turns(turn_params(
+            thread_id,
+            next.backwards_cursor,
+            100,
+            SortDirection::Desc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(turn_ids(&reverse), vec!["small"]);
+    let previous = store
+        .list_turns(turn_params(
+            thread_id,
+            reverse.next_cursor,
+            100,
+            SortDirection::Desc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(turn_ids(&previous), vec!["large"]);
+    assert_eq!(previous.turns[0].items.len(), 2);
 }
 
 #[tokio::test]
