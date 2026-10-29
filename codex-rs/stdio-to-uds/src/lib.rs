@@ -13,6 +13,37 @@ pub async fn run(socket_path: &Path) -> anyhow::Result<()> {
     let stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
+    relay(stream).await
+}
+
+/// Relays to an implicitly discovered local daemon, applying the same Windows
+/// rendezvous and peer policy as the TUI before forwarding any application data.
+pub async fn run_local_daemon(socket_path: &Path) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    let stream = connect_local_daemon(socket_path).await?;
+    #[cfg(not(windows))]
+    let stream = UnixStream::connect(socket_path)
+        .await
+        .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
+    relay(stream).await
+}
+
+#[cfg(windows)]
+async fn connect_local_daemon(socket_path: &Path) -> anyhow::Result<UnixStream> {
+    // Retain the directory handle through connection and peer authentication so
+    // validation cannot race with replacement of the rendezvous directory.
+    let (socket_path, _directory) = codex_uds::validate_private_socket_path(socket_path)
+        .context("untrusted local daemon socket directory")?;
+    let stream = UnixStream::connect(&socket_path)
+        .await
+        .with_context(|| format!("failed to connect to socket at {}", socket_path.display()))?;
+    stream
+        .ensure_non_elevated_peer()
+        .context("untrusted local daemon socket peer")?;
+    Ok(stream)
+}
+
+async fn relay(stream: UnixStream) -> anyhow::Result<()> {
     let (mut socket_reader, mut socket_writer) = tokio::io::split(stream);
 
     let copy_socket_to_stdout = async {
@@ -44,3 +75,6 @@ pub async fn run(socket_path: &Path) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(all(test, windows))]
+mod local_daemon_tests;
