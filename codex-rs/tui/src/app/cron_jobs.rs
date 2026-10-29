@@ -1274,6 +1274,171 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn model_cron_real_embedded_worker_end_fences_queued_call_and_preserves_other_backend()
+    -> color_eyre::Result<()> {
+        use crate::app::backend_sessions::BackendSessions;
+        use codex_app_server_client::AppServerEvent;
+        use codex_utils_absolute_path::test_support::PathExt;
+        let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+        let home = tempfile::tempdir()?;
+        app.config.codex_home = home.path().to_path_buf().abs();
+        app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
+        let config = app.config.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let runtime_thread = std::thread::spawn(move || -> color_eyre::Result<()> {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let result = runtime.block_on(async {
+                let mut session = crate::start_embedded_app_server_for_picker(&config).await?;
+                let started = session.start_thread(&config).await?;
+                ready_tx
+                    .send((session, started))
+                    .map_err(|_| color_eyre::eyre::eyre!("fixture consumer ended"))?;
+                stop_rx.await?;
+                Ok::<_, color_eyre::Report>(())
+            });
+            // Ending the owning runtime really drops the in-process worker/event sender.
+            runtime.shutdown_timeout(Duration::from_secs(5));
+            result
+        });
+        let (origin, started) = ready_rx.await?;
+        let caller = started.session.thread_id;
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_session(started.session, started.turns);
+        app.ensure_thread_channel(caller)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        let (surviving, _observed, survivor_worker) =
+            super::super::app_server_requests::retained_reply_tests::connection().await?;
+        let other = ThreadId::new();
+        app.active_thread_id = Some(other);
+        app.ensure_thread_channel(other)
+            .store
+            .lock()
+            .await
+            .set_active_turn_id("caller-turn".into());
+        app.cron_command(
+            &surviving,
+            Some(other),
+            "add --every 1m -- 살아 있는 backend 예약",
+        )
+        .await
+        .expect("valid manual scheduler fixture");
+        for (session, thread) in [(&origin, caller), (&surviving, other)] {
+            let (request, response) = model_request(
+                session.cron_tool_connection(),
+                thread,
+                "accepted-list",
+                "list",
+            );
+            app.handle_cron_tool_call(session, request).await;
+            assert!(response.await?.success);
+        }
+        app.active_thread_id = Some(caller);
+        let connection = origin.cron_tool_connection();
+        let owner = connection.backend;
+        let other_connection = surviving.cron_tool_connection();
+        let handle = origin.request_handle();
+        let sender = app.app_event_tx.clone();
+        let pending_connection = connection.clone();
+        let pending = tokio::spawn(async move {
+            crate::cron_tools::execute(pending_connection, handle,
+                codex_app_server_protocol::DynamicToolCallParams {
+                    thread_id:caller.to_string(), turn_id:"caller-turn".into(), call_id:"queued-before-worker-end".into(),
+                    namespace:Some(crate::dynamic_tools::NAMESPACE.into()), tool:crate::cron_tools::NAME.into(),
+                    arguments:serde_json::json!({"action":"add","every":"1m","prompt":"종료 후 등록 금지"}),
+                }, &sender, CancellationToken::new()).await
+        });
+        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
+                    break request;
+                }
+            }
+        })
+        .await?;
+        assert!(connection.live.load(std::sync::atomic::Ordering::Acquire));
+        let mut backends = BackendSessions::from_initial(origin, vec![surviving]);
+        stop_tx.send(()).expect("owned fixture runtime is waiting");
+        tokio::task::spawn_blocking(move || {
+            runtime_thread.join().expect("fixture runtime panicked")
+        })
+        .await??;
+        loop {
+            let (polled_owner, event) = tokio::time::timeout(
+                Duration::from_secs(10),
+                backends.next_event(Some(other_connection.backend)),
+            )
+            .await?;
+            assert_eq!(polled_owner, owner);
+            if let Some(event) = event {
+                assert!(!matches!(
+                    &event.event,
+                    AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. }
+                ));
+                app.handle_polled_backend_event(backends.session(owner).unwrap(), owner, event)
+                    .await;
+            } else {
+                assert!(connection.live.load(std::sync::atomic::Ordering::Acquire));
+                assert_eq!(
+                    app.active_turn_id_for_thread(caller).await.as_deref(),
+                    Some("caller-turn")
+                );
+                app.handle_backend_stream_closed(backends.session(owner).unwrap());
+                break;
+            }
+        }
+        assert!(!backends.is_listening(owner));
+        assert!(matches!(app.app_server_target, AppServerTarget::Embedded));
+        assert!(!app.begin_reconnect());
+        assert!(!app.reconnect.offline);
+        assert!(!connection.live.load(std::sync::atomic::Ordering::Acquire));
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        let slot = backends.slot(owner).unwrap();
+        app.handle_event(
+            &mut tui,
+            backends.session_at_mut(slot),
+            AppEvent::CronToolCall(queued),
+        )
+        .await?;
+        assert!(!pending.await?.success);
+        assert_eq!(app.cron.scheduler.jobs.len(), 1);
+        assert_eq!(
+            app.cron.scheduler.jobs[0].target.backend,
+            other_connection.backend
+        );
+        assert!(matches!(app.cron.scheduler.jobs[0].phase, Phase::Ready));
+        assert_eq!(app.cron.model_calls.len(), 1);
+        assert!(
+            other_connection
+                .live
+                .load(std::sync::atomic::Ordering::Acquire)
+        );
+        let (request, response) = model_request(
+            other_connection,
+            other,
+            "accepted-list",
+            "add --every 2m -- 변경 거부",
+        );
+        app.handle_cron_tool_call(
+            backends.session_at(backends.slot(request.connection.backend).unwrap()),
+            request,
+        )
+        .await;
+        assert!(!response.await?.success);
+        backends.shutdown().await?;
+        survivor_worker.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn model_cron_background_transport_loss_fences_queued_call_only_for_its_owner()
     -> color_eyre::Result<()> {
         use crate::app_server_session::AppServerSessionEvent;

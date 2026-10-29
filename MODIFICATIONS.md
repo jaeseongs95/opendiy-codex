@@ -1,6 +1,6 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `29865e660e823e9f03fd52926c99f46cce849c47`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `921d404013da2035f90e9ab055acadc957a88592`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
 `upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 363 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
@@ -428,7 +428,7 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
 - `docs/native-cli-r27.ko.md`
 
-소스 갱신 `29865e660e823e9f03fd52926c99f46cce849c47` (통합 진행 중):
+소스 갱신 `921d404013da2035f90e9ab055acadc957a88592` (통합 진행 중):
 
 - `codex-rs/diagnostics/Cargo.toml`
 - `codex-rs/diagnostics/src/batch_log.rs`

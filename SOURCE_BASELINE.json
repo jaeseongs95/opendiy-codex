@@ -3,9 +3,9 @@
   "upstream": "https://github.com/openai/codex",
   "officialVersion": "0.165.0",
   "officialCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
-  "patchedCommit": "29865e660e823e9f03fd52926c99f46cce849c47",
+  "patchedCommit": "921d404013da2035f90e9ab055acadc957a88592",
   "officialTree": "307e4fa207fe563a11f3f7af09cee6fccd2d8376",
-  "patchedTree": "ba7499d7041f602b7d6b0dd9b561247bbd46a58d",
+  "patchedTree": "5b141d296e85b893780fb04cceabcb6bbc13425b",
   "selectedPrefixes": [
     "codex-rs",
     "third_party",
@@ -17,12 +17,12 @@
     "docs/native-cli-cron.ko.md"
   ],
   "patchPath": "upstream/official-0.165.0.patch",
-  "patchSha256": "441a2eb72439f5429109cdbbe947ce8b1c5803ae1a9dfe33098a3b094227ef3d",
-  "sourceInventorySha256": "b3b81619fc148ccddec5ef054726ada39588384010deb7da7e5a45f83b81fd77",
+  "patchSha256": "26f2bce43be0cedbe8a26f777d364a4a9443aa765a5d3771f0cec3c9b87ad9c7",
+  "sourceInventorySha256": "e385cff4732a2e887c8dff0dfac8d08af7151c740e08a026a234071f66cbbab8",
   "windowsPromptInputsPath": "upstream/windows-prompt-inputs.json",
-  "windowsPromptInputsSha256": "1725aaae01c420335cc3ac695847f23a51fdfd2d29822e7889aa23a65a0f2afa",
+  "windowsPromptInputsSha256": "cf172ad15fb3bee87ef671342bd1f3e4ba75255bba19d1bf45c9bc67b3da3e03",
   "sourceFileCount": 9127,
-  "publishedBytes": 89606659,
+  "publishedBytes": 89620731,
   "modifiedNoticeDate": "2026-10-29",
   "modifiedNoticeLabel": "R28",
   "modifiedFiles": [
@@ -1902,10 +1902,10 @@
     {
       "path": "codex-rs/tui/src/app/backend_events.rs",
       "gitMode": "100644",
-      "gitBlob": "0c7e135cb3990384b01d84bc3312ff92bbfce9a7",
-      "sourceSha256": "8e584a6b731e06658c7b7dd40f9cd9f783a65848e6cb40f11e9ff0cde389f932",
-      "publishedSha256": "a23f705234b47a75db86a58e75c44de310c66d79340ae6968d94da3bf58c6b6a",
-      "bytes": 2517,
+      "gitBlob": "1a756e9cb3cab3778add833a7d00ace59940ffa0",
+      "sourceSha256": "aed62727179834cf7cdc3a1db0013255495e3382af0cd2731c3efbb8fa2434ef",
+      "publishedSha256": "f138eb3adacb0da92b098cae6a96d1e1155192d9f8c48142097a0c9950508b1a",
+      "bytes": 2911,
       "modified": true,
       "noticeOnly": true
     },
@@ -1932,10 +1932,10 @@
     {
       "path": "codex-rs/tui/src/app/cron_jobs.rs",
       "gitMode": "100644",
-      "gitBlob": "78db404442a68061b100770a02bb4bd082b381dd",
-      "sourceSha256": "cc7ca1f807c86c41236975c5e2ce870331aacc82275e63edb2a142aa5019c076",
-      "publishedSha256": "2b16e270fdacaee1cf444df1d88da053bb25983e080890dd6774a295427f10de",
-      "bytes": 83615,
+      "gitBlob": "083db41e183826fac8376ed7949cf5d689e99f12",
+      "sourceSha256": "2e3e0618cfaae60f1632a4901189292c94b038050972a024241aa7209fb31c74",
+      "publishedSha256": "39a446a4f2150e81da8466fba445f5d675f4007c425fad756085335b91adaf3c",
+      "bytes": 90811,
       "modified": true,
       "noticeOnly": true
     },
@@ -2102,10 +2102,10 @@
     {
       "path": "codex-rs/tui/src/app/startup.rs",
       "gitMode": "100644",
-      "gitBlob": "d9d4180a277799e0f5fa935cb9fd91df5de23c56",
-      "sourceSha256": "74379f34658108824e48487216c83dbb20ef9bb71ba49715f8e2f0794fa508b5",
-      "publishedSha256": "e8a20d90c9768b06520cbd672092aa9a40eadbe75088d1a98726ef035e7f26a1",
-      "bytes": 81062,
+      "gitBlob": "3d00e26835af7a2e36790d26670ae5f899421bc0",
+      "sourceSha256": "e20264b0a788f1e9d09faf8971d480ee333fb582497a87916ff9ec4dad099c92",
+      "publishedSha256": "f823672cecaceafc74125b9430a94601ec1dd042038963a15c087517690c8a4f",
+      "bytes": 81256,
       "modified": true,
       "noticeOnly": true
     },
@@ -2812,10 +2812,10 @@
     {
       "path": "codex-rs/tui/src/cron_tools.rs",
       "gitMode": "100644",
-      "gitBlob": "ed4aed829da65c0652d539f89142b597b397178a",
-      "sourceSha256": "8393a127850f46affce2901d12bc7b40bbdb98a9ee8a44fd7c10134ae037dfda",
-      "publishedSha256": "22f1a9807cb0efcbb622f882327f077bfe8c0e8d3bfeaba3aca3400e4c66cb02",
-      "bytes": 8305,
+      "gitBlob": "2a7f15baa3d7aaece9eed1beb25b283b0fc5cd45",
+      "sourceSha256": "d3c6d0986964dd9e3d1c1588095392daf2ee9bceda3048f225c9716f2e32682a",
+      "publishedSha256": "cae14a9b5df39a56f35eccdae6b3e5d2aa68aeac723214254bd78f0dcbfdb083",
+      "bytes": 14593,
       "modified": true,
       "noticeOnly": true
     },
