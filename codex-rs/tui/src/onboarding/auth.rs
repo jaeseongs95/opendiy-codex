@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Authentication step UI and state transitions used by onboarding.
 //!
 //! This module owns the auth-step state machine (ChatGPT login/device-code/API

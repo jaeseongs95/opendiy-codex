@@ -9,12 +9,12 @@ import subprocess
 import tarfile
 
 OFFICIAL='360319d8dee62d87e2d59fc0c21805d79519cfed'
-PATCHED='f665ccc64aaf6baee8fd137d8054f1daaae4a398'
-PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes']
+PATCHED='3a03cbdadf186d74af73fcc5825afc25d3d85f39'
+PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes','docs/native-cli-r27.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
-DATE='2026-10-28'
+DATE='2026-10-29'
 PATCH_PATH='upstream/official-0.165.0.patch'
-LABEL='0.165.0 local patch'
+LABEL='R28'
 ATTR_BEGIN=b'# BEGIN OpenDIY pinned source attributes\n'
 ATTR_END=b'# END OpenDIY pinned source attributes\n'
 WINDOWS_INPUTS_PATH='upstream/windows-prompt-inputs.json'
@@ -28,7 +28,7 @@ def notice(path):
     if path.startswith('codex-rs/app-server-protocol/schema/typescript/') and path.endswith('.ts'):return b''
     if path.endswith(('.rs','.ts')):prefix='//'
     elif path.endswith(('.py','.toml','Cargo.lock','.gitattributes','.gitignore')):prefix='#'
-    elif path.endswith('.md'):return f'<!-- Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md. -->\n'.encode()
+    elif path.endswith('.md') and path.startswith('docs/'):return f'<!-- Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md. -->\n'.encode()
     else:return b''  # Data formats and snapshots stay exact; MODIFICATIONS.md lists each one.
     return f'{prefix} Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md.\n'.encode()
 

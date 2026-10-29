@@ -1,4 +1,3 @@
-<!-- Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md. -->
 ## Memory
 
 Memory is historical evidence, not permission: current instructions and approvals

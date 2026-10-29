@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Diffs the one-level Responses Lite catalog: namespaces of callable tools and built-ins.
 //! Missing state starts a fresh catalog; this section does not migrate legacy history.
 //! One developer notice precedes each incremental namespace batch; catalog hashes are unchanged.

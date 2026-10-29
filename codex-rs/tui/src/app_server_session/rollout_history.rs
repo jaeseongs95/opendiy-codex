@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Resume and read-only history loading across rollout formats.
 
 use super::AppServerSession;

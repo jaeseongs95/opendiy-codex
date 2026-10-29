@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 """Prepare a separate Windows CLI package; never replace an existing installation."""
 
 import argparse

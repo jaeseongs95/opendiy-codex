@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 """Local package tests. These are not tests of the patched CLI's runtime."""
 
 import json

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Restricted updates to a running turn's immutable settings snapshots.
 
 use super::environment::ensure_configs_stay_owner_provided;

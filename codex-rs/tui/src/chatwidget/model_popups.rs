@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Model, collaboration, and reasoning popups for `ChatWidget`.
 //!
 //! These surfaces are tightly related because changing one often redirects

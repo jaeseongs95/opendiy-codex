@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 pub use binding::McpBinding;
 pub use binding::PreparedMcpCall;
 pub use client_capabilities::client_mcp_extensions;

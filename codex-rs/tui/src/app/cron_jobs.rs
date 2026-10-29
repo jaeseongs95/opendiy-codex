@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 use super::*;
 use crate::backend_id::BackendId;

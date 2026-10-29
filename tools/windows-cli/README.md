@@ -1,4 +1,3 @@
-<!-- Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md. -->
 # Windows CLI packaging tool
 
 Creates a **new local package** with the built CLI and matching official helper resources. Packaging does not change PATH, authentication, daemon state, or user configuration.

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! The bottom-pane footer renders transient hints and context indicators.
 //!
 //! The footer is pure rendering: it formats `FooterProps` into `Line`s without mutating any state.
