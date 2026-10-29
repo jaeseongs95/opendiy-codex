@@ -22,6 +22,22 @@ pub(crate) fn reject_paginated_history_mode(
 /// whether and how to recover, and no variant automatically triggers a retry.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ThreadStoreError {
+    /// The rebuildable display projection has not established a durable checkpoint.
+    #[error("display history projection is unavailable; retry after history persistence")]
+    HistoryProjectionUnavailable,
+
+    /// A display-history payload cannot fit the serialized-byte admission budget.
+    /// Contains sizes only, never the rejected content or its storage path.
+    #[error("history payload exceeds serialized byte limit ({actual_bytes} > {max_bytes})")]
+    HistoryPayloadTooLarge {
+        /// Serialized UTF-8 byte admission limit.
+        max_bytes: usize,
+        /// Measured serialized UTF-8 bytes at the rejected boundary.
+        actual_bytes: usize,
+        /// Whether this is an individual item rather than a page budget.
+        item: bool,
+    },
+
     /// The requested thread does not exist in this store.
     #[error("thread {thread_id} not found")]
     ThreadNotFound {

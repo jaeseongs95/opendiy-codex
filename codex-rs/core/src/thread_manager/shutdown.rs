@@ -13,6 +13,10 @@ use uuid::Uuid;
 /// Return a stable, payload-free category for a thread-store error.
 pub(crate) fn thread_store_error_kind(error: &ThreadStoreError) -> &'static str {
     match error {
+        ThreadStoreError::HistoryProjectionUnavailable => {
+            "thread_store_history_projection_unavailable"
+        }
+        ThreadStoreError::HistoryPayloadTooLarge { .. } => "thread_store_history_payload_too_large",
         ThreadStoreError::ThreadNotFound { .. } => "thread_store_not_found",
         ThreadStoreError::InvalidRequest { .. } => "thread_store_invalid_request",
         ThreadStoreError::Conflict { .. } => "thread_store_conflict",
