@@ -608,7 +608,7 @@ impl Session {
         let SessionSpawnArgs {
             attached_thread,
             startup,
-            config,
+            mut config,
             prompt_cache_key,
             allow_provider_model_fallback,
             instructions,
@@ -655,6 +655,29 @@ impl Session {
             git_enrichment_policy,
             windows_sandbox_proxy_settings_mode,
         } = args;
+        if let InitialHistory::Resumed(resumed) = &conversation_history {
+            let legacy_global = codex_protocol::protocol::ThreadMemoryScope {
+                project: false,
+                version: config.memories.version,
+                project_key: None,
+                markers: Vec::new(),
+            };
+            let saved = resumed
+                .history
+                .iter()
+                .rev()
+                .find_map(|item| match item {
+                    RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event))
+                        if event.thread_id == Some(resumed.conversation_id) =>
+                    {
+                        event.thread_settings.memory_scope.as_ref()
+                    }
+                    _ => None,
+                })
+                .unwrap_or(&legacy_global);
+            // Every pre-project history is global. Opting in must not rebind an old chat.
+            config.restore_memory_scope(saved);
+        }
         let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (tx_event, rx_event) = async_channel::unbounded();
 

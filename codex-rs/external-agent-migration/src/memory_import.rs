@@ -1,5 +1,11 @@
 use crate::ExternalMemoryFile;
 use crate::discover_external_memory_files;
+use crate::memory::MAX_MEMORY_DEPTH;
+use crate::memory::MAX_MEMORY_FILES;
+use crate::memory::MemoryReadBudget;
+use crate::memory::bounded_memory_entries;
+use crate::memory::memory_limit_error;
+use crate::memory::read_memory_file;
 use codex_memories_write::MemoryWorkspaceLock;
 use codex_protocol::MemoryVersion;
 use codex_rollout::StateDbHandle;
@@ -58,6 +64,9 @@ pub(super) async fn import(
     selection: MemoryVersion,
     selected_memory: &[String],
 ) -> io::Result<MemoryImportOutcome> {
+    if selected_memory.len() > MAX_MEMORY_FILES {
+        return Err(memory_limit_error("selected project count exceeds 1000"));
+    }
     let selected_memory = selected_memory.iter().cloned().collect::<BTreeSet<_>>();
     if selected_memory.is_empty() {
         return Err(io::Error::new(
@@ -72,6 +81,8 @@ pub(super) async fn import(
         )
     })?;
     let memory_files = discover_external_memory_files(external_agent_home)?;
+    let selected_refs = selected_memory.iter().map(String::as_str).collect();
+    let source_contents = prepare_source_contents(&memory_files, &selected_refs)?;
     let versions = memory_versions(codex_home, selection)?;
     // Acquire every destination before changing either namespace. A busy v2
     // consolidation must not leave a partially imported v1 workspace.
@@ -79,6 +90,9 @@ pub(super) async fn import(
         .iter()
         .map(|version| MemoryWorkspaceLock::try_acquire(&codex_home.join(version.directory_name())))
         .collect::<io::Result<Vec<_>>>()?;
+    for version in versions {
+        preflight_existing_targets(&codex_home.join(version.directory_name()), &selected_refs)?;
+    }
     let codex_home = codex_home.to_path_buf();
     let state_db = std::sync::Arc::clone(state_db);
     // Workspace preparation runs blocking Git work. Let it finish under the
@@ -102,7 +116,12 @@ pub(super) async fn import(
             codex_memories_write::workspace::prepare_memory_workspace(&memory_root)
                 .await
                 .map_err(io::Error::other)?;
-            let copy_outcome = copy_resources(&memory_root, &memory_files, &selected_memory)?;
+            let copy_outcome = copy_prepared_resources(
+                &memory_root,
+                &memory_files,
+                &selected_memory,
+                &source_contents,
+            )?;
             if !copy_outcome.synchronized_projects.is_empty()
                 && let Err(err) = store
                     .enqueue_global_consolidation(chrono::Utc::now().timestamp())
@@ -159,6 +178,11 @@ pub(crate) fn projects_needing_import(
     memory_files: &[ExternalMemoryFile],
 ) -> io::Result<BTreeSet<String>> {
     let mut projects = BTreeSet::new();
+    let selected = memory_files
+        .iter()
+        .map(|file| file.project_key.as_str())
+        .collect();
+    let source_contents = prepare_source_contents(memory_files, &selected)?;
     let files_by_project = group_memory_files(memory_files);
     let source_projects = files_by_project
         .keys()
@@ -171,7 +195,13 @@ pub(crate) fn projects_needing_import(
             }
             continue;
         };
-        if project_needs_import(memory_root, project_key, project_cwd, project_files)? {
+        if project_needs_import(
+            memory_root,
+            project_key,
+            project_cwd,
+            project_files,
+            &source_contents,
+        )? {
             projects.insert(project_key.to_string());
         }
     }
@@ -183,10 +213,91 @@ pub(crate) fn projects_needing_import(
     Ok(projects)
 }
 
+type SourceContents = BTreeMap<PathBuf, io::Result<Vec<u8>>>;
+
+fn prepare_source_contents(
+    memory_files: &[ExternalMemoryFile],
+    selected: &BTreeSet<&str>,
+) -> io::Result<SourceContents> {
+    if memory_files.len() > MAX_MEMORY_FILES {
+        return Err(memory_limit_error("file count exceeds 1000"));
+    }
+    let mut contents = BTreeMap::new();
+    let mut budget = MemoryReadBudget::default();
+    for file in memory_files {
+        if file.relative_path.components().count() > MAX_MEMORY_DEPTH + 1 {
+            return Err(memory_limit_error("directory depth exceeds 16"));
+        }
+        if !selected.contains(file.project_key.as_str()) {
+            continue;
+        }
+        let content = read_memory_file(&file.source_path, &mut budget);
+        if let Err(error) = &content
+            && error.kind() == io::ErrorKind::InvalidData
+        {
+            return Err(io::Error::new(error.kind(), error.to_string()));
+        }
+        contents.insert(file.source_path.clone(), content);
+    }
+    Ok(contents)
+}
+
+fn source_content<'a>(
+    contents: &'a SourceContents,
+    file: &ExternalMemoryFile,
+) -> io::Result<&'a [u8]> {
+    match contents.get(&file.source_path) {
+        Some(Ok(bytes)) => Ok(bytes),
+        Some(Err(error)) => Err(io::Error::new(error.kind(), error.to_string())),
+        None => Err(invalid_data_error("selected memory was not prepared")),
+    }
+}
+
+#[cfg(test)]
 fn copy_resources(
     memory_root: &Path,
     memory_files: &[ExternalMemoryFile],
     selected_memory: &BTreeSet<&str>,
+) -> io::Result<MemoryImportOutcome> {
+    let contents = prepare_source_contents(memory_files, selected_memory)?;
+    preflight_existing_targets(memory_root, selected_memory)?;
+    copy_prepared_resources(memory_root, memory_files, selected_memory, &contents)
+}
+
+fn preflight_existing_targets(memory_root: &Path, selected: &BTreeSet<&str>) -> io::Result<()> {
+    // An oversized existing instructions file must fail before copying any selected project.
+    read_optional_target(&extension_root(memory_root).join("instructions.md"))?;
+    let mut scanned = 0;
+    let mut budget = MemoryReadBudget::default();
+    for project_key in selected {
+        let target = resources_root(memory_root).join(project_key);
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.file_type().is_dir() => {}
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        }
+        let mut paths = BTreeSet::new();
+        collect_relative_paths(&target, &target, &mut paths, &mut scanned, 0)?;
+        for path in paths {
+            let metadata = fs::symlink_metadata(target.join(&path))?;
+            if path == Path::new(PROJECT_SCOPE_FILE) {
+                if metadata.len() > crate::memory::MAX_MEMORY_FILE_BYTES {
+                    return Err(memory_limit_error("target project scope exceeds 1 MiB"));
+                }
+            } else {
+                budget.include(metadata.len())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn copy_prepared_resources(
+    memory_root: &Path,
+    memory_files: &[ExternalMemoryFile],
+    selected_memory: &BTreeSet<&str>,
+    contents: &SourceContents,
 ) -> io::Result<MemoryImportOutcome> {
     let files_by_project = group_memory_files(memory_files);
     let mut synchronized_projects = Vec::new();
@@ -195,8 +306,14 @@ fn copy_resources(
         let sync_result = match files_by_project.get(project_key) {
             Some(project_files) => {
                 if let Some(project_cwd) = project_cwd(project_files) {
-                    replace_project_resources(memory_root, project_key, project_cwd, project_files)
-                        .map(|()| true)
+                    replace_project_resources(
+                        memory_root,
+                        project_key,
+                        project_cwd,
+                        project_files,
+                        contents,
+                    )
+                    .map(|()| true)
                 } else if project_has_unscoped_target(memory_root, project_key)? {
                     remove_project_resources(memory_root, project_key)
                 } else {
@@ -218,7 +335,9 @@ fn copy_resources(
     }
     if !synchronized_projects.is_empty() {
         let instructions_path = extension_root(memory_root).join("instructions.md");
-        if fs::read_to_string(&instructions_path).ok().as_deref() != Some(EXTENSION_INSTRUCTIONS) {
+        if read_optional_target(&instructions_path)?.as_deref()
+            != Some(EXTENSION_INSTRUCTIONS.as_bytes())
+        {
             fs::write(instructions_path, EXTENSION_INSTRUCTIONS)?;
         }
     }
@@ -248,14 +367,13 @@ fn project_cwd<'a>(memory_files: &'a [&ExternalMemoryFile]) -> Option<&'a Path> 
 }
 
 fn owned_project_keys(memory_root: &Path) -> io::Result<BTreeSet<String>> {
-    let entries = match fs::read_dir(resources_root(memory_root)) {
+    let entries = match bounded_memory_entries(&resources_root(memory_root), &mut 0) {
         Ok(entries) => entries,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
         Err(err) => return Err(err),
     };
     let mut project_keys = BTreeSet::new();
     for entry in entries {
-        let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
         }
@@ -296,6 +414,7 @@ fn project_needs_import(
     project_key: &str,
     project_cwd: &Path,
     memory_files: &[&ExternalMemoryFile],
+    contents: &SourceContents,
 ) -> io::Result<bool> {
     let target_root = resources_root(memory_root).join(project_key);
     let target_metadata = match fs::symlink_metadata(&target_root) {
@@ -310,27 +429,23 @@ fn project_needs_import(
     let mut expected_paths = BTreeSet::new();
     for memory_file in memory_files {
         expected_paths.insert(memory_file.relative_path.clone());
-        let source_content = fs::read(&memory_file.source_path)?;
-        if fs::read(resource_path(memory_root, memory_file))
-            .ok()
-            .as_deref()
-            != Some(source_content.as_slice())
+        let source_content = source_content(contents, memory_file)?;
+        if read_optional_target(&resource_path(memory_root, memory_file))?.as_deref()
+            != Some(source_content)
         {
             return Ok(true);
         }
     }
     expected_paths.insert(PathBuf::from(PROJECT_SCOPE_FILE));
     let scope_content = project_scope_content(project_cwd)?;
-    if fs::read(project_scope_path(memory_root, project_key))
-        .ok()
-        .as_deref()
+    if read_optional_target(&project_scope_path(memory_root, project_key))?.as_deref()
         != Some(scope_content.as_slice())
     {
         return Ok(true);
     }
 
     let mut target_paths = BTreeSet::new();
-    collect_relative_paths(&target_root, &target_root, &mut target_paths)?;
+    collect_relative_paths(&target_root, &target_root, &mut target_paths, &mut 0, 0)?;
     Ok(target_paths != expected_paths)
 }
 
@@ -339,13 +454,12 @@ fn replace_project_resources(
     project_key: &str,
     project_cwd: &Path,
     memory_files: &[&ExternalMemoryFile],
+    contents: &SourceContents,
 ) -> io::Result<()> {
+    // Resolve every fallible source before removing this project's old resources.
     let source_files = memory_files
         .iter()
-        .map(|memory_file| {
-            fs::read(&memory_file.source_path)
-                .map(|content| (memory_file.relative_path.clone(), content))
-        })
+        .map(|file| source_content(contents, file).map(|content| (&file.relative_path, content)))
         .collect::<io::Result<Vec<_>>>()?;
     let scope_content = project_scope_content(project_cwd)?;
 
@@ -382,12 +496,20 @@ fn collect_relative_paths(
     root: &Path,
     current_dir: &Path,
     paths: &mut BTreeSet<PathBuf>,
+    scanned: &mut usize,
+    depth: usize,
 ) -> io::Result<()> {
-    for entry in fs::read_dir(current_dir)? {
-        let entry = entry?;
+    if depth > MAX_MEMORY_DEPTH {
+        return Err(memory_limit_error("target directory depth exceeds 16"));
+    }
+    for entry in bounded_memory_entries(current_dir, scanned)? {
         if entry.file_type()?.is_dir() {
-            collect_relative_paths(root, &entry.path(), paths)?;
+            collect_relative_paths(root, &entry.path(), paths, scanned, depth + 1)?;
         } else {
+            if paths.len() > MAX_MEMORY_FILES {
+                // One extra scope.json accompanies the imported files.
+                return Err(memory_limit_error("target file count exceeds 1001"));
+            }
             paths.insert(
                 entry
                     .path()
@@ -398,6 +520,14 @@ fn collect_relative_paths(
         }
     }
     Ok(())
+}
+
+fn read_optional_target(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match read_memory_file(path, &mut MemoryReadBudget::default()) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn resource_path(memory_root: &Path, memory_file: &ExternalMemoryFile) -> PathBuf {

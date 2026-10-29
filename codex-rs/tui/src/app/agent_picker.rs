@@ -247,6 +247,7 @@ impl App {
     }
 
     fn replace_agent_picker_view(&mut self, selected_thread_id: Option<ThreadId>) {
+        self.sync_active_agent_label();
         let selected = selected_thread_id.and_then(|selected_thread_id| {
             self.agent_navigation
                 .visible_threads()

@@ -19,7 +19,7 @@ use codex_protocol::MemoryVersion;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
 use crate::local::LocalMemoriesBackend;
-use crate::prompts::build_memory_tool_developer_instructions;
+use crate::prompts::build_memory_instructions_from_root;
 use crate::tools;
 
 /// Contributes Codex memory read-path prompt context and memory read tools.
@@ -38,7 +38,7 @@ impl MemoriesExtension {
 pub(crate) struct MemoriesExtensionConfig {
     pub(crate) enabled: bool,
     pub(crate) dedicated_tools: bool,
-    pub(crate) codex_home: AbsolutePathBuf,
+    pub(crate) root: Option<AbsolutePathBuf>,
     pub(crate) version: MemoryVersion,
 }
 
@@ -47,7 +47,7 @@ impl MemoriesExtensionConfig {
         Self {
             enabled: config.features.enabled(Feature::MemoryTool) && config.memories.use_memories,
             dedicated_tools: config.memories.dedicated_tools,
-            codex_home: config.codex_home.clone(),
+            root: config.memories.memory_root(&config.codex_home),
             version: config.memories.version,
         }
     }
@@ -67,8 +67,11 @@ impl ContextContributor for MemoriesExtension {
                 return Vec::new();
             }
 
+            let Some(root) = config.root.as_ref() else {
+                return Vec::new();
+            };
             let Some(instructions) =
-                build_memory_tool_developer_instructions(&config.codex_home, config.version).await
+                build_memory_instructions_from_root(root, config.version).await
             else {
                 return Vec::new();
             };
@@ -110,9 +113,14 @@ impl ThreadLifecycleContributor<Config> for MemoriesExtension {
         input: ThreadStartInput<'a, Config>,
     ) -> ExtensionFuture<'a, ()> {
         Box::pin(async move {
-            input
-                .thread_store
-                .insert(MemoriesExtensionConfig::from_config(input.config));
+            let mut config = MemoriesExtensionConfig::from_config(input.config);
+            if !input
+                .config
+                .memory_environment_supported(input.environments)
+            {
+                config.root = None;
+            }
+            input.thread_store.insert(config);
         })
     }
 }
@@ -129,6 +137,7 @@ impl ConfigContributor<Config> for MemoriesExtension {
         if let Some(previous) = thread_store.get::<MemoriesExtensionConfig>() {
             // The initial summary and retrieval tools must use the same namespace.
             config.version = previous.version;
+            config.root = previous.root.clone();
         }
         thread_store.insert(config);
     }
@@ -149,13 +158,11 @@ impl ToolContributor for MemoriesExtension {
             return Vec::new();
         }
 
+        let Some(root) = config.root.as_ref() else {
+            return Vec::new();
+        };
         tools::memory_tools(
-            LocalMemoriesBackend::from_memory_root(
-                config
-                    .codex_home
-                    .join(config.version.directory_name())
-                    .to_path_buf(),
-            ),
+            LocalMemoriesBackend::from_memory_root(root.to_path_buf()),
             self.metrics_client.clone(),
         )
     }

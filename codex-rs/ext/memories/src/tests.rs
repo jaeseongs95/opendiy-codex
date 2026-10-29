@@ -64,7 +64,7 @@ fn tools_are_not_contributed_when_disabled() {
         version: codex_protocol::MemoryVersion::V1,
         enabled: false,
         dedicated_tools: true,
-        codex_home: test_path_buf("/tmp/codex-home").abs(),
+        root: Some(test_path_buf("/tmp/codex-home").abs().join("memories")),
     });
 
     assert!(
@@ -82,7 +82,7 @@ fn tools_are_not_contributed_when_dedicated_tools_disabled() {
         version: codex_protocol::MemoryVersion::V1,
         enabled: true,
         dedicated_tools: false,
-        codex_home: test_path_buf("/tmp/codex-home").abs(),
+        root: Some(test_path_buf("/tmp/codex-home").abs().join("memories")),
     });
 
     assert!(
@@ -100,7 +100,7 @@ fn tools_are_contributed_when_enabled_with_dedicated_tools() {
         version: codex_protocol::MemoryVersion::V1,
         enabled: true,
         dedicated_tools: true,
-        codex_home: test_path_buf("/tmp/codex-home").abs(),
+        root: Some(test_path_buf("/tmp/codex-home").abs().join("memories")),
     });
 
     let tool_names = extension
@@ -130,7 +130,7 @@ fn install_registers_dedicated_tool_contributor() {
         version: codex_protocol::MemoryVersion::V1,
         enabled: true,
         dedicated_tools: true,
-        codex_home: test_path_buf("/tmp/codex-home").abs(),
+        root: Some(test_path_buf("/tmp/codex-home").abs().join("memories")),
     });
 
     let tool_names = registry
@@ -191,7 +191,7 @@ async fn prompt_contribution_uses_memory_summary_when_enabled() {
         version: codex_protocol::MemoryVersion::V1,
         enabled: true,
         dedicated_tools: false,
-        codex_home: tempdir.path().abs(),
+        root: Some(tempdir.path().abs().join("memories")),
     });
 
     let fragments = extension

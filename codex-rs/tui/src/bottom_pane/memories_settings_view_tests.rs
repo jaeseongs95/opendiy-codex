@@ -43,3 +43,22 @@ fn reset_confirmation_keeps_both_choices_at_wrap_boundary() {
     }
     insta::assert_snapshot!(snapshots.join("\n\n"));
 }
+
+#[test]
+fn project_reset_never_dispatches_global_reset() {
+    let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut view = MemoriesSettingsView::new(
+        true,
+        true,
+        AppEventSender::new(app_tx),
+        crate::keymap::RuntimeKeymap::defaults().list,
+    )
+    .with_scope("project");
+    view.state.selected_idx = view.items.len().checked_sub(1);
+    view.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    assert!(
+        matches!(app_rx.try_recv(), Ok(AppEvent::MemoryCommand { args, .. }) if args == "reset-project-unavailable")
+    );
+    assert!(app_rx.try_recv().is_err());
+    assert!(view.reset_confirmation.is_none());
+}

@@ -55,6 +55,109 @@ mod tests {
         );
     }
 
+    fn command_at<'a>(mut command: &'a mut Command, path: &[&str]) -> &'a mut Command {
+        for name in path {
+            command = command
+                .find_subcommand_mut(name)
+                .expect("existing command token");
+        }
+        command
+    }
+
+    #[test]
+    fn r28_korean_help_covers_remote_startup_status_and_cloud_environments() {
+        let mut command = localize_help(crate::MultitoolCli::command(), Locale::Korean);
+        let server_help = command_at(&mut command, &["app-server"])
+            .render_help()
+            .to_string();
+        assert!(server_help.contains("--no-remote-control"));
+        assert!(
+            server_help.contains("저장된 등록과 설정을 유지하며"),
+            "{server_help}"
+        );
+        let remote_help = command_at(&mut command, &["remote-control"])
+            .render_help()
+            .to_string();
+        assert!(remote_help.contains("status"));
+        assert!(
+            remote_help
+                .split_whitespace()
+                .collect::<String>()
+                .contains("relay상태를조회합니다"),
+            "{remote_help}"
+        );
+        let cloud_help = command_at(&mut command, &["cloud"])
+            .render_help()
+            .to_string();
+        assert!(cloud_help.contains("environments"));
+        assert!(
+            cloud_help.contains("접근 가능한 Codex Cloud 환경 목록 표시"),
+            "{cloud_help}"
+        );
+        let environments_help = command_at(&mut command, &["cloud", "environments"])
+            .render_help()
+            .to_string();
+        assert!(environments_help.contains("--json"));
+        assert!(
+            environments_help.contains("일반 텍스트 대신 JSON 출력"),
+            "{environments_help}"
+        );
+
+        let parsed = command
+            .clone()
+            .try_get_matches_from(["codex", "app-server", "--no-remote-control"])
+            .expect("localized startup flag retains its parser");
+        assert!(
+            parsed
+                .subcommand_matches("app-server")
+                .expect("app-server")
+                .get_flag("no_remote_control")
+        );
+        let parsed = command
+            .clone()
+            .try_get_matches_from(["codex", "remote-control", "status", "--json"])
+            .expect("localized status command retains its parser");
+        let remote = parsed
+            .subcommand_matches("remote-control")
+            .expect("remote-control");
+        assert!(remote.get_flag("json"));
+        assert!(remote.subcommand_matches("status").is_some());
+        let parsed = command
+            .try_get_matches_from(["codex", "cloud", "environments", "--json"])
+            .expect("localized environments command retains its parser");
+        assert!(
+            parsed
+                .subcommand_matches("cloud")
+                .expect("cloud")
+                .subcommand_matches("environments")
+                .expect("environments")
+                .get_flag("json")
+        );
+    }
+
+    #[test]
+    fn r28_english_help_preserves_new_command_and_flag_descriptions() {
+        let mut original = crate::MultitoolCli::command();
+        let mut english = localize_help(crate::MultitoolCli::command(), Locale::English);
+        for path in [
+            vec!["app-server"],
+            vec!["remote-control"],
+            vec!["remote-control", "status"],
+            vec!["cloud"],
+            vec!["cloud", "environments"],
+        ] {
+            assert_eq!(
+                command_at(&mut original, &path).render_help().to_string(),
+                command_at(&mut english, &path).render_help().to_string()
+            );
+        }
+        let help = command_at(&mut english, &["app-server"])
+            .render_help()
+            .to_string();
+        assert!(help.contains("Start with remote control disabled"));
+        assert!(help.contains("--no-remote-control"));
+    }
+
     #[test]
     fn english_help_and_unknown_descriptions_are_preserved() {
         let mut original = crate::MultitoolCli::command();

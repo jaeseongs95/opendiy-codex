@@ -244,7 +244,12 @@ async fn settings_confirmations_reveal_their_history_output() -> Result<()> {
             },
             "Failed to update thread settings",
         ),
-        (AppEvent::ResetMemories, "Reset local memories."),
+        (
+            AppEvent::ResetMemories,
+            crate::i18n::text(
+                "Local memory reset completed; existing conversations and running memory work may still retain earlier information.",
+            ),
+        ),
         (
             AppEvent::KeymapCaptured {
                 context: "global".into(),

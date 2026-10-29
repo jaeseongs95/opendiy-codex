@@ -92,25 +92,7 @@ async fn autodetect_environment_id_with_origins(
         format!("{base_url}/api/codex/environments")
     };
     crate::append_error_log(format!("env: GET {list_url}"));
-    // Fetch and log the full environments JSON for debugging
-    let response = http.get(&list_url, headers).await?;
-    let status = response.status;
-    let ct = response.content_type;
-    let body = response.body;
-    crate::append_error_log(format!("env: status={status} content-type={ct}"));
-    match serde_json::from_str::<serde_json::Value>(&body) {
-        Ok(v) => {
-            let pretty = serde_json::to_string_pretty(&v).unwrap_or(body.clone());
-            crate::append_error_log(format!("env: /environments JSON (pretty):\n{pretty}"));
-        }
-        Err(_) => crate::append_error_log(format!("env: /environments (raw):\n{body}")),
-    }
-    if !status.is_success() {
-        anyhow::bail!("GET {list_url} failed: {status}; content-type={ct}; body={body}");
-    }
-    let all_envs: Vec<CodeEnvironment> = serde_json::from_str(&body).map_err(|e| {
-        anyhow::anyhow!("Decode error for {list_url}: {e}; content-type={ct}; body={body}")
-    })?;
+    let all_envs: Vec<CodeEnvironment> = get_json(http, &list_url, headers).await?;
     if let Some(env) = pick_environment_row(&all_envs, desired_label.as_deref()) {
         return Ok(AutodetectSelection {
             id: env.id.clone(),
@@ -168,10 +150,19 @@ async fn get_json<T: serde::de::DeserializeOwned>(
     let body = response.body;
     crate::append_error_log(format!("env: status={status} content-type={ct}"));
     if !status.is_success() {
-        anyhow::bail!("GET {url} failed: {status}; content-type={ct}; body={body}");
+        anyhow::bail!(
+            "{}: HTTP {status}; content-type={ct}",
+            codex_tui::i18n::text("Environment lookup failed")
+        );
     }
     let parsed = serde_json::from_str::<T>(&body).map_err(|e| {
-        anyhow::anyhow!("Decode error for {url}: {e}; content-type={ct}; body={body}")
+        anyhow::anyhow!(
+            "{}: {:?} at line {}, column {}; content-type={ct}",
+            codex_tui::i18n::text("Invalid environment response"),
+            e.classify(),
+            e.line(),
+            e.column()
+        )
     })?;
     Ok(parsed)
 }
@@ -209,7 +200,7 @@ impl EnvironmentHttp for RouteAwareClientPool {
                 .and_then(|value| value.to_str().ok())
                 .unwrap_or("")
                 .to_string(),
-            body: response.text().await.unwrap_or_default(),
+            body: response.text().await?,
         })
     }
 }
@@ -312,6 +303,16 @@ pub async fn list_environments(
     headers: &HeaderMap,
 ) -> anyhow::Result<Vec<crate::app::EnvironmentRow>> {
     list_environments_with_origins(http, base_url, headers, &get_git_origins()).await
+}
+
+/// Fetch the complete accessible list, independent of the current Git repository.
+/// With no by-repo results, a failed global request is always returned as an error.
+pub async fn list_all_environments(
+    http: &RouteAwareClientPool,
+    base_url: &str,
+    headers: &HeaderMap,
+) -> anyhow::Result<Vec<crate::app::EnvironmentRow>> {
+    list_environments_with_origins(http, base_url, headers, &[]).await
 }
 
 async fn list_environments_with_origins(

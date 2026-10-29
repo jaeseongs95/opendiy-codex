@@ -15,6 +15,7 @@ use codex_app_server_protocol::RemoteControlEnableResponse;
 use codex_app_server_protocol::RemoteControlPairingStartParams;
 use codex_app_server_protocol::RemoteControlPairingStartResponse;
 use codex_app_server_protocol::RemoteControlStatusChangedNotification;
+use codex_app_server_protocol::RemoteControlStatusReadResponse;
 use codex_app_server_protocol::RequestId;
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncRead;
@@ -28,12 +29,54 @@ use crate::RemoteControlReadyStatus;
 use crate::client;
 
 const REMOTE_CONTROL_READY_TIMEOUT: Duration = Duration::from_secs(10);
+// Allow the daemon's 30-second pairing request to finish and return its response.
+const PAIRING_TIMEOUT: Duration = Duration::from_secs(35);
 const REMOTE_CONTROL_REQUEST_ID: RequestId = RequestId::Integer(2);
 const INVALID_PARAMS_ERROR_CODE: i64 = -32602;
 
 enum RemoteControlRpcResponse<T> {
     Success(T),
     InvalidParams,
+}
+
+pub(crate) async fn read_status(socket_path: &Path) -> Result<RemoteControlStatusReadResponse> {
+    timeout(client::CONTROL_SOCKET_RESPONSE_TIMEOUT, async {
+        let mut websocket = client::connect(socket_path).await?;
+        let response = read_status_on_connection(&mut websocket).await?;
+        websocket.close(None).await.ok();
+        Ok(response)
+    })
+    .await
+    .context("timed out reading existing app-server remote-control status")?
+}
+
+async fn read_status_on_connection<S>(
+    websocket: &mut WebSocketStream<S>,
+) -> Result<RemoteControlStatusReadResponse>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    initialize_client(websocket).await?;
+    send_remote_control_request(
+        websocket,
+        REMOTE_CONTROL_REQUEST_ID.clone(),
+        "remoteControl/status/read",
+        None,
+    )
+    .await?;
+    match read_remote_control_response(
+        websocket,
+        &REMOTE_CONTROL_REQUEST_ID,
+        "remoteControl/status/read",
+        /*message_timeout*/ None,
+    )
+    .await?
+    {
+        RemoteControlRpcResponse::Success(response) => Ok(response),
+        RemoteControlRpcResponse::InvalidParams => Err(anyhow!(
+            "remoteControl/status/read rejected a read-only request"
+        )),
+    }
 }
 
 pub(crate) async fn enable_remote_control(socket_path: &Path) -> Result<RemoteControlReadyStatus> {
@@ -56,20 +99,43 @@ pub(crate) async fn disable_remote_control(socket_path: &Path) -> Result<RemoteC
 }
 
 pub(crate) async fn start_pairing(socket_path: &Path) -> Result<RemoteControlPairingStartResponse> {
-    let mut websocket = client::connect(socket_path).await?;
-    initialize_client(&mut websocket).await?;
+    start_pairing_with_connection(client::connect(socket_path)).await
+}
+
+async fn start_pairing_with_connection<S>(
+    connection: impl std::future::Future<Output = Result<WebSocketStream<S>>>,
+) -> Result<RemoteControlPairingStartResponse>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    timeout(PAIRING_TIMEOUT, async {
+        let mut websocket = connection.await?;
+        start_pairing_on_connection(&mut websocket).await
+    })
+    .await
+    .context("timed out waiting for remoteControl/pairing/start response")?
+}
+
+async fn start_pairing_on_connection<S>(
+    websocket: &mut WebSocketStream<S>,
+) -> Result<RemoteControlPairingStartResponse>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    initialize_client(websocket).await?;
     let params = serde_json::to_value(RemoteControlPairingStartParams { manual_code: true })?;
     send_remote_control_request(
-        &mut websocket,
+        websocket,
         REMOTE_CONTROL_REQUEST_ID.clone(),
         "remoteControl/pairing/start",
         Some(params),
     )
     .await?;
     let response = match read_remote_control_response(
-        &mut websocket,
+        websocket,
         &REMOTE_CONTROL_REQUEST_ID,
         "remoteControl/pairing/start",
+        /*message_timeout*/ None,
     )
     .await?
     {
@@ -167,7 +233,15 @@ where
         Some(params),
     )
     .await?;
-    match read_remote_control_response(websocket, &REMOTE_CONTROL_REQUEST_ID, method).await? {
+    let message_timeout = Some(client::CONTROL_SOCKET_RESPONSE_TIMEOUT);
+    match read_remote_control_response(
+        websocket,
+        &REMOTE_CONTROL_REQUEST_ID,
+        method,
+        message_timeout,
+    )
+    .await?
+    {
         RemoteControlRpcResponse::Success(response) => Ok(response),
         RemoteControlRpcResponse::InvalidParams => {
             send_remote_control_request(
@@ -177,8 +251,13 @@ where
                 /*params*/ None,
             )
             .await?;
-            match read_remote_control_response(websocket, &REMOTE_CONTROL_REQUEST_ID, method)
-                .await?
+            match read_remote_control_response(
+                websocket,
+                &REMOTE_CONTROL_REQUEST_ID,
+                method,
+                message_timeout,
+            )
+            .await?
             {
                 RemoteControlRpcResponse::Success(response) => Ok(response),
                 RemoteControlRpcResponse::InvalidParams => {
@@ -217,18 +296,21 @@ async fn read_remote_control_response<S, T>(
     websocket: &mut WebSocketStream<S>,
     request_id: &RequestId,
     method: &str,
+    message_timeout: Option<Duration>,
 ) -> Result<RemoteControlRpcResponse<T>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     T: DeserializeOwned,
 {
     loop {
-        let message = timeout(
-            client::CONTROL_SOCKET_RESPONSE_TIMEOUT,
-            client::read_message(websocket),
-        )
-        .await
-        .with_context(|| format!("timed out waiting for {method} response"))??;
+        let read = client::read_message(websocket);
+        let message = if let Some(duration) = message_timeout {
+            timeout(duration, read)
+                .await
+                .with_context(|| format!("timed out waiting for {method} response"))??
+        } else {
+            read.await?
+        };
         match message {
             JSONRPCMessage::Response(response) if response.id == *request_id => {
                 let response = serde_json::from_value::<T>(response.result)
@@ -345,6 +427,183 @@ impl From<RemoteControlStatusChangedNotification> for RemoteControlReadyStatus {
             environment_id,
             timed_out: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod read_status_tests {
+    use codex_app_server_protocol::JSONRPCResponse;
+    use tokio_tungstenite::tungstenite::protocol::Role;
+
+    use super::*;
+
+    async fn initialized_server(
+        stream: tokio::io::DuplexStream,
+    ) -> Result<WebSocketStream<tokio::io::DuplexStream>> {
+        let mut websocket = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+        let JSONRPCMessage::Request(initialize) = client::read_message(&mut websocket).await?
+        else {
+            panic!("expected initialize request");
+        };
+        assert_eq!(initialize.method, "initialize");
+        client::send_message(
+            &mut websocket,
+            &JSONRPCMessage::Response(JSONRPCResponse {
+                id: initialize.id,
+                result: serde_json::json!({
+                    "userAgent": "codex_app_server/1.2.3",
+                    "codexHome": "/test-home",
+                    "platformFamily": "test",
+                    "platformOs": "test",
+                }),
+            }),
+        )
+        .await?;
+        let JSONRPCMessage::Notification(initialized) =
+            client::read_message(&mut websocket).await?
+        else {
+            panic!("expected initialized notification");
+        };
+        assert_eq!(initialized.method, "initialized");
+        Ok(websocket)
+    }
+
+    async fn accept_pairing_request(
+        stream: tokio::io::DuplexStream,
+    ) -> Result<WebSocketStream<tokio::io::DuplexStream>> {
+        let mut websocket = initialized_server(stream).await?;
+        let JSONRPCMessage::Request(request) = client::read_message(&mut websocket).await? else {
+            panic!("expected pairing request");
+        };
+        assert_eq!(request.id, REMOTE_CONTROL_REQUEST_ID);
+        assert_eq!(request.method, "remoteControl/pairing/start");
+        assert_eq!(
+            request.params,
+            Some(serde_json::json!({ "manualCode": true }))
+        );
+        Ok(websocket)
+    }
+
+    async fn pairing_client(
+        stream: tokio::io::DuplexStream,
+    ) -> Result<RemoteControlPairingStartResponse> {
+        start_pairing_with_connection(async {
+            Ok(WebSocketStream::from_raw_socket(stream, Role::Client, None).await)
+        })
+        .await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pairing_waits_for_three_second_reply_on_all_platforms() -> Result<()> {
+        let (client_stream, server_stream) = tokio::io::duplex(8192);
+        let expected = RemoteControlPairingStartResponse {
+            pairing_code: "pairing-code".to_string(),
+            manual_pairing_code: Some("ABCD-EFGH".to_string()),
+            environment_id: "env_test".to_string(),
+            expires_at: 1_700_000_000,
+        };
+        let reply = expected.clone();
+        let server = async move {
+            let mut websocket = accept_pairing_request(server_stream).await?;
+            sleep(Duration::from_secs(3)).await;
+            client::send_message(
+                &mut websocket,
+                &JSONRPCMessage::Response(JSONRPCResponse {
+                    id: REMOTE_CONTROL_REQUEST_ID,
+                    result: serde_json::to_value(reply)?,
+                }),
+            )
+            .await
+        };
+        let start = Instant::now();
+        let (response, served) = tokio::join!(pairing_client(client_stream), server);
+        served?;
+        assert_eq!(response?, expected);
+        assert_eq!(start.elapsed(), Duration::from_secs(3));
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pairing_notification_keeps_total_deadline_on_all_platforms() -> Result<()> {
+        let (client_stream, server_stream) = tokio::io::duplex(8192);
+        let server = async move {
+            let mut websocket = accept_pairing_request(server_stream).await?;
+            sleep(Duration::from_secs(20)).await;
+            client::send_message(
+                &mut websocket,
+                &JSONRPCMessage::Notification(JSONRPCNotification {
+                    method: "remoteControl/status/changed".to_string(),
+                    params: Some(serde_json::to_value(
+                        RemoteControlStatusChangedNotification {
+                            status: RemoteControlConnectionStatus::Connecting,
+                            server_name: "test-pc".to_string(),
+                            installation_id: "installation-test".to_string(),
+                            environment_id: None,
+                        },
+                    )?),
+                }),
+            )
+            .await?;
+            // An extended deadline would encounter EOF at 40 seconds instead.
+            sleep(Duration::from_secs(20)).await;
+            Ok::<_, anyhow::Error>(())
+        };
+        let client = async move {
+            let start = Instant::now();
+            let error = pairing_client(client_stream)
+                .await
+                .expect_err("pairing deadline");
+            assert!(error.is::<tokio::time::error::Elapsed>(), "{error:#}");
+            assert_eq!(start.elapsed(), PAIRING_TIMEOUT);
+        };
+        let ((), served) = tokio::join!(client, server);
+        served?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn status_only_reads_and_preserves_all_relay_states() -> Result<()> {
+        for status in [
+            RemoteControlConnectionStatus::Connected,
+            RemoteControlConnectionStatus::Connecting,
+            RemoteControlConnectionStatus::Disabled,
+            RemoteControlConnectionStatus::Errored,
+        ] {
+            let (client_stream, server_stream) = tokio::io::duplex(8192);
+            let expected = RemoteControlStatusReadResponse {
+                status,
+                server_name: "test-pc".to_string(),
+                installation_id: "installation-test".to_string(),
+                environment_id: Some("env_test".to_string()),
+            };
+            let reply = expected.clone();
+            let server = async move {
+                let mut websocket = initialized_server(server_stream).await?;
+                let JSONRPCMessage::Request(request) = client::read_message(&mut websocket).await?
+                else {
+                    panic!("expected status request");
+                };
+                assert_eq!(request.method, "remoteControl/status/read");
+                assert!(request.params.is_none());
+                client::send_message(
+                    &mut websocket,
+                    &JSONRPCMessage::Response(JSONRPCResponse {
+                        id: request.id,
+                        result: serde_json::to_value(reply)?,
+                    }),
+                )
+                .await
+            };
+            let client = async move {
+                let mut websocket =
+                    WebSocketStream::from_raw_socket(client_stream, Role::Client, None).await;
+                read_status_on_connection(&mut websocket).await
+            };
+            let (response, served) = tokio::join!(client, server);
+            served?;
+            assert_eq!(response?, expected);
+        }
+        Ok(())
     }
 }
 
@@ -586,6 +845,10 @@ mod tests {
                 pairing.params,
                 Some(serde_json::json!({ "manualCode": true }))
             );
+            // Use virtual time only for the reply delay, after the socket handshake.
+            tokio::time::pause();
+            sleep(Duration::from_secs(3)).await;
+            tokio::time::resume();
             client::send_message(
                 &mut websocket,
                 &JSONRPCMessage::Response(JSONRPCResponse {
@@ -612,6 +875,42 @@ mod tests {
                 environment_id: "env_test".to_string(),
                 expires_at: 1_700_000_000,
             }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pairing_notification_does_not_extend_the_response_deadline() -> Result<()> {
+        let dir = TempDir::new()?;
+        let socket_path = dir.path().join("app-server.sock");
+        let listener = UnixListener::bind(&socket_path).await?;
+        let server_task = tokio::spawn(async move {
+            let mut websocket = accept_initialized_client(listener).await?;
+            client::read_message(&mut websocket).await?;
+
+            tokio::time::pause();
+            sleep(Duration::from_secs(20)).await;
+            send_remote_control_status(
+                &mut websocket,
+                remote_control_status(
+                    RemoteControlConnectionStatus::Connecting,
+                    /*environment_id*/ None,
+                ),
+            )
+            .await?;
+            // With a fresh timeout after the notification, the client would see EOF at 40s.
+            sleep(Duration::from_secs(20)).await;
+            Ok::<_, anyhow::Error>(())
+        });
+
+        let start = Instant::now();
+        let error = start_pairing(&socket_path).await.unwrap_err();
+        let elapsed = start.elapsed();
+        server_task.await??;
+        assert!(error.is::<tokio::time::error::Elapsed>(), "{error:#}");
+        assert!(
+            (Duration::from_secs(30)..Duration::from_secs(40)).contains(&elapsed),
+            "pairing timed out after {elapsed:?}"
         );
         Ok(())
     }

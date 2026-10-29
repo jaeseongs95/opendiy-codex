@@ -38,6 +38,7 @@ pub use backend::BackendKind;
 use backend::BackendPaths;
 use codex_app_server_protocol::RemoteControlConnectionStatus;
 use codex_app_server_protocol::RemoteControlPairingStartResponse;
+use codex_app_server_protocol::RemoteControlStatusReadResponse;
 use codex_app_server_transport::app_server_control_socket_path;
 use codex_utils_home_dir::find_codex_home;
 use managed_install::managed_codex_bin;
@@ -280,6 +281,15 @@ pub async fn start_remote_control_pairing() -> Result<RemoteControlPairingStartR
     ensure_supported_platform()?;
     let daemon = Daemon::from_environment()?;
     remote_control_client::start_pairing(&daemon.socket_path).await
+}
+
+/// Reads an existing daemon's relay status without starting or enabling a server.
+pub async fn read_remote_control_status() -> Result<RemoteControlStatusReadResponse> {
+    ensure_supported_platform()?;
+    let daemon = Daemon::from_environment()?;
+    remote_control_client::read_status(&daemon.socket_path)
+        .await
+        .context("failed to query existing app-server remote-control status; no server was started")
 }
 
 pub async fn set_remote_control(mode: RemoteControlMode) -> Result<RemoteControlOutput> {

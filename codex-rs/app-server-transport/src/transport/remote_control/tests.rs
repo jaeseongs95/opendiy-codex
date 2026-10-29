@@ -301,6 +301,12 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
     .await
     .expect("remote control should start disabled");
 
+    assert!(
+        !remote_handle
+            .resolve_persisted_preference(None)
+            .await
+            .expect("explicit disabled startup should not restore the saved enablement")
+    );
     assert_eq!(
         remote_handle.status().status,
         RemoteControlConnectionStatus::Disabled
@@ -314,11 +320,18 @@ async fn explicit_disabled_start_ignores_persisted_enable() {
             )
             .await
             .expect("enrollment should load"),
-        Some(enrollment)
+        Some(enrollment.clone())
     );
 
     shutdown_token.cancel();
     remote_task.await.expect("remote control task should join");
+    assert_eq!(
+        state_db
+            .get_remote_control_enrollment(&enrollment.websocket_url, &enrollment.account_id, None,)
+            .await
+            .expect("shutdown must preserve the saved registration"),
+        Some(enrollment)
+    );
 }
 
 #[tokio::test]

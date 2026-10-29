@@ -1112,6 +1112,15 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_memories_popup(&mut self) {
+        let scope = if self.config.memories.scope == codex_config::types::MemoryScope::Project {
+            "project"
+        } else {
+            "global"
+        };
+        self.open_memories_popup_with_scope(scope);
+    }
+
+    pub(crate) fn open_memories_popup_with_scope(&mut self, scope: &str) {
         if !self.config.features.enabled(Feature::MemoryTool) {
             self.open_feature_enable_prompt(Feature::MemoryTool);
             return;
@@ -1122,8 +1131,14 @@ impl ChatWidget {
             self.config.memories.generate_memories,
             self.app_event_tx.clone(),
             self.bottom_pane.list_keymap(),
-        );
+        )
+        .with_scope(scope);
         self.bottom_pane.show_view(Box::new(view));
+    }
+
+    pub(crate) fn prepare_memory_note(&mut self) {
+        self.bottom_pane
+            .set_composer_text("/memory edit ".to_string(), Vec::new(), Vec::new());
     }
 
     pub(crate) fn set_memory_settings(&mut self, use_memories: bool, generate_memories: bool) {

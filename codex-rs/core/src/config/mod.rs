@@ -1630,7 +1630,95 @@ async fn config_toml_from_layers(layers: &ConfigLayerStack) -> std::io::Result<C
     }
 }
 
+pub use codex_config::memory_scope::MEMORY_SUMMARY_MAX_BYTES;
+pub use codex_config::memory_scope::validate_scoped_memory_root;
+
 impl Config {
+    pub(crate) fn memory_scope_snapshot(&self) -> codex_protocol::protocol::ThreadMemoryScope {
+        codex_protocol::protocol::ThreadMemoryScope {
+            project: self.memories.scope == codex_config::types::MemoryScope::Project,
+            version: self.memories.version,
+            project_key: self
+                .memories
+                .project
+                .as_ref()
+                .map(|project| project.key.clone()),
+            markers: self
+                .memories
+                .project
+                .as_ref()
+                .map(|project| project.markers().to_vec())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Restore only the namespace, preserving today's feature, trust and permission constraints.
+    pub(crate) fn restore_memory_scope(
+        &mut self,
+        saved: &codex_protocol::protocol::ThreadMemoryScope,
+    ) {
+        use codex_config::types::MemoryScope;
+        self.memories.version = saved.version;
+        self.memories.scope = if saved.project {
+            MemoryScope::Project
+        } else {
+            MemoryScope::Global
+        };
+        self.memories.project = None;
+        if saved.project && !self.active_project.is_untrusted() {
+            self.memories.project = codex_config::memory_scope::MemoryProject::resolve(
+                self.cwd.as_path(),
+                &saved.markers,
+            )
+            .ok()
+            .filter(|project| Some(&project.key) == saved.project_key.as_ref());
+            if self
+                .memories
+                .memory_root(&self.codex_home)
+                .is_some_and(|root| validate_scoped_memory_root(root.as_path()).is_err())
+            {
+                self.memories.project = None;
+            }
+            if self.memories.project.is_none() {
+                self.startup_warnings.push("Saved project memory identity is unavailable or changed; project memories are disabled.".to_string());
+            }
+        }
+        // Use the same helper-root policy as config loading; managed denied reads remain authoritative.
+        if self.features.enabled(Feature::MemoryTool)
+            && self.memories.use_memories
+            && let Some(root) = self.memories.memory_root(&self.codex_home)
+        {
+            let profile = self.permissions.effective_permission_profile();
+            let (filesystem, network) = profile.to_runtime_permissions();
+            let filesystem = filesystem.with_additional_readable_roots(self.cwd.as_path(), &[root]);
+            let profile = PermissionProfile::from_runtime_permissions_with_enforcement(
+                profile.enforcement(),
+                &filesystem,
+                network,
+            );
+            if let Err(error) = self.permissions.set_permission_profile(profile) {
+                self.memories.use_memories = false;
+                self.memories.generate_memories = false;
+                self.startup_warnings.push(format!(
+                    "Saved memory scope is unavailable under current permissions: {error}"
+                ));
+            }
+        }
+    }
+
+    /// Project memory currently supports a single local execution environment.
+    pub fn memory_environment_supported(
+        &self,
+        environments: &[codex_protocol::protocol::TurnEnvironmentSelection],
+    ) -> bool {
+        self.memories.scope == codex_config::types::MemoryScope::Global
+            || environments.len() <= 1
+                && environments.first().is_none_or(|selection| {
+                    selection.environment_id == codex_exec_server::LOCAL_ENVIRONMENT_ID
+                        && selection.cwd.to_abs_path().is_ok()
+                })
+    }
+
     pub fn sqlite_config(&self) -> &codex_state::SqliteConfig {
         &self.sqlite
     }
@@ -3658,8 +3746,25 @@ impl Config {
         {
             memories.version = Some(MemoryVersion::V2);
         }
-        let memories_config: MemoriesConfig = memories.into();
-        let memories_root = codex_home.join(memories_config.version.directory_name());
+        let mut memories_config: MemoriesConfig = memories.into();
+        if memories_config.scope == codex_config::types::MemoryScope::Project {
+            if active_project.is_untrusted() {
+                startup_warnings.push("Project memories are unavailable in an untrusted project.".to_string());
+            } else {
+                let markers = cfg.project_root_markers.clone().unwrap_or_else(codex_config::default_project_root_markers);
+                match codex_config::memory_scope::MemoryProject::resolve(resolved_cwd.as_path(), &markers) {
+                    Ok(project) => memories_config.project = Some(project),
+                    Err(error) => startup_warnings.push(format!("Project memories are unavailable: {error}")),
+                }
+            }
+        }
+        if let Some(root) = memories_config.memory_root(&codex_home)
+            && let Err(error) = validate_scoped_memory_root(root.as_path())
+        {
+            startup_warnings.push(format!("Project memories are unavailable: {error}"));
+            memories_config.project = None;
+        }
+        let memories_root = memories_config.memory_root(&codex_home);
 
         let profiles_are_active = effective_permission_selection.profiles_are_active(
             default_permissions_override.as_deref(),
@@ -4372,7 +4477,7 @@ impl Config {
             .into_iter()
             .collect();
         if features.enabled(Feature::MemoryTool) && memories_config.use_memories {
-            helper_readable_roots.push(memories_root);
+            helper_readable_roots.extend(memories_root);
         }
         let effective_permission_profile = constrained_permission_profile.value.get().clone();
         let (mut effective_file_system_sandbox_policy, effective_network_sandbox_policy) =

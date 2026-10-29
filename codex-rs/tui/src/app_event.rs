@@ -295,6 +295,10 @@ pub(crate) struct AgentPickerThreadRefresh {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
+    MemoryCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
     ContextCommand {
         thread_id: Option<ThreadId>,
         args: String,

@@ -120,6 +120,9 @@ async fn claim_startup_jobs(
     context: &MemoryStartupContext,
     memories_config: &MemoriesConfig,
 ) -> Option<Vec<codex_state::Stage1JobClaim>> {
+    if !context.generation_enabled().await {
+        return Some(Vec::new());
+    }
     let Some(state_db) = context.memory_store().await else {
         // This should not happen.
         warn!("state db unavailable while claiming phase-1 startup jobs; skipping");
@@ -131,6 +134,9 @@ async fn claim_startup_jobs(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
 
+    if !context.generation_enabled().await {
+        return Some(Vec::new());
+    }
     match state_db
         .claim_stage1_jobs_for_startup(
             context.thread_id(),
@@ -203,6 +209,7 @@ mod job {
         let (stage_one_output, token_usage) = match sample(
             context,
             config,
+            claimed_thread.id,
             &claimed_thread.rollout_path,
             &claimed_thread.cwd,
             claimed_thread.git_branch.as_deref(),
@@ -258,12 +265,28 @@ mod job {
     async fn sample(
         context: &MemoryStartupContext,
         config: &Config,
+        source_thread: codex_protocol::ThreadId,
         rollout_path: &Path,
         rollout_cwd: &Path,
         rollout_git_branch: Option<&str>,
         stage_one_context: &StageOneRequestContext,
     ) -> anyhow::Result<(StageOneOutput, Option<TokenUsage>)> {
-        let rollout_items = crate::rollout_input::read_recent_rollout_items(rollout_path).await?;
+        // The same bounded read both validates ownership and supplies the model evidence.
+        let rollout_items = if config.memories.scope == codex_config::types::MemoryScope::Project {
+            let project = config
+                .memories
+                .project
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("project memory identity is unavailable"))?;
+            crate::rollout_input::read_recent_rollout_items_for_project(
+                rollout_path,
+                project,
+                source_thread,
+            )
+            .await?
+        } else {
+            crate::rollout_input::read_recent_rollout_items(rollout_path).await?
+        };
         let rollout_contents = match config.memories.version {
             MemoryVersion::V1 => serialize_filtered_rollout_response_items(&rollout_items)?,
             MemoryVersion::V2 => crate::rollout_input::serialize_tiered_input(

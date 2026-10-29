@@ -322,3 +322,87 @@ fn removes_an_existing_unscoped_target_when_cwd_is_unavailable() {
     );
     assert!(!target_root.exists());
 }
+
+#[test]
+fn import_caps_source_growth_before_any_selected_project_is_replaced() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let source = temp.path().join("source");
+    let target = temp.path().join("memories");
+    for key in ["a", "b"] {
+        let project = source.join("projects").join(key);
+        fs::create_dir_all(project.join("memory"))?;
+        write_project_session(&project, &temp.path().join(format!("cwd-{key}")));
+        fs::write(project.join("memory/MEMORY.md"), "initial")?;
+    }
+    let files = discover_external_memory_files(&source)?;
+    let selected = BTreeSet::from(["a", "b"]);
+    copy_resources(&target, &files, &selected)?;
+    fs::write(source.join("projects/a/memory/MEMORY.md"), "changed")?;
+    fs::File::create(source.join("projects/b/memory/MEMORY.md"))?
+        .set_len(crate::memory::MAX_MEMORY_FILE_BYTES + 1)?;
+    let error = copy_resources(&target, &files, &selected).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        fs::read_to_string(resources_root(&target).join("a/MEMORY.md"))?,
+        "initial"
+    );
+    assert_eq!(
+        fs::read_to_string(resources_root(&target).join("b/MEMORY.md"))?,
+        "initial"
+    );
+    Ok(())
+}
+
+#[test]
+fn import_caps_actual_total_bytes_before_creating_a_destination() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let source = temp.path().join("source");
+    let target = temp.path().join("memories");
+    let project = source.join("projects/a");
+    fs::create_dir_all(project.join("memory"))?;
+    write_project_session(&project, &temp.path().join("cwd"));
+    for index in 0..17 {
+        fs::write(project.join(format!("memory/{index}.md")), "small")?;
+    }
+    let files = discover_external_memory_files(&source)?;
+    for file in &files {
+        fs::File::create(&file.source_path)?.set_len(crate::memory::MAX_MEMORY_FILE_BYTES)?;
+    }
+    assert_eq!(
+        copy_resources(&target, &files, &BTreeSet::from(["a"]))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert!(!target.exists());
+    Ok(())
+}
+
+#[test]
+fn import_rejects_deep_existing_targets_before_replacing_another_project() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let source = temp.path().join("source");
+    let target = temp.path().join("memories");
+    let project = source.join("projects/a");
+    fs::create_dir_all(project.join("memory"))?;
+    write_project_session(&project, &temp.path().join("cwd"));
+    fs::write(project.join("memory/MEMORY.md"), "new")?;
+    let files = discover_external_memory_files(&source)?;
+    let old_a = resources_root(&target).join("a");
+    fs::create_dir_all(&old_a)?;
+    fs::write(old_a.join("MEMORY.md"), "old")?;
+    let mut nested = resources_root(&target).join("b");
+    for _ in 0..17 {
+        nested.push("d");
+    }
+    fs::create_dir_all(&nested)?;
+    assert_eq!(
+        copy_resources(&target, &files, &BTreeSet::from(["a", "b"]))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert_eq!(fs::read_to_string(old_a.join("MEMORY.md"))?, "old");
+    assert!(nested.exists());
+    Ok(())
+}

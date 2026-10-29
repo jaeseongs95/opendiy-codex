@@ -32,6 +32,7 @@ pub fn start_memories_startup_task(
 ) {
     if config.ephemeral
         || !config.features.enabled(Feature::MemoryTool)
+        || config.memories.memory_root(&config.codex_home).is_none()
         || source.is_non_root_agent()
     {
         return;
@@ -57,14 +58,28 @@ pub fn start_memories_startup_task(
             config.as_ref(),
             source.clone(),
         ));
+        let thread = Arc::clone(&thread);
         tokio::spawn(async move {
+            let snapshot = thread.config_snapshot().await;
+            if !config.memory_environment_supported(snapshot.environment_selections()) {
+                return;
+            }
+            if !context.generation_enabled().await {
+                return;
+            }
             if context.memory_store().await.is_none() {
                 warn!("state db unavailable for memories startup pipeline; skipping");
                 return;
             }
-            let root = config
-                .codex_home
-                .join(config.memories.version.directory_name());
+            let Some(root) = config.memories.memory_root(&config.codex_home) else {
+                return;
+            };
+            if let Err(err) =
+                codex_config::memory_scope::validate_scoped_memory_root(root.as_path())
+            {
+                warn!("project memory root is unavailable: {err}");
+                return;
+            }
             if let Err(err) = ensure_layout(&root).await {
                 warn!("failed preparing memories root: {err}");
                 return;

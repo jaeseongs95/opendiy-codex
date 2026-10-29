@@ -351,3 +351,109 @@ async fn open_read_write_pool_preserves_empty_database_lock_error() -> anyhow::R
     pool.close().await;
     Ok(())
 }
+
+#[cfg(any(unix, windows))]
+fn create_project_memory_directory_redirect(
+    target: &std::path::Path,
+    alias: &std::path::Path,
+) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, alias)?;
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(alias)
+            .arg(target)
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn project_memory_open_rejects_each_redirected_directory() -> anyhow::Result<()> {
+    let fixture = crate::runtime::test_support::unique_temp_dir();
+    let outside = fixture.join("outside");
+    tokio::fs::create_dir_all(&outside).await?;
+    let key = "a".repeat(64);
+    for level in 0..3 {
+        let home = fixture.join(level.to_string());
+        tokio::fs::create_dir(&home).await?;
+        let root = home.join("project_memories");
+        let project = root.join(&key);
+        let version = project.join(codex_protocol::MemoryVersion::V2.directory_name());
+        let directories = [&root, &project, &version];
+        for parent in &directories[..level] {
+            tokio::fs::create_dir(parent).await?;
+        }
+        let alias = directories[level];
+        create_project_memory_directory_redirect(&outside, alias)?;
+        let sqlite = SqliteConfig::new_for_testing(home.as_path().abs());
+        assert!(
+            sqlite
+                .open_project_memories_db(codex_protocol::MemoryVersion::V2, &key)
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::fs::read_dir(&outside)
+                .await?
+                .next_entry()
+                .await?
+                .is_none()
+        );
+        #[cfg(unix)]
+        tokio::fs::remove_file(alias).await?;
+        #[cfg(windows)]
+        tokio::fs::remove_dir(alias).await?;
+    }
+    tokio::fs::remove_dir_all(fixture).await?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn project_memory_open_rejects_redirected_database_and_sidecars() -> anyhow::Result<()> {
+    let fixture = crate::runtime::test_support::unique_temp_dir();
+    let outside = fixture.join("outside");
+    tokio::fs::create_dir_all(&outside).await?;
+    let key = "a".repeat(64);
+    for (index, filename) in [
+        "memories.sqlite",
+        "memories.sqlite-wal",
+        "memories.sqlite-shm",
+        "memories.sqlite-journal",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let home = fixture.join(index.to_string());
+        let version = home
+            .join("project_memories")
+            .join(&key)
+            .join(codex_protocol::MemoryVersion::V2.directory_name());
+        tokio::fs::create_dir_all(&version).await?;
+        let target = outside.join(filename);
+        tokio::fs::write(&target, "external canary").await?;
+        let alias = version.join(filename);
+        std::os::unix::fs::symlink(&target, &alias)?;
+        let sqlite = SqliteConfig::new_for_testing(home.as_path().abs());
+        assert!(
+            sqlite
+                .open_project_memories_db(codex_protocol::MemoryVersion::V2, &key)
+                .await
+                .is_err()
+        );
+        assert_eq!(tokio::fs::read_to_string(&target).await?, "external canary");
+        tokio::fs::remove_file(alias).await?;
+        assert!(!version.join("memories.sqlite").exists());
+    }
+    tokio::fs::remove_dir_all(fixture).await?;
+    Ok(())
+}

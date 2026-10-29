@@ -19,6 +19,8 @@
 //! order. Once a thread id is observed it keeps its place in the cycle even if the entry is later
 //! updated or marked closed.
 
+use crate::bottom_pane::SubagentState;
+use crate::bottom_pane::SubagentStatusSummary;
 use crate::multi_agents::AgentPickerThreadEntry;
 use crate::multi_agents::SubAgentActivityDisplay;
 use crate::multi_agents::format_agent_picker_item_name;
@@ -43,6 +45,8 @@ use uuid::Uuid;
 pub(crate) struct AgentNavigationState {
     /// Latest picker metadata for each tracked thread id.
     threads: HashMap<ThreadId, AgentPickerThreadEntry>,
+    status_root: Option<ThreadId>,
+    statuses: HashMap<ThreadId, SubagentState>,
     /// Stable first-seen traversal order for picker rows and keyboard cycling.
     order: Vec<ThreadId>,
     /// Threads with observed terminal liveness that must not be revived by delayed activity.
@@ -78,6 +82,59 @@ pub(super) struct AgentPickerRefreshState {
 }
 
 impl AgentNavigationState {
+    /// Thread metadata and status belong to one root; a new root cannot inherit its agents.
+    pub(crate) fn bind_status_root(&mut self, root: ThreadId) {
+        if self.status_root.is_some_and(|previous| previous != root) {
+            self.clear();
+        }
+        self.status_root = Some(root);
+    }
+
+    pub(crate) fn cached_terminal_status(&self, thread_id: ThreadId) -> Option<SubagentState> {
+        self.statuses.get(&thread_id).copied().filter(|state| {
+            matches!(
+                state,
+                SubagentState::Completed
+                    | SubagentState::Failed
+                    | SubagentState::Stopped
+                    | SubagentState::Closed
+            )
+        })
+    }
+
+    pub(crate) fn set_cached_status(&mut self, thread_id: ThreadId, status: SubagentState) {
+        if self.threads.contains_key(&thread_id) {
+            self.statuses.insert(thread_id, status);
+        }
+    }
+
+    pub(crate) fn status_summary(
+        &self,
+        root: Option<ThreadId>,
+        exclude: impl Fn(ThreadId) -> bool,
+    ) -> SubagentStatusSummary {
+        let mut summary = SubagentStatusSummary::default();
+        if root.is_none() || self.status_root != root {
+            return summary;
+        }
+        for (thread_id, entry) in self.visible_threads() {
+            if Some(thread_id) == root || exclude(thread_id) {
+                continue;
+            }
+            let state = if entry.is_closed {
+                SubagentState::Closed
+            } else if let Some(state) = self.statuses.get(&thread_id) {
+                *state
+            } else if entry.is_running {
+                SubagentState::Running
+            } else {
+                SubagentState::Idle
+            };
+            summary.add(state);
+        }
+        summary
+    }
+
     pub(crate) fn begin_picker_refresh(&mut self, thread_id: ThreadId) -> Option<Uuid> {
         if self
             .picker_refresh
@@ -207,6 +264,8 @@ impl AgentNavigationState {
             entry.is_running = false;
             self.stopped_threads.insert(activity.thread_id);
         }
+        // A fresh lifecycle observation invalidates the previous turn's presentation status.
+        self.statuses.remove(&activity.thread_id);
     }
 
     pub(crate) fn mark_running(&mut self, thread_id: ThreadId) {
@@ -218,17 +277,29 @@ impl AgentNavigationState {
             return;
         }
         self.stopped_threads.remove(&thread_id);
+        self.statuses.remove(&thread_id);
         self.set_running(thread_id, /*is_running*/ true);
     }
 
     pub(crate) fn mark_stopped(&mut self, thread_id: ThreadId) {
         self.stopped_threads.insert(thread_id);
+        self.statuses.remove(&thread_id);
         self.set_running(thread_id, /*is_running*/ false);
     }
 
     pub(crate) fn set_running(&mut self, thread_id: ThreadId, is_running: bool) {
         if let Some(entry) = self.threads.get_mut(&thread_id) {
             entry.is_running = is_running;
+        }
+        let stale = match self.statuses.get(&thread_id) {
+            Some(SubagentState::Running) => !is_running,
+            Some(SubagentState::Completed | SubagentState::Failed | SubagentState::Stopped) => {
+                is_running
+            }
+            _ => false,
+        };
+        if stale {
+            self.statuses.remove(&thread_id);
         }
     }
 
@@ -264,6 +335,8 @@ impl AgentNavigationState {
     /// to a pristine single-session state.
     pub(crate) fn clear(&mut self) {
         self.threads.clear();
+        self.status_root = None;
+        self.statuses.clear();
         self.order.clear();
         self.stopped_threads.clear();
         self.parent_owned_threads.clear();
@@ -278,6 +351,7 @@ impl AgentNavigationState {
     /// would leave ghost rows in `/subagents`.
     pub(crate) fn remove(&mut self, thread_id: ThreadId) {
         self.threads.remove(&thread_id);
+        self.statuses.remove(&thread_id);
         self.order.retain(|candidate| *candidate != thread_id);
         self.stopped_threads.remove(&thread_id);
         self.parent_owned_threads.remove(&thread_id);
@@ -462,6 +536,39 @@ impl AgentNavigationState {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn subagent_status_is_root_scoped_and_drops_hidden_removed_and_side_entries() {
+        let mut state = AgentNavigationState::default();
+        let root = ThreadId::new();
+        let child = ThreadId::new();
+        let side = ThreadId::new();
+        state.bind_status_root(root);
+        state.upsert(root, None, None, false);
+        state.upsert(child, None, None, false);
+        state.upsert(side, None, None, false);
+        state.set_cached_status(child, SubagentState::NeedsApproval);
+        let mut expected = SubagentStatusSummary::default();
+        expected.add(SubagentState::NeedsApproval);
+        assert_eq!(state.status_summary(Some(root), |id| id == side), expected);
+        assert!(
+            state
+                .status_summary(Some(ThreadId::new()), |_| false)
+                .is_empty()
+        );
+        state.mark_running(child);
+        let mut running = SubagentStatusSummary::default();
+        running.add(SubagentState::Running);
+        assert_eq!(state.status_summary(Some(root), |id| id == side), running);
+        state.set_picker_thread_visibility(child, AgentPickerThreadVisibility::Hidden);
+        assert!(state.status_summary(Some(root), |id| id == side).is_empty());
+        state.remove(child);
+        assert!(!state.statuses.contains_key(&child));
+        let other = ThreadId::new();
+        state.bind_status_root(other);
+        assert!(state.status_summary(Some(other), |_| false).is_empty());
+        assert!(state.threads.is_empty());
+    }
     use super::*;
     use pretty_assertions::assert_eq;
 

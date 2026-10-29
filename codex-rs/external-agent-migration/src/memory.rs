@@ -1,9 +1,88 @@
-use crate::sessions::summarize_session;
+use crate::sessions::records_cla::summarize_session_from_reader;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
+
+pub(crate) const MAX_MEMORY_FILES: usize = 1_000;
+pub(crate) const MAX_MEMORY_FILE_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_MEMORY_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_MEMORY_DEPTH: usize = 16;
+const MAX_MEMORY_DIRECTORY_ENTRIES: usize = 10_000;
+
+#[derive(Default)]
+pub(crate) struct MemoryReadBudget {
+    files: usize,
+    bytes: u64,
+}
+
+impl MemoryReadBudget {
+    pub(crate) fn include(&mut self, bytes: u64) -> io::Result<()> {
+        if self.files >= MAX_MEMORY_FILES
+            || bytes > MAX_MEMORY_FILE_BYTES
+            || bytes > MAX_MEMORY_TOTAL_BYTES.saturating_sub(self.bytes)
+        {
+            return Err(memory_limit_error(
+                "file count or byte budget exceeded (1000 files, 1 MiB/file, 16 MiB total)",
+            ));
+        }
+        self.files += 1;
+        self.bytes += bytes;
+        Ok(())
+    }
+}
+
+pub(crate) fn memory_limit_error(message: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("external memory import limit: {message}"),
+    )
+}
+
+pub(crate) fn read_memory_file(path: &Path, budget: &mut MemoryReadBudget) -> io::Result<Vec<u8>> {
+    if budget.files >= MAX_MEMORY_FILES {
+        return Err(memory_limit_error("file count exceeds 1000"));
+    }
+    if !fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(memory_limit_error("memory input must be a regular file"));
+    }
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(memory_limit_error("memory input must be a regular file"));
+    }
+    if metadata.len() > MAX_MEMORY_FILE_BYTES {
+        return Err(memory_limit_error("file exceeds 1 MiB"));
+    }
+    let remaining = MAX_MEMORY_TOTAL_BYTES.saturating_sub(budget.bytes);
+    if metadata.len() > remaining {
+        return Err(memory_limit_error("total bytes exceed 16 MiB"));
+    }
+    let limit = MAX_MEMORY_FILE_BYTES.min(remaining);
+    // Never trust metadata for allocation or growth while reading the file.
+    let mut content = Vec::new();
+    file.take(limit + 1).read_to_end(&mut content)?;
+    budget.include(content.len() as u64)?;
+    Ok(content)
+}
+
+pub(crate) fn bounded_memory_entries(
+    path: &Path,
+    scanned: &mut usize,
+) -> io::Result<Vec<fs::DirEntry>> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(path)? {
+        if *scanned >= MAX_MEMORY_DIRECTORY_ENTRIES {
+            return Err(memory_limit_error("directory scan exceeds 10000 entries"));
+        }
+        *scanned += 1;
+        entries.push(entry?);
+    }
+    entries.sort_by_key(fs::DirEntry::file_name);
+    Ok(entries)
+}
 
 const EXTERNAL_PROJECTS_SUBDIR: &str = "projects";
 const EXTERNAL_MEMORY_SUBDIR: &str = "memory";
@@ -46,8 +125,9 @@ fn discover_project_memory(
         return Ok(());
     }
 
-    let mut project_entries = fs::read_dir(projects_root)?.collect::<Result<Vec<_>, _>>()?;
-    project_entries.sort_by_key(fs::DirEntry::file_name);
+    let mut scanned = 0;
+    let mut budget = MemoryReadBudget::default();
+    let project_entries = bounded_memory_entries(&projects_root, &mut scanned)?;
     for project_entry in project_entries {
         if !project_entry.file_type()?.is_dir() {
             continue;
@@ -62,21 +142,28 @@ fn discover_project_memory(
             continue;
         }
         let project_key = project_entry.file_name().to_string_lossy().into_owned();
-        let project_cwd = project_cwd_from_sessions(&project_entry.path())?;
+        let project_cwd =
+            project_cwd_from_sessions(&project_entry.path(), &mut budget, &mut scanned)?;
         collect_markdown_files(
             &memory_root,
             &memory_root,
             &project_key,
             project_cwd.as_deref(),
             files,
+            &mut budget,
+            &mut scanned,
+            0,
         )?;
     }
     Ok(())
 }
 
-fn project_cwd_from_sessions(project_root: &Path) -> io::Result<Option<PathBuf>> {
-    let mut sessions = fs::read_dir(project_root)?
-        .collect::<Result<Vec<_>, _>>()?
+fn project_cwd_from_sessions(
+    project_root: &Path,
+    budget: &mut MemoryReadBudget,
+    scanned: &mut usize,
+) -> io::Result<Option<PathBuf>> {
+    let mut sessions = bounded_memory_entries(project_root, scanned)?
         .into_iter()
         .filter_map(|entry| {
             let file_type = entry.file_type().ok()?;
@@ -96,7 +183,15 @@ fn project_cwd_from_sessions(project_root: &Path) -> io::Result<Option<PathBuf>>
     sessions.sort_by(|left, right| right.cmp(left));
 
     for (_, session_path) in sessions {
-        if let Ok(Some(summary)) = summarize_session(&session_path) {
+        let content = match read_memory_file(&session_path, budget) {
+            Ok(content) => content,
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => return Err(error),
+            // Preserve the existing policy of ignoring unavailable session metadata.
+            Err(_) => continue,
+        };
+        if let Ok(Some(summary)) =
+            summarize_session_from_reader(&session_path, io::Cursor::new(content))
+        {
             let cwd = summary.migration.cwd;
             if !cwd.is_absolute() {
                 continue;
@@ -118,21 +213,36 @@ fn collect_markdown_files(
     project_key: &str,
     project_cwd: Option<&Path>,
     files: &mut Vec<ExternalMemoryFile>,
+    budget: &mut MemoryReadBudget,
+    scanned: &mut usize,
+    depth: usize,
 ) -> io::Result<()> {
-    let mut entries = fs::read_dir(current_dir)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_by_key(fs::DirEntry::file_name);
+    if depth > MAX_MEMORY_DEPTH {
+        return Err(memory_limit_error("directory depth exceeds 16"));
+    }
+    let entries = bounded_memory_entries(current_dir, scanned)?;
     for entry in entries {
         let file_type = entry.file_type()?;
         if file_type.is_symlink() {
             continue;
         }
         if file_type.is_dir() {
-            collect_markdown_files(source_root, &entry.path(), project_key, project_cwd, files)?;
+            collect_markdown_files(
+                source_root,
+                &entry.path(),
+                project_key,
+                project_cwd,
+                files,
+                budget,
+                scanned,
+                depth + 1,
+            )?;
             continue;
         }
         if !file_type.is_file() || !is_markdown_file(&entry.path()) {
             continue;
         }
+        budget.include(entry.metadata()?.len())?;
         let relative_path = entry
             .path()
             .strip_prefix(source_root)

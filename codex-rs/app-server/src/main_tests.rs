@@ -6,6 +6,29 @@ use toml::Value as TomlValue;
 use url::Url;
 
 #[test]
+fn app_server_remote_control_startup_flags_are_exclusive_and_unselected_by_default() {
+    let defaults = AppServerArgs::try_parse_from(["codex-app-server"]).expect("default args");
+    assert!(!defaults.remote_control);
+    assert!(!defaults.no_remote_control);
+    let disabled = AppServerArgs::try_parse_from(["codex-app-server", "--no-remote-control"])
+        .expect("process-scoped disable");
+    assert!(disabled.no_remote_control);
+    assert!(!disabled.remote_control);
+    let enabled = AppServerArgs::try_parse_from(["codex-app-server", "--remote-control"])
+        .expect("process-scoped enable");
+    assert!(enabled.remote_control);
+    assert!(!enabled.no_remote_control);
+    for flags in [
+        ["--remote-control", "--no-remote-control"],
+        ["--no-remote-control", "--remote-control"],
+    ] {
+        let error = AppServerArgs::try_parse_from(["codex-app-server", flags[0], flags[1]])
+            .expect_err("startup flags must conflict");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+}
+
+#[test]
 fn app_server_accepts_cli_config_overrides() {
     let args = AppServerArgs::try_parse_from([
         "codex-app-server",

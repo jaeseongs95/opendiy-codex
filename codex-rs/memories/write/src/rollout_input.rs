@@ -33,6 +33,24 @@ const MAX_RECORD_BYTES: usize = 1024 * 1024;
 /// the per-record limit are intentionally omitted; this is not a complete history for resume.
 /// The first line must contain valid session metadata within the same record limit.
 pub(crate) async fn read_recent_rollout_items(path: &Path) -> anyhow::Result<Vec<RolloutItem>> {
+    read_recent_rollout_items_scoped(path, None).await
+}
+
+pub(crate) async fn read_recent_rollout_items_for_project(
+    path: &Path,
+    project: codex_config::memory_scope::MemoryProject,
+    source_thread: codex_protocol::ThreadId,
+) -> anyhow::Result<Vec<RolloutItem>> {
+    read_recent_rollout_items_scoped(path, Some((project, source_thread))).await
+}
+
+async fn read_recent_rollout_items_scoped(
+    path: &Path,
+    scope: Option<(
+        codex_config::memory_scope::MemoryProject,
+        codex_protocol::ThreadId,
+    )>,
+) -> anyhow::Result<Vec<RolloutItem>> {
     let path = path.to_owned();
     let (stop, keep_running) = tokio::sync::oneshot::channel::<()>();
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<RolloutItem>> {
@@ -42,13 +60,19 @@ pub(crate) async fn read_recent_rollout_items(path: &Path) -> anyhow::Result<Vec
         let mut header = String::new();
         std::io::BufReader::new((&mut reader).take(MAX_RECORD_BYTES as u64))
             .read_line(&mut header)?;
-        anyhow::ensure!(
-            matches!(
-                codex_rollout::parse_rollout_line(&header)?.item,
-                RolloutItem::SessionMeta(_)
-            ),
-            "memory extraction requires valid session metadata within the record limit"
-        );
+        let RolloutItem::SessionMeta(header) = codex_rollout::parse_rollout_line(&header)?.item
+        else {
+            anyhow::bail!(
+                "memory extraction requires valid session metadata within the record limit"
+            );
+        };
+        if let Some((project, source_thread)) = &scope {
+            anyhow::ensure!(
+                header.meta.id == *source_thread && project.contains_source(&header.meta.cwd),
+                "project memory source identity differs from its immutable rollout header"
+            );
+        }
+        let mut scope_checked = scope.is_none();
         let mut scanner = ReverseJsonlScanner::new(reader)?.with_max_record_bytes(MAX_RECORD_BYTES);
         let mut remaining = MAX_ROLLOUT_BYTES;
         let mut items = Vec::new();
@@ -59,6 +83,22 @@ pub(crate) async fn read_recent_rollout_items(path: &Path) -> anyhow::Result<Vec
             let ScanOutcome::Parsed(mut line) = outcome else {
                 continue;
             };
+            if !scope_checked
+                && let Some((project, source_thread)) = &scope
+                && let RolloutItem::EventMsg(
+                    codex_protocol::protocol::EventMsg::ThreadSettingsApplied(event),
+                ) = &line.item
+                && event.thread_id == Some(*source_thread)
+            {
+                let saved = event.thread_settings.memory_scope.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("project memory requires a saved source scope")
+                })?;
+                anyhow::ensure!(
+                    saved.project && saved.project_key.as_deref() == Some(project.key.as_str()),
+                    "project memory source has a different frozen scope"
+                );
+                scope_checked = true;
+            }
             if !matches!(
                 &line.item,
                 RolloutItem::ResponseItem(_) | RolloutItem::InterAgentCommunication(_)
@@ -78,6 +118,10 @@ pub(crate) async fn read_recent_rollout_items(path: &Path) -> anyhow::Result<Vec
             remaining = next_remaining;
             items.push(line.item);
         }
+        anyhow::ensure!(
+            scope_checked,
+            "project memory source scope is missing from bounded recent history"
+        );
         items.reverse();
         Ok(items)
     });

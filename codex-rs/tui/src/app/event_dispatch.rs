@@ -166,6 +166,7 @@ impl App {
             event => (event, None),
         };
         match event {
+            AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
             AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
             AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
             AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,

@@ -255,6 +255,64 @@ impl SqliteConfig {
         MEMORIES_V2_DB.path(self)
     }
 
+    /// Open an independently owned project memory pool with the existing schema.
+    pub(crate) async fn open_project_memories_db(
+        &self,
+        version: codex_protocol::MemoryVersion,
+        project_key: &str,
+    ) -> anyhow::Result<SqlitePool> {
+        anyhow::ensure!(
+            project_key.len() == 64 && project_key.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "project memory key must contain exactly 64 ASCII hex digits"
+        );
+        let root = self.home().join("project_memories");
+        let project_home = root.join(project_key.to_ascii_lowercase());
+        let home = project_home.join(version.directory_name());
+        let directories = [&root, &project_home, &home];
+        for directory in directories {
+            validate_project_memory_entry(
+                directory, /*directory*/ true, /*allow_missing*/ true,
+            )
+            .await?;
+            match tokio::fs::create_dir(directory).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+            validate_project_memory_entry(
+                directory, /*directory*/ true, /*allow_missing*/ false,
+            )
+            .await?;
+        }
+        validate_project_memory_files(&home).await?;
+        let scoped = Self::from_sqlite_home(AbsolutePathBuf::try_from(home.clone())?);
+        let pool = scoped
+            .open_runtime_db(
+                RuntimeDbSpec {
+                    filename: "memories.sqlite",
+                    ..MEMORIES_DB
+                },
+                &crate::migrations::runtime_memories_migrator(),
+                /*telemetry_override*/ None,
+            )
+            .await?;
+        let validation = async {
+            for directory in directories {
+                validate_project_memory_entry(
+                    directory, /*directory*/ true, /*allow_missing*/ false,
+                )
+                .await?;
+            }
+            validate_project_memory_files(&home).await
+        }
+        .await;
+        if let Err(error) = validation {
+            pool.close().await;
+            return Err(error);
+        }
+        Ok(pool)
+    }
+
     pub(crate) async fn open_memories_v2_db(&self) -> anyhow::Result<SqlitePool> {
         self.open_runtime_db(
             MEMORIES_V2_DB,
@@ -516,6 +574,61 @@ impl SqliteConfig {
         }
         Ok(())
     }
+}
+
+// Check every project-owned path before and after opening. These checks reject existing
+// redirects; SQLite's path-based API does not pin ancestors against concurrent renames.
+async fn validate_project_memory_entry(
+    path: &Path,
+    directory: bool,
+    allow_missing: bool,
+) -> anyhow::Result<()> {
+    let metadata = match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let redirected = metadata.file_type().is_symlink();
+    #[cfg(windows)]
+    let redirected = {
+        use std::os::windows::fs::MetadataExt;
+        // Includes directory junctions, which need not be reported as ordinary symlinks.
+        redirected || metadata.file_attributes() & 0x400 != 0
+    };
+    anyhow::ensure!(
+        !redirected,
+        "project memory path is a symlink or reparse point: {}",
+        path.display()
+    );
+    anyhow::ensure!(
+        if directory {
+            metadata.is_dir()
+        } else {
+            metadata.is_file()
+        },
+        "project memory path has an unexpected file type: {}",
+        path.display()
+    );
+    Ok(())
+}
+
+async fn validate_project_memory_files(home: &Path) -> anyhow::Result<()> {
+    for filename in [
+        "memories.sqlite",
+        "memories.sqlite-wal",
+        "memories.sqlite-shm",
+        "memories.sqlite-journal",
+    ] {
+        validate_project_memory_entry(
+            &home.join(filename),
+            /*directory*/ false,
+            /*allow_missing*/ true,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn connect_once(options: &SqliteConnectOptions) -> Result<SqlitePool, Error> {

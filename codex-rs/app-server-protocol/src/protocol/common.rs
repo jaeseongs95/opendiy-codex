@@ -726,6 +726,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadMemoryReadResponse,
     },
+    #[experimental("thread/memory/note/add")]
+    ThreadMemoryNoteAdd => "thread/memory/note/add" {
+        params: v2::ThreadMemoryNoteAddParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadMemoryNoteAddResponse,
+    },
     #[experimental("memory/status")]
     MemoryStatus => "memory/status" {
         params: v2::MemoryStatusParams,
