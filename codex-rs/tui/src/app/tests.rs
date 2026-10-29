@@ -3111,7 +3111,8 @@ fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads
             "unused preview",
             Some(&app.config.model_provider_id),
             None,
-        )?;
+        )
+        .expect("metadata-only fallback rollout should be created");
         let path = app_test_support::rollout_path(
             app.config.codex_home.as_path(),
             filename_timestamp,
