@@ -277,7 +277,7 @@ mod tests {
             let widget = widget(None);
             let mut terminal = Terminal::new(VT100Backend::new(100, 24)).expect("terminal");
             terminal
-                .draw(|frame| widget.render_ref(frame.area(), frame.buffer_mut()))
+                .draw(|frame| (&widget).render_ref(frame.area(), frame.buffer_mut()))
                 .expect("draw");
             let rendered = terminal.backend().to_string();
             assert!(rendered.contains("폴더 접근"), "{rendered}");

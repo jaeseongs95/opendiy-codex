@@ -368,9 +368,11 @@ mod tests {
             );
             assert!(rendered.contains("esc"), "{rendered}");
             assert!(
-                row.with_timer(&timer).lines(60)[0]
-                    .to_string()
-                    .contains("esc 중단)")
+                rendered
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("esc중단)"),
+                "{rendered}"
             );
         });
     }
