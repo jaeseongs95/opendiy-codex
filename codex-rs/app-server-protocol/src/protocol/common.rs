@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -1287,7 +1287,7 @@ client_request_definitions! {
     },
 
     McpServerRefresh => "config/mcpServer/reload" {
-        params: #[ts(optional = nullable, as = "Option<v2::McpServerRefreshParams>")] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableMcpServerRefreshParams,
+        params: #[ts(optional, as = "Option<v2::McpServerRefreshParams>")] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableMcpServerRefreshParams,
         serialization: global("mcp-registry"),
         response: v2::McpServerRefreshResponse,
     },
@@ -4577,6 +4577,8 @@ mod tests {
             ServerNotification::ThreadSettingsUpdated(v2::ThreadSettingsUpdatedNotification {
                 thread_id: "thr_123".to_string(),
                 thread_settings: v2::ThreadSettings {
+                    model_context_window: None,
+                    effective_context_window: None,
                     disabled_plugin_ids: Vec::new(),
                     cwd: absolute_path("/tmp/repo"),
                     approval_policy: v2::AskForApproval::Never,

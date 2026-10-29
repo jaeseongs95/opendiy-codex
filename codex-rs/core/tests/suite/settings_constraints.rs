@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use anyhow::Result;
 use codex_config::test_support::CloudConfigBundleFixture;
 use codex_core::CodexThread;
@@ -188,6 +189,7 @@ async fn protected_model_settings_use_the_proposed_permissions(
     assert!(response.requests().is_empty());
 
     let expected = ThreadSettingsSnapshot {
+        model_context_window: None,
         model: PROTECTED_MODEL.to_string(),
         collaboration_mode: initial.collaboration_mode.with_updates(
             Some(PROTECTED_MODEL.to_string()),

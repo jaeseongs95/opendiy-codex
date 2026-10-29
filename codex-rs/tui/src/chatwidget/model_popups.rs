@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! Model, collaboration, and reasoning popups for `ChatWidget`.
 //!
 //! These surfaces are tightly related because changing one often redirects
@@ -16,7 +17,8 @@ impl ChatWidget {
     pub(crate) fn open_model_popup(&mut self) {
         if !self.is_session_configured() {
             self.add_info_message(
-                "Model selection is disabled until startup completes.".to_string(),
+                crate::i18n::text("Model selection is disabled until startup completes.")
+                    .to_string(),
                 /*hint*/ None,
             );
             return;
@@ -26,7 +28,10 @@ impl ChatWidget {
             Ok(models) => models,
             Err(_) => {
                 self.add_info_message(
-                    "Models are being updated; please try /model again in a moment.".to_string(),
+                    crate::i18n::text(
+                        "Models are being updated; please try /model again in a moment.",
+                    )
+                    .to_string(),
                     /*hint*/ None,
                 );
                 return;
@@ -183,8 +188,8 @@ impl ChatWidget {
         }
 
         let header = self.model_menu_header(
-            "Select Model",
-            "Pick a quick auto mode or browse all models.",
+            crate::i18n::text("Select Model"),
+            crate::i18n::text("Pick a quick auto mode or browse all models."),
         );
         self.show_model_selection_view(
             model_ids,
@@ -236,7 +241,7 @@ impl ChatWidget {
         if presets.is_empty() {
             self.bottom_pane.dismiss_view_by_id(view_id);
             self.add_info_message(
-                "No additional models are available right now.".to_string(),
+                crate::i18n::text("No additional models are available right now.").to_string(),
                 /*hint*/ None,
             );
             return;
@@ -276,7 +281,7 @@ impl ChatWidget {
             });
         }
 
-        let header = self.model_menu_header("Select Model and Effort", "");
+        let header = self.model_menu_header(crate::i18n::text("Select Model and Effort"), "");
         self.show_model_selection_view(
             model_ids,
             SelectionViewParams {
@@ -621,7 +626,7 @@ impl ChatWidget {
                 });
             })];
             items.push(SelectionItem {
-                name: "More reasoning…".to_string(),
+                name: crate::i18n::text("More reasoning…").to_string(),
                 description: Some(format!("{advanced_label} {verb} usage limits faster")),
                 is_current: is_current_model
                     && highlight_choice
@@ -701,8 +706,8 @@ impl ChatWidget {
         }
 
         let header = Paragraph::new(vec![
-            Line::from("Advanced Reasoning".bold()),
-            Line::from("⚠ Consumes usage limits faster".cyan()),
+            Line::from(crate::i18n::text("Advanced Reasoning").bold()),
+            Line::from(crate::i18n::text("⚠ Consumes usage limits faster").cyan()),
         ])
         .wrap(Wrap { trim: false });
         self.bottom_pane.show_selection_view(SelectionViewParams {

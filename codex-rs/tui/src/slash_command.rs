@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use strum::IntoEnumIterator;
 use strum_macros::AsRefStr;
 use strum_macros::EnumIter;
@@ -40,6 +40,7 @@ pub enum SlashCommand {
     App,
     Init,
     Compact,
+    Context,
     Config,
     Recap,
     Plan,
@@ -96,7 +97,10 @@ pub enum SlashCommand {
 impl SlashCommand {
     /// User-visible description shown in the popup.
     pub fn description(self) -> &'static str {
-        match self {
+        crate::i18n::text(match self {
+            SlashCommand::Context => {
+                "show or set this chat's context window: /context [tokens|reset]"
+            }
             SlashCommand::Cron => "CLI 실행 중에만 대화별 프롬프트 예약 실행",
             SlashCommand::Config => "configure Codex preferences",
             SlashCommand::Feedback => "send logs to maintainers",
@@ -167,7 +171,7 @@ impl SlashCommand {
             SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
-        }
+        })
     }
 
     /// Command string without the leading '/'. Provided for compatibility with
@@ -192,6 +196,7 @@ impl SlashCommand {
                 | SlashCommand::Plan
                 | SlashCommand::Goal
                 | SlashCommand::Cron
+                | SlashCommand::Context
                 | SlashCommand::Voice
                 | SlashCommand::Ide
                 | SlashCommand::Keymap
@@ -304,6 +309,7 @@ impl SlashCommand {
             | SlashCommand::App
             | SlashCommand::Goal
             | SlashCommand::Cron
+            | SlashCommand::Context
             | SlashCommand::Voice
             | SlashCommand::Mcp
             | SlashCommand::Apps

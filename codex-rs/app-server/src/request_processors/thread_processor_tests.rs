@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_thread_store::ThreadStoreError;
 use pretty_assertions::assert_eq;
@@ -725,6 +726,8 @@ mod thread_processor_behavior_tests {
             initial_turns_page: None,
         };
         let config_snapshot = ThreadConfigSnapshot {
+            model_context_window: None,
+            effective_context_window: None,
             turn_extension_init: Default::default(),
             disabled_plugin_ids: Vec::new(),
             model: "gpt-5".to_string(),

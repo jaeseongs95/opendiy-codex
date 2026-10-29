@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! Settings-adjacent popup surfaces for `ChatWidget`.
 //!
 //! This keeps theme and experimental-feature UI out of the main
@@ -19,7 +20,8 @@ impl ChatWidget {
     pub(crate) fn open_experimental_popup(&mut self) {
         let Some(thread_id) = self.thread_id() else {
             self.add_info_message(
-                "Experimental features are unavailable until startup completes.".to_string(),
+                crate::i18n::text("Experimental features are unavailable until startup completes.")
+                    .to_string(),
                 /*hint*/ None,
             );
             return;

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! App-level orchestration tests for the TUI.
 
 #[path = "tests/terminal_size_telemetry_tests.rs"]
@@ -10067,6 +10067,8 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
     let notification = ThreadSettingsUpdatedNotification {
         thread_id: inactive_thread_id.to_string(),
         thread_settings: ThreadSettings {
+            model_context_window: None,
+            effective_context_window: None,
             disabled_plugin_ids: Vec::new(),
             cwd: test_absolute_path("/tmp/thread-settings"),
             approval_policy: AskForApproval::OnRequest,

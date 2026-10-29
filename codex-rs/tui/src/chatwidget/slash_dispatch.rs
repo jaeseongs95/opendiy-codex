@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! Slash-command dispatch and local-recall handoff for `ChatWidget`.
 //!
 //! `ChatComposer` parses slash input and stages recognized command text for local
@@ -387,6 +387,12 @@ impl ChatWidget {
             }
             SlashCommand::Cron => {
                 self.app_event_tx.send(AppEvent::CronCommand {
+                    thread_id: self.thread_id(),
+                    args: String::new(),
+                });
+            }
+            SlashCommand::Context => {
+                self.app_event_tx.send(AppEvent::ContextCommand {
                     thread_id: self.thread_id(),
                     args: String::new(),
                 });
@@ -1014,6 +1020,12 @@ impl ChatWidget {
                     args,
                 });
             }
+            SlashCommand::Context => {
+                self.app_event_tx.send(AppEvent::ContextCommand {
+                    thread_id: self.thread_id(),
+                    args,
+                });
+            }
             SlashCommand::Goal if !trimmed.is_empty() => {
                 if !self.config.features.enabled(Feature::Goals) {
                     if source == SlashCommandDispatchSource::Live {
@@ -1329,6 +1341,7 @@ impl ChatWidget {
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::Cron
+            | SlashCommand::Context
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp

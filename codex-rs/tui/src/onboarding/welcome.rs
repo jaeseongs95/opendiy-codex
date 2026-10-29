@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! Shared welcome header for the existing sign-in and Bedrock onboarding pickers.
 //! The logo occupies a fixed stage so its motion never shifts the choices below it.
 
@@ -125,9 +126,9 @@ impl WidgetRef for &WelcomeWidget {
         let mut lines: Vec<Line> = vec![Line::default(); usize::from(logo_rows)];
         lines.push(Line::from(vec![
             "  ".into(),
-            "Welcome to ".into(),
+            crate::i18n::text("Welcome to ").into(),
             "Codex".bold(),
-            ", OpenAI's command-line coding agent".into(),
+            crate::i18n::text(", OpenAI's command-line coding agent").into(),
         ]));
 
         Paragraph::new(lines)

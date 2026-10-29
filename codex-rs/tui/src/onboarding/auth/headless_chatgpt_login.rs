@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
@@ -89,9 +90,9 @@ pub(super) fn render_device_code_login(
     state: &ContinueWithDeviceCodeState,
 ) {
     let banner = if state.is_showing_copyable_auth() {
-        "Finish signing in via your browser"
+        crate::i18n::text("Finish signing in via your browser")
     } else {
-        "Preparing device code login"
+        crate::i18n::text("Preparing device code login")
     };
 
     let mut spans = vec!["  ".into()];
@@ -109,7 +110,7 @@ pub(super) fn render_device_code_login(
     let verification_url = if let (Some(verification_url), Some(user_code)) =
         (&state.verification_url, &state.user_code)
     {
-        lines.push("  1. Open this link in your browser and sign in".into());
+        lines.push(crate::i18n::text("  1. Open this link in your browser and sign in").into());
         lines.push("".into());
         lines.push(Line::from(vec![
             "  ".into(),
@@ -117,7 +118,10 @@ pub(super) fn render_device_code_login(
         ]));
         lines.push("".into());
         lines.push(
-            "  2. Enter this one-time code after you are signed in (expires in 15 minutes)".into(),
+            crate::i18n::text(
+                "  2. Enter this one-time code after you are signed in (expires in 15 minutes)",
+            )
+            .into(),
         );
         lines.push("".into());
         lines.push(Line::from(vec![
@@ -126,22 +130,26 @@ pub(super) fn render_device_code_login(
         ]));
         lines.push("".into());
         lines.push(
-            "  Continue only if you started this login in Codex. If a website or another person gave you this code, cancel."
+            crate::i18n::text("  Continue only if you started this login in Codex. If a website or another person gave you this code, cancel.")
                 .dim()
                 .into(),
         );
         lines.push("".into());
         Some(verification_url.clone())
     } else {
-        lines.push("  Requesting a one-time code...".dim().into());
+        lines.push(
+            crate::i18n::text("  Requesting a one-time code...")
+                .dim()
+                .into(),
+        );
         lines.push("".into());
         None
     };
 
     lines.push(Line::from(vec![
-        "  Press ".dim(),
+        crate::i18n::text("  Press ").dim(),
         widget.cancel_binding().into(),
-        " to cancel".dim(),
+        crate::i18n::text(" to cancel").dim(),
     ]));
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })

@@ -57,3 +57,85 @@ On 2026-10-26, a prominent one-line OpenDIY Codex modification notice was added 
 `sourceSha256` identifies the frozen Git blob bytes; `publishedSha256` includes the notice prefix. `builtSourceSha256` separately identifies the recorded r22 Windows build input, which uses CRLF in 19 of the files. These hashes intentionally describe different byte representations. The published tree is not presented as byte-identical to the old build input or as a reproduced binary.
 
 Unmodified third-party source remains under its existing license. `upstream/NOTICE` includes the original Ratatui attribution. The vendored bubblewrap license and copyright notices, including its `COPYING` text, are preserved unchanged.
+
+## R27 work branch — 2026-10-29
+
+Source implementation: `10d9ef1e0d80f379f4c0fc1dc343924f609dae66`. Adds opt-in buffered diagnostics, thread-owned context limits and Korean UI. This work branch is under integration testing; it is not a verified release or installation. Generated protocol fixtures are regenerated from the changed Rust definitions. Existing upstream notices and licenses are retained.
+
+Changed source and generated fixture files:
+
+- `codex-rs/Cargo.lock`
+- `codex-rs/Cargo.toml`
+- `codex-rs/app-server-protocol/schema/json/ServerNotification.json`
+- `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json`
+- `codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json`
+- `codex-rs/app-server-protocol/schema/json/v2/ThreadSettingsUpdatedNotification.json`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst`
+- `codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts`
+- `codex-rs/app-server-protocol/src/export.rs`
+- `codex-rs/app-server-protocol/src/protocol/common.rs`
+- `codex-rs/app-server-protocol/src/protocol/v2/tests.rs`
+- `codex-rs/app-server-protocol/src/protocol/v2/thread.rs`
+- `codex-rs/app-server/src/lib.rs`
+- `codex-rs/app-server/src/request_processors/persisted_resume_settings_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_summary.rs`
+- `codex-rs/app-server/src/request_processors/turn_processor.rs`
+- `codex-rs/app-server/src/thread_state.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_settings_update.rs`
+- `codex-rs/cli/src/config_override_args.rs`
+- `codex-rs/cli/src/localization.rs`
+- `codex-rs/cli/src/main.rs`
+- `codex-rs/core/src/agent/control_tests.rs`
+- `codex-rs/core/src/codex_thread.rs`
+- `codex-rs/core/src/session/handlers.rs`
+- `codex-rs/core/src/session/mod.rs`
+- `codex-rs/core/src/session/session.rs`
+- `codex-rs/core/src/session/step_activation.rs`
+- `codex-rs/core/src/session/step_activation_tests.rs`
+- `codex-rs/core/src/session/tests.rs`
+- `codex-rs/core/src/session/thread_settings.rs`
+- `codex-rs/core/src/session/turn_context.rs`
+- `codex-rs/core/src/session/turn_input.rs`
+- `codex-rs/core/tests/suite/settings_constraints.rs`
+- `codex-rs/diagnostics/Cargo.toml`
+- `codex-rs/diagnostics/src/batch_log.rs`
+- `codex-rs/diagnostics/src/lib.rs`
+- `codex-rs/exec/Cargo.toml`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/protocol/src/protocol.rs`
+- `codex-rs/state/src/extract.rs`
+- `codex-rs/thread-store/src/thread_metadata_sync.rs`
+- `codex-rs/tui/Cargo.toml`
+- `codex-rs/tui/src/app/app_server_event_targets.rs`
+- `codex-rs/tui/src/app/event_dispatch.rs`
+- `codex-rs/tui/src/app/tests.rs`
+- `codex-rs/tui/src/app/thread_settings.rs`
+- `codex-rs/tui/src/app_event.rs`
+- `codex-rs/tui/src/app_server_session.rs`
+- `codex-rs/tui/src/bottom_pane/approval_overlay.rs`
+- `codex-rs/tui/src/bottom_pane/experimental_features_view.rs`
+- `codex-rs/tui/src/bottom_pane/footer.rs`
+- `codex-rs/tui/src/bottom_pane/popup_consts.rs`
+- `codex-rs/tui/src/chatwidget.rs`
+- `codex-rs/tui/src/chatwidget/model_popups.rs`
+- `codex-rs/tui/src/chatwidget/permissions_menu.rs`
+- `codex-rs/tui/src/chatwidget/settings.rs`
+- `codex-rs/tui/src/chatwidget/settings_popups.rs`
+- `codex-rs/tui/src/chatwidget/slash_dispatch.rs`
+- `codex-rs/tui/src/chatwidget/tests/app_server.rs`
+- `codex-rs/tui/src/chatwidget/tests/slash_commands.rs`
+- `codex-rs/tui/src/config_panel/config_panel_tests.rs`
+- `codex-rs/tui/src/config_panel/mod.rs`
+- `codex-rs/tui/src/config_panel/render.rs`
+- `codex-rs/tui/src/i18n.rs`
+- `codex-rs/tui/src/lib.rs`
+- `codex-rs/tui/src/onboarding/auth.rs`
+- `codex-rs/tui/src/onboarding/auth/headless_chatgpt_login.rs`
+- `codex-rs/tui/src/onboarding/trust_directory.rs`
+- `codex-rs/tui/src/onboarding/welcome.rs`
+- `codex-rs/tui/src/slash_command.rs`
+- `codex-rs/tui/src/startup_orchestration.rs`
+- `codex-rs/tui/src/status_indicator_widget.rs`
+- `docs/native-cli-r27.ko.md`

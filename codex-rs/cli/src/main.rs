@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
@@ -70,6 +71,7 @@ mod exec_server_command;
 mod exec_server_credential;
 mod exec_server_telemetry;
 mod marketplace_cmd;
+mod localization;
 mod mcp_cmd;
 mod mcp_login;
 mod migrate_nfs_db;
@@ -1054,6 +1056,7 @@ async fn cli_main(
     arg0_paths: Arg0DispatchPaths,
     remote_control_disabled: bool,
 ) -> anyhow::Result<()> {
+    codex_tui::i18n::initialize_from_env().map_err(anyhow::Error::msg)?;
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,

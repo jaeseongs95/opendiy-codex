@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! App-server session facade used by the TUI event loop.
 //!
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps
@@ -1412,7 +1412,7 @@ impl AppServerSession {
             .is_some_and(|response| response.settings_applied == Some(true)))
     }
 
-    async fn request_thread_settings_update(
+    pub(crate) async fn request_thread_settings_update(
         &mut self,
         params: ThreadSettingsUpdateParams,
     ) -> Result<Option<ThreadSettingsUpdateResponse>> {

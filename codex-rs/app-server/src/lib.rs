@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 #![recursion_limit = "256"]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
@@ -761,7 +761,11 @@ pub async fn run_main_with_transport_options(
         .clone()
         .map(|layer| layer.with_filter(log_db::default_filter()));
     let (otel_layers, otel_logger_reload_handle) = otel_reloader::layers(otel.as_ref());
+    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
+    let batch_layer = batch_layer.map(|layer| layer.with_filter(
+        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
     let _ = tracing_subscriber::registry()
+        .with(batch_layer)
         .with(stderr_fmt)
         .with(feedback_layer)
         .with(feedback_metadata_layer)

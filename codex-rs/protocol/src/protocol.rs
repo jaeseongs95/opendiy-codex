@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 //! Defines the protocol for a Codex session between a client and an agent.
 //!
 //! Uses a SQ (Submission Queue) / EQ (Event Queue) pattern to asynchronously communicate
@@ -573,6 +574,8 @@ pub enum TurnSettingsUpdateOutcome {
     }),
 )]
 pub struct ThreadSettingsOverrides {
+    /// Thread-local context window. Omission preserves it; `Some(None)` restores config defaults.
+    pub model_context_window: Option<Option<i64>>,
     /// Updated fallback `cwd` and environments supplied together as a complete pair.
     pub environments: Option<TurnEnvironmentRequests>,
 
@@ -2359,6 +2362,9 @@ pub struct ThreadSettingsAppliedEvent {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct ThreadSettingsSnapshot {
+    /// Thread-local override, independent of the user's global configuration.
+    #[serde(default)]
+    pub model_context_window: Option<i64>,
     pub model: String,
     pub model_provider_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

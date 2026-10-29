@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
 use super::step_settings::ResolvedStepSettings;
 use super::token_budget::has_explicit_settings;
 use super::token_budget::resolve_token_budget;
@@ -957,6 +958,8 @@ impl Session {
         // todo(aibrahim): store this state somewhere else so we don't need to mut config
         let config = session_configuration.original_config_do_not_use.clone();
         let mut per_turn_config = (*config).clone();
+        per_turn_config.model_context_window =
+            session_configuration.model_info_overrides.context_window;
         // Config is consumed by host plugins and MCP processes. Executor paths and
         // permissions remain on their captured environment attachments.
         per_turn_config.cwd = local_environment
@@ -1222,6 +1225,10 @@ impl Session {
                 )
                 .await;
         }
+        // Auth refresh may replace model metadata after the settings commit was validated.
+        self.validate_context_window_override(&configuration)
+            .await
+            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
         let turn_environments = self.activate_turn_environments(&configuration).await;
         let turn_context = self
             .new_turn_from_configuration(sub_id, configuration, turn_environments, options)
