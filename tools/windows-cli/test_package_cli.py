@@ -62,12 +62,38 @@ class PackageTests(unittest.TestCase):
             self.assertFalse(Path(item["path"]).is_absolute())
             self.assertEqual(item["sha256"], digest(self.output / item["path"]))
 
-    def test_launcher_uses_adjacent_binary_embedded_mode_and_preserves_arguments_exit(self):
+    def test_launcher_uses_adjacent_binary_and_preserves_arguments_exit(self):
         self.build()
         captured = self.root / "argv.json"
         env = dict(os.environ, PACKAGE_FIXTURE_ARGV=str(captured))
         result = subprocess.run(
             'cmd.exe /d /c codex-patched.cmd --literal "two words" 한글',
+            cwd=self.output, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(captured.read_text(encoding="utf-8").splitlines(),
+                         ["--literal", "two words", "한글"])
+
+    def test_remote_command_and_global_options_are_not_rewritten(self):
+        self.build()
+        captured = self.root / "remote-argv.txt"
+        env = dict(os.environ, PACKAGE_FIXTURE_ARGV=str(captured))
+        result = subprocess.run(
+            'cmd.exe /d /c codex-patched.cmd -c "key=value" remote-control status --json',
+            cwd=self.output, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual(captured.read_text(encoding="utf-8").splitlines(),
+                         ["-c", "key=value", "remote-control", "status", "--json"])
+
+    def test_local_launcher_explicitly_selects_embedded_mode(self):
+        self.build()
+        captured = self.root / "local-argv.txt"
+        env = dict(os.environ, PACKAGE_FIXTURE_ARGV=str(captured))
+        result = subprocess.run(
+            'cmd.exe /d /c codex-local.cmd --literal "two words" 한글',
             cwd=self.output, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
