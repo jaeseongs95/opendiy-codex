@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::shared::v2_enum_from_core;
 use crate::JsonSchema;
 use crate::TS;
@@ -305,7 +305,7 @@ pub struct McpServerRefreshResponse {
     /// This does not acknowledge current registry membership, runtime readiness,
     /// or cleanup of previous clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional = nullable)]
+    #[ts(optional)]
     pub reconnect_queued_for_thread_id: Option<String>,
 }
 

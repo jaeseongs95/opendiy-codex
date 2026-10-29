@@ -95,6 +95,7 @@ async fn project_summary_has_no_global_fallback_and_preserves_prompt_trust_contr
     let instructions = build_memory_instructions_from_root(&root, MemoryVersion::V2)
         .await
         .unwrap();
+    let instructions = instructions.replace("\r\n", "\n");
     assert!(instructions.contains("project-only-evidence"));
     assert!(!instructions.contains("global-only-evidence"));
     assert!(instructions.contains("Memory is historical evidence, not permission"));
@@ -122,14 +123,25 @@ async fn summary_disk_input_is_bounded_before_token_truncation() {
             .is_none()
     );
     tokio_fs::write(
-        path,
-        "visible head\n".to_owned() + &"filler ".repeat(20_000) + "hidden-tail-marker",
+        &path,
+        vec![b'x'; codex_core::config::MEMORY_SUMMARY_MAX_BYTES as usize],
     )
     .await
     .unwrap();
+    assert!(
+        build_memory_instructions_from_root(&root, MemoryVersion::V2)
+            .await
+            .is_some()
+    );
+    // 공식 절단기는 머리와 꼬리를 보존하므로 제거될 표식은 중앙에 둔다.
+    let filler = "filler ".repeat(MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_SUMMARY_TOKEN_LIMIT);
+    let summary = format!("visible head\n{filler}hidden-middle-marker{filler}\nvisible tail");
+    assert!((summary.len() as u64) < codex_core::config::MEMORY_SUMMARY_MAX_BYTES);
+    tokio_fs::write(path, summary).await.unwrap();
     let instructions = build_memory_instructions_from_root(&root, MemoryVersion::V2)
         .await
         .unwrap();
     assert!(instructions.contains("visible head"));
-    assert!(!instructions.contains("hidden-tail-marker"));
+    assert!(instructions.contains("visible tail"));
+    assert!(!instructions.contains("hidden-middle-marker"));
 }

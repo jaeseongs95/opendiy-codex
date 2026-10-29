@@ -346,3 +346,10 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/chatwidget/tests/copy_export_picker_tests.rs`
 - `codex-rs/tui/src/chatwidget/transcript.rs`
 - `codex-rs/tui/src/history_window.rs`
+
+소스 갱신 `d10723ca45f45db13539865ac13d6892660fb788` (통합 진행 중):
+
+- `codex-rs/app-server-protocol/src/protocol/v2/mcp.rs`
+- `codex-rs/core/src/session/step_activation_tests.rs`
+- `codex-rs/ext/memories/src/prompts_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history_materialization_tests.rs`
