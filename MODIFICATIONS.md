@@ -139,3 +139,9 @@ Changed source and generated fixture files:
 - `codex-rs/tui/src/startup_orchestration.rs`
 - `codex-rs/tui/src/status_indicator_widget.rs`
 - `docs/native-cli-r27.ko.md`
+
+Source update `da5893f12d012899c29336db426868d94942ec3a` (integration in progress):
+
+- `codex-rs/app-server/src/lib.rs`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/tui/src/startup_orchestration.rs`

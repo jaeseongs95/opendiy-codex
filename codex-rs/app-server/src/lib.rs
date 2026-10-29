@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #![recursion_limit = "256"]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
@@ -765,12 +765,12 @@ pub async fn run_main_with_transport_options(
     let batch_layer = batch_layer.map(|layer| layer.with_filter(
         tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
     let _ = tracing_subscriber::registry()
-        .with(batch_layer)
         .with(stderr_fmt)
         .with(feedback_layer)
         .with(feedback_metadata_layer)
         .with(log_db_layer)
         .with(otel_layers)
+        .with(batch_layer)
         .try_init();
     #[cfg(unix)]
     if let Some(Err(err)) = nofile_limit_result {
