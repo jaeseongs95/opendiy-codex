@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use crate::MemoryWorkspaceLock;
 use crate::metrics::MEMORY_PHASE_TWO_E2E_MS;
 use crate::metrics::MEMORY_PHASE_TWO_INPUT;
@@ -52,15 +53,18 @@ pub async fn run(
     config: Arc<Config>,
     parent_permission_profile: PermissionProfile,
 ) {
+    if !context.generation_enabled().await {
+        return;
+    }
     let phase_two_e2e_timer = context.start_timer(MEMORY_PHASE_TWO_E2E_MS);
 
     let Some(db) = context.memory_store().await else {
         // This should not happen.
         return;
     };
-    let root = config
-        .codex_home
-        .join(config.memories.version.directory_name());
+    let Some(root) = config.memories.memory_root(&config.codex_home) else {
+        return;
+    };
     let max_raw_memories = config.memories.max_raw_memories_for_consolidation;
     let max_unused_days = config.memories.max_unused_days;
 
@@ -231,6 +235,9 @@ mod job {
         context: &MemoryStartupContext,
         db: &MemoryStore,
     ) -> Result<Claim, &'static str> {
+        if !context.generation_enabled().await {
+            return Err("skipped_generation_disabled");
+        }
         let claim = db
             .try_claim_global_phase2_job(context.thread_id(), crate::stage_two::JOB_LEASE_SECONDS)
             .await
@@ -312,9 +319,7 @@ mod agent {
         parent_permission_profile: PermissionProfile,
         provider: &dyn ModelProvider,
     ) -> Option<Config> {
-        let root = config
-            .codex_home
-            .join(config.memories.version.directory_name());
+        let root = config.memories.memory_root(&config.codex_home)?;
         let mut agent_config = config.clone();
 
         agent_config.cwd = root.clone();

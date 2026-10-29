@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain
@@ -167,6 +167,7 @@ impl App {
             event => (event, None),
         };
         match event {
+            AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
             AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
             AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
             AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::io::Write;
 use std::time::Duration;
 
@@ -13,11 +14,13 @@ use codex_app_server_daemon::RemoteControlReadyStatus as AppServerRemoteControlR
 use codex_app_server_daemon::RemoteControlStartOutput as AppServerRemoteControlStartOutput;
 use codex_app_server_protocol::RemoteControlConnectionStatus;
 use codex_app_server_protocol::RemoteControlPairingStartResponse;
+use codex_app_server_protocol::RemoteControlStatusReadResponse;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::LoaderOverrides;
 use codex_core::config::ConfigBuilder;
 use codex_features::Feature;
 use codex_protocol::protocol::SessionSource;
+use codex_tui::i18n::text;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
 use codex_websocket_auth::WebsocketAuthSettings;
@@ -51,6 +54,7 @@ impl RemoteControlCommand {
             Some(RemoteControlSubcommand::Start) => "remote-control start",
             Some(RemoteControlSubcommand::Stop) => "remote-control stop",
             Some(RemoteControlSubcommand::Pair) => "remote-control pair",
+            Some(RemoteControlSubcommand::Status) => "remote-control status",
         }
     }
 }
@@ -65,6 +69,9 @@ pub(super) enum RemoteControlSubcommand {
 
     /// Create and print a short-lived manual pairing code.
     Pair,
+
+    /// Read relay status from the existing shared daemon without starting it.
+    Status,
 }
 
 pub(crate) async fn run(
@@ -139,6 +146,13 @@ pub(crate) async fn run(
         Some(RemoteControlSubcommand::Pair) => {
             let output = codex_app_server_daemon::start_remote_control_pairing().await?;
             print_remote_control_pairing_output(&output, command.json)?;
+        }
+        Some(RemoteControlSubcommand::Status) => {
+            let output = codex_app_server_daemon::read_remote_control_status().await?;
+            println!(
+                "{}",
+                format_remote_control_status_output(&output, command.json)?
+            );
         }
         None => unreachable!("bare remote-control returned before explicit subcommand dispatch"),
     }
@@ -451,7 +465,13 @@ fn remote_control_start_human_message(
     ensure_remote_control_startable(output)?;
     match output.status {
         RemoteControlConnectionStatus::Connected => Ok(format!(
-            "This machine is available for remote control as {}.",
+            "{} {}.",
+            text("Remote-control relay connected on"),
+            output.server_name
+        )),
+        RemoteControlConnectionStatus::Connecting if output.timed_out => Ok(format!(
+            "{} {}.",
+            text("Remote control is enabled but the readiness check timed out on"),
             output.server_name
         )),
         RemoteControlConnectionStatus::Connecting => Ok(format!(
@@ -493,7 +513,10 @@ fn remote_control_start_human_lines(
     summary: &AppServerRemoteControlReadyStatus,
     mode: RemoteControlHumanOutputMode,
 ) -> anyhow::Result<Vec<String>> {
-    let mut lines = vec![remote_control_start_human_message(summary)?];
+    let mut lines = vec![
+        remote_control_start_human_message(summary)?,
+        text("Mobile pairing and visibility are not verified by this status.").to_string(),
+    ];
     match mode {
         RemoteControlHumanOutputMode::Foreground => {
             lines.push("Press Ctrl-C to stop.".to_string());
@@ -546,6 +569,41 @@ fn print_remote_control_pairing_output(
 ) -> anyhow::Result<()> {
     println!("{}", format_remote_control_pairing_output(output, json)?);
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteControlStatusJsonOutput<'a> {
+    mode: RemoteControlModeJson,
+    #[serde(flatten)]
+    relay: &'a RemoteControlStatusReadResponse,
+    mobile_pairing: &'static str,
+}
+
+fn format_remote_control_status_output(
+    output: &RemoteControlStatusReadResponse,
+    json: bool,
+) -> anyhow::Result<String> {
+    if json {
+        return Ok(serde_json::to_string(&RemoteControlStatusJsonOutput {
+            mode: RemoteControlModeJson::Daemon,
+            relay: output,
+            mobile_pairing: "notChecked",
+        })?);
+    }
+    let status = match output.status {
+        RemoteControlConnectionStatus::Connected => "connected",
+        RemoteControlConnectionStatus::Connecting => "connecting",
+        RemoteControlConnectionStatus::Errored => "errored",
+        RemoteControlConnectionStatus::Disabled => "disabled",
+    };
+    Ok(format!(
+        "{} {}: {}.\n{}",
+        text("Remote-control relay on"),
+        output.server_name,
+        status,
+        text("Mobile pairing and visibility are not verified by this status."),
+    ))
 }
 
 fn format_remote_control_pairing_output(
@@ -637,14 +695,14 @@ mod tests {
                 RemoteControlConnectionStatus::Connected
             ))
             .expect("connected message"),
-            "This machine is available for remote control as owen-mbp."
+            "Remote-control relay connected on owen-mbp."
         );
         assert_eq!(
             remote_control_start_human_message(&remote_control_status(
                 RemoteControlConnectionStatus::Connecting
             ))
             .expect("connecting message"),
-            "Remote control is enabled on owen-mbp and still connecting."
+            "Remote control is enabled but the readiness check timed out on owen-mbp."
         );
         assert_eq!(
             remote_control_start_human_message(&remote_control_status(
@@ -672,15 +730,64 @@ mod tests {
             remote_control_start_human_lines(&summary, RemoteControlHumanOutputMode::Foreground)
                 .expect("foreground lines"),
             vec![
-                "This machine is available for remote control as owen-mbp.".to_string(),
+                "Remote-control relay connected on owen-mbp.".to_string(),
+                "Mobile pairing and visibility are not verified by this status.".to_string(),
                 "Press Ctrl-C to stop.".to_string(),
             ]
         );
         assert_eq!(
             remote_control_start_human_lines(&summary, RemoteControlHumanOutputMode::Daemon)
                 .expect("daemon lines"),
-            vec!["This machine is available for remote control as owen-mbp.".to_string()]
+            vec![
+                "Remote-control relay connected on owen-mbp.".to_string(),
+                "Mobile pairing and visibility are not verified by this status.".to_string(),
+            ]
         );
+    }
+
+    #[test]
+    fn status_json_preserves_relay_identity_without_claiming_mobile_pairing() {
+        let status = RemoteControlStatusReadResponse {
+            status: RemoteControlConnectionStatus::Connected,
+            server_name: "test-pc".to_string(),
+            installation_id: "installation-test".to_string(),
+            environment_id: Some("env_test".to_string()),
+        };
+        let output = format_remote_control_status_output(&status, true).expect("status JSON");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output).expect("valid status JSON"),
+            json!({
+                "mode": "daemon",
+                "status": "connected",
+                "serverName": "test-pc",
+                "installationId": "installation-test",
+                "environmentId": "env_test",
+                "mobilePairing": "notChecked",
+            })
+        );
+        assert!(
+            format_remote_control_status_output(&status, false)
+                .expect("human status")
+                .contains("Mobile pairing and visibility are not verified by this status.")
+        );
+    }
+
+    #[test]
+    fn status_subcommand_accepts_json_without_starting_a_server() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        struct StatusCli {
+            #[command(flatten)]
+            command: RemoteControlCommand,
+        }
+        let cli = StatusCli::try_parse_from(["remote-control", "status", "--json"])
+            .expect("read-only status command");
+        assert!(matches!(
+            cli.command.subcommand,
+            Some(RemoteControlSubcommand::Status)
+        ));
+        assert!(cli.command.json);
     }
 
     #[test]

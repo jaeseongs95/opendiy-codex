@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Write-path implementation for Codex memories.
 //!
 //! This crate owns the startup memory pipeline, file-backed memory artifact
@@ -8,6 +9,7 @@ mod control;
 mod extensions;
 mod guard;
 mod metrics;
+mod notes;
 mod phase1;
 mod phase1_output;
 mod phase2;
@@ -25,6 +27,7 @@ use std::path::PathBuf;
 
 pub use control::clear_memory_roots_contents;
 pub use extensions::prune_old_extension_resources;
+pub use notes::add_user_memory_note;
 pub use prompts::build_consolidation_prompt;
 pub use prompts::build_stage_one_input_message;
 pub use start::start_memories_startup_task;

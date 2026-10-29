@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
@@ -296,6 +296,10 @@ pub(crate) struct AgentPickerThreadRefresh {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, IntoStaticStr)]
 pub(crate) enum AppEvent {
+    MemoryCommand {
+        thread_id: Option<ThreadId>,
+        args: String,
+    },
     ContextCommand {
         thread_id: Option<ThreadId>,
         args: String,

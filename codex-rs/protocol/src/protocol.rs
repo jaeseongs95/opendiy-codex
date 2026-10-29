@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Defines the protocol for a Codex session between a client and an agent.
 //!
 //! Uses a SQ (Submission Queue) / EQ (Event Queue) pattern to asynchronously communicate
@@ -2360,8 +2360,23 @@ pub struct ThreadSettingsAppliedEvent {
     pub thread_settings: ThreadSettingsSnapshot,
 }
 
+/// Frozen memory namespace for this logical chat; not model-visible permissions.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct ThreadMemoryScope {
+    pub project: bool,
+    pub version: crate::MemoryVersion,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub project_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct ThreadSettingsSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub memory_scope: Option<ThreadMemoryScope>,
     /// Thread-local override, independent of the user's global configuration.
     #[serde(default)]
     pub model_context_window: Option<i64>,

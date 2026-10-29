@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! App-server session facade used by the TUI event loop.
 //!
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps
@@ -1615,6 +1615,41 @@ impl AppServerSession {
             .await
             .wrap_err("thread/memoryMode/set failed in TUI")?;
         Ok(())
+    }
+
+    pub(crate) async fn memory_read(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<codex_app_server_protocol::ThreadMemoryReadResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ThreadMemoryRead {
+                request_id,
+                params: codex_app_server_protocol::ThreadMemoryReadParams {
+                    thread_id: thread_id.to_string(),
+                    include_disabled: Some(true),
+                },
+            })
+            .await
+            .wrap_err("thread/memory/read failed in TUI")
+    }
+
+    pub(crate) async fn memory_note_add(
+        &mut self,
+        thread_id: ThreadId,
+        note: String,
+    ) -> Result<codex_app_server_protocol::ThreadMemoryNoteAddResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ThreadMemoryNoteAdd {
+                request_id,
+                params: codex_app_server_protocol::ThreadMemoryNoteAddParams {
+                    thread_id: thread_id.to_string(),
+                    note,
+                },
+            })
+            .await
+            .wrap_err("thread/memory/note/add failed in TUI")
     }
 
     pub(crate) async fn memory_reset(&mut self) -> Result<()> {

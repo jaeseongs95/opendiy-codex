@@ -1,11 +1,10 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use chrono::DateTime;
 use chrono::Local;
 use chrono::Utc;
 use http::header::HeaderMap;
 
 use codex_core::config::Config;
-use codex_http_client::HttpClientFactory;
-use codex_http_client::OutboundProxyPolicy;
 use codex_login::AuthManager;
 use std::sync::Arc;
 
@@ -77,56 +76,40 @@ pub(crate) fn validate_chatgpt_base_url(input: &str) -> anyhow::Result<String> {
 }
 
 pub async fn load_auth_manager(
-    chatgpt_base_url: Option<String>,
-) -> (Option<Arc<AuthManager>>, HttpClientFactory) {
-    // TODO: pass in cli overrides once cloud tasks properly support them.
-    let config = match Config::load_with_cli_overrides(Vec::new()).await {
-        Ok(config) => config,
-        Err(error) => {
-            append_error_log(format!(
-                "failed to load auth config; using transport-default proxy handling: {error}"
-            ));
-            let http_client_factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
-            return (None, http_client_factory);
-        }
-    };
-    let http_client_factory = config.http_client_factory();
+    config: &Config,
+    chatgpt_base_url: String,
+) -> anyhow::Result<Arc<AuthManager>> {
     let mut auth_config = config.auth_config();
-    auth_config.chatgpt_base_url = chatgpt_base_url.or(Some(config.chatgpt_base_url.clone()));
-    let auth_manager = match AuthManager::shared_from_auth_config(
-        auth_config,
-        /*enable_codex_api_key_env*/ false,
+    auth_config.chatgpt_base_url = Some(chatgpt_base_url);
+    Ok(
+        AuthManager::shared_from_auth_config(auth_config, /*enable_codex_api_key_env*/ false)
+            .await?,
     )
-    .await
-    {
-        Ok(auth_manager) => auth_manager,
-        Err(error) => {
-            append_error_log(format!("failed to load auth: {error}"));
-            return (None, http_client_factory);
-        }
-    };
-    (Some(auth_manager), http_client_factory)
 }
 
-/// Build headers for ChatGPT-backed requests: `User-Agent`, optional `Authorization`,
-/// and optional `ChatGPT-Account-Id`.
-pub async fn build_chatgpt_headers() -> anyhow::Result<HeaderMap> {
+/// Build authenticated headers using the same manager selected for task requests.
+pub async fn build_chatgpt_headers(auth_manager: &AuthManager) -> anyhow::Result<HeaderMap> {
     use http::header::HeaderValue;
     use http::header::USER_AGENT;
 
-    set_user_agent_suffix("codex_cloud_tasks_tui");
     let ua = codex_login::default_client::get_codex_user_agent();
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
         HeaderValue::from_str(&ua).unwrap_or(HeaderValue::from_static("codex-cli")),
     );
-    if let Some(am) = load_auth_manager(/*chatgpt_base_url*/ None).await.0
-        && let Some(auth) = am.auth().await
-        && auth.uses_codex_backend()
-    {
-        headers.extend(codex_model_provider::auth_provider_from_auth(&auth).to_auth_headers()?);
+    let auth = auth_manager.auth().await.ok_or_else(|| {
+        anyhow::anyhow!("{}", codex_tui::i18n::text("Not signed in. Run 'codex login' with the ChatGPT account and workspace to use Codex Cloud."))
+    })?;
+    if !auth.uses_codex_backend() {
+        anyhow::bail!(
+            "{}",
+            codex_tui::i18n::text(
+                "Codex Cloud requires ChatGPT sign-in; API key authentication is not supported."
+            )
+        );
     }
+    headers.extend(codex_model_provider::auth_provider_from_auth(&auth).to_auth_headers()?);
     Ok(headers)
 }
 
@@ -174,6 +157,25 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::normalize_base_url;
+
+    #[tokio::test]
+    async fn environment_headers_use_the_supplied_auth_manager() {
+        let manager = codex_login::AuthManager::from_auth_for_testing(
+            codex_login::CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        );
+        let headers = super::build_chatgpt_headers(&manager).await.unwrap();
+        assert_eq!(headers[http::header::AUTHORIZATION], "Bearer Access Token");
+        assert_eq!(headers["ChatGPT-Account-Id"], "account_id");
+
+        let api_key_manager = codex_login::AuthManager::from_auth_for_testing(
+            codex_login::CodexAuth::from_api_key("test-key"),
+        );
+        let error = super::build_chatgpt_headers(&api_key_manager)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("ChatGPT sign-in"));
+        assert!(!error.to_string().contains("test-key"));
+    }
 
     #[test]
     fn normalize_base_url_normalizes_urls() {

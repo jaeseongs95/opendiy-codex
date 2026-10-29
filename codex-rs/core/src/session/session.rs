@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::input_queue::InputQueue;
 use super::mcp_refresh::McpRefresh;
 use super::retained_context::CodeModeMessageTasks;
@@ -329,6 +329,7 @@ impl SessionConfiguration {
         environment_selections: &[TurnEnvironmentSelection],
     ) -> ThreadSettingsSnapshot {
         ThreadSettingsSnapshot {
+            memory_scope: Some(self.original_config_do_not_use.memory_scope_snapshot()),
             model_context_window: self.context_window_override,
             model: self.step_settings.collaboration_mode.model().to_string(),
             model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),

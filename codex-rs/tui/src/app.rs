@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Top-level TUI application state and runtime wiring.
 //!
 //! This module owns the `App` struct, shared imports, and the high-level run loop that coordinates
@@ -264,6 +264,7 @@ mod resize_reflow;
 mod resume_config;
 mod right_click_paste;
 pub(crate) use right_click_paste::PasteEnvironment;
+mod memory;
 mod safety_buffering;
 mod server_version_notice;
 mod session_lifecycle;

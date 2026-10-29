@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -726,6 +726,12 @@ client_request_definitions! {
         params: v2::ThreadMemoryReadParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadMemoryReadResponse,
+    },
+    #[experimental("thread/memory/note/add")]
+    ThreadMemoryNoteAdd => "thread/memory/note/add" {
+        params: v2::ThreadMemoryNoteAddParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadMemoryNoteAddResponse,
     },
     #[experimental("memory/status")]
     MemoryStatus => "memory/status" {

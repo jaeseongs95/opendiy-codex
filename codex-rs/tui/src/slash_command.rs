@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use strum::IntoEnumIterator;
 use strum_macros::AsRefStr;
 use strum_macros::EnumIter;
@@ -25,6 +25,7 @@ pub enum SlashCommand {
     Experimental,
     #[strum(to_string = "approve")]
     AutoReview,
+    #[strum(to_string = "memories", serialize = "memory")]
     Memories,
     Skills,
     Import,
@@ -197,6 +198,7 @@ impl SlashCommand {
                 | SlashCommand::Goal
                 | SlashCommand::Cron
                 | SlashCommand::Context
+                | SlashCommand::Memories
                 | SlashCommand::Voice
                 | SlashCommand::Ide
                 | SlashCommand::Keymap
@@ -275,7 +277,6 @@ impl SlashCommand {
             | SlashCommand::Vim
             | SlashCommand::ElevateSandbox
             | SlashCommand::Experimental
-            | SlashCommand::Memories
             | SlashCommand::Import
             | SlashCommand::Review
             | SlashCommand::Plan
@@ -310,6 +311,7 @@ impl SlashCommand {
             | SlashCommand::Goal
             | SlashCommand::Cron
             | SlashCommand::Context
+            | SlashCommand::Memories
             | SlashCommand::Voice
             | SlashCommand::Mcp
             | SlashCommand::Apps
@@ -365,6 +367,14 @@ mod tests {
     #[test]
     fn clean_alias_parses_to_stop_command() {
         assert_eq!(SlashCommand::from_str("clean"), Ok(SlashCommand::Stop));
+    }
+
+    #[test]
+    fn memory_alias_supports_local_busy_commands() {
+        assert_eq!(SlashCommand::Memories.command(), "memories");
+        assert_eq!(SlashCommand::from_str("memory"), Ok(SlashCommand::Memories));
+        assert!(SlashCommand::Memories.supports_inline_args());
+        assert!(SlashCommand::Memories.available_during_task());
     }
 
     #[test]

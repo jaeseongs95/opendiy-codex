@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! The bottom pane is the interactive footer of the chat UI.
 //!
 //! The pane owns the [`ChatComposer`] (editable prompt input) and a stack of transient
@@ -92,6 +93,9 @@ mod questions;
 mod request_user_input;
 mod status_line_setup;
 mod status_line_style;
+mod subagent_status;
+pub(crate) use subagent_status::SubagentState;
+pub(crate) use subagent_status::SubagentStatusSummary;
 mod status_surface_preview;
 mod title_setup;
 pub(crate) mod user_verification;
@@ -336,6 +340,7 @@ pub(crate) struct BottomPane {
     pending_input_preview: PendingInputPreview,
     /// Inactive threads with pending approval requests.
     pending_thread_approvals: PendingThreadApprovals,
+    subagent_status: SubagentStatusSummary,
     context_window_percent: Option<i64>,
     context_window_used_tokens: Option<i64>,
     keymap: RuntimeKeymap,
@@ -422,6 +427,7 @@ impl BottomPane {
             unified_exec_footer: UnifiedExecFooter::new(),
             pending_input_preview: PendingInputPreview::new(),
             pending_thread_approvals: PendingThreadApprovals::new(),
+            subagent_status: SubagentStatusSummary::default(),
             esc_backtrack_hint: false,
             animations_enabled,
             effects,
@@ -2445,6 +2451,12 @@ impl BottomPane {
             {
                 flex.push(/*flex*/ 0, RenderableItem::Borrowed(banner));
             }
+            if !self.subagent_status.is_empty() {
+                flex.push(
+                    /*flex*/ 0,
+                    RenderableItem::Borrowed(&self.subagent_status),
+                );
+            }
             if let Some(status) = self.status_widget() {
                 flex.push(
                     /*flex*/ 0,
@@ -2479,7 +2491,8 @@ impl BottomPane {
                 || !self.pending_input_preview.queued_messages.is_empty()
                 || !self.pending_input_preview.pending_steers.is_empty()
                 || !self.pending_input_preview.rejected_steers.is_empty();
-            let has_status_or_footer = self.status_widget().is_some()
+            let has_status_or_footer = !self.subagent_status.is_empty()
+                || self.status_widget().is_some()
                 || self.hook_status_message.is_some()
                 || !self.unified_exec_footer.is_empty();
             let has_inline_previews = has_pending_thread_approvals || has_pending_input;
@@ -2609,6 +2622,13 @@ impl BottomPane {
     ///
     /// This keeps the footer plumbing cheap during thread transitions where `App` may recompute
     /// the label several times while the visible thread settles.
+    pub(crate) fn set_subagent_status(&mut self, summary: SubagentStatusSummary) {
+        if self.subagent_status != summary {
+            self.subagent_status = summary;
+            self.request_redraw();
+        }
+    }
+
     pub(crate) fn set_active_agent_label(&mut self, active_agent_label: Option<String>) {
         if self.composer.set_active_agent_label(active_agent_label) {
             self.request_redraw();

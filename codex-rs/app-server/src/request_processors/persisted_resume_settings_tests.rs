@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::PersistedResumeSettings;
 use super::latest_persisted_resume_settings;
 use codex_protocol::config_types::ApprovalsReviewer;
@@ -31,6 +31,7 @@ fn settings_item(
         ThreadSettingsAppliedEvent {
             thread_id: None,
             thread_settings: ThreadSettingsSnapshot {
+                memory_scope: None,
                 model_context_window: None,
                 disabled_plugin_ids: Vec::new(),
                 model: "gpt-5".to_string(),

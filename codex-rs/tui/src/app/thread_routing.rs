@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Thread routing, buffering, and app-server operation submission for the TUI app.
 //!
 //! This module manages active thread channels, routes server requests and notifications into those
@@ -8,6 +8,7 @@
 use super::session_lifecycle::ThreadAttachPresentation;
 use super::*;
 use crate::app_event::ThreadTitleDestination;
+use crate::bottom_pane::SubagentState;
 use crate::chatwidget::ThreadInputStateRestoreMode;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::TurnInterruptParams;
@@ -231,6 +232,12 @@ impl App {
             .agent_navigation
             .active_agent_label(self.current_displayed_thread_id(), self.primary_thread_id);
         self.chat_widget.set_active_agent_label(label);
+        let summary = self
+            .agent_navigation
+            .status_summary(self.primary_thread_id, |id| {
+                self.side_threads.contains_key(&id)
+            });
+        self.chat_widget.set_subagent_status(summary);
         self.sync_side_thread_ui();
     }
 
@@ -1092,25 +1099,57 @@ impl App {
 
         let mut pending_thread_ids = Vec::new();
         for (thread_id, store) in channels {
-            if Some(thread_id) == self.active_thread_id || Some(thread_id) == side_parent_thread_id
-            {
+            let displayed = Some(thread_id) == self.active_thread_id
+                || Some(thread_id) == side_parent_thread_id;
+            let subagent = Some(thread_id) != self.primary_thread_id
+                && self.agent_navigation.get(&thread_id).is_some()
+                && !self.side_threads.contains_key(&thread_id);
+            if displayed && !subagent {
                 continue;
             }
 
+            // Reuse the approval scan's existing store lock; this row never requests remote state.
             let store = store.lock().await;
-            if store.has_pending_thread_approvals() {
+            if subagent {
+                let fallback = if self
+                    .agent_navigation
+                    .get(&thread_id)
+                    .is_some_and(|entry| entry.is_running)
+                {
+                    SubagentState::Running
+                } else {
+                    SubagentState::Idle
+                };
+                let state = match store.side_parent_pending_status() {
+                    Some(SideParentStatus::NeedsApproval) => SubagentState::NeedsApproval,
+                    Some(SideParentStatus::NeedsInput) => SubagentState::NeedsInput,
+                    _ if store.active_turn_id().is_some() => SubagentState::Running,
+                    _ => self
+                        .agent_navigation
+                        .cached_terminal_status(thread_id)
+                        .or_else(|| {
+                            store.turns.last().map(|turn| match turn.status {
+                                TurnStatus::Completed => SubagentState::Completed,
+                                TurnStatus::Failed => SubagentState::Failed,
+                                TurnStatus::Interrupted => SubagentState::Stopped,
+                                TurnStatus::InProgress => SubagentState::Running,
+                            })
+                        })
+                        .unwrap_or(fallback),
+                };
+                self.agent_navigation.set_cached_status(thread_id, state);
+            }
+            if !displayed && store.has_pending_thread_approvals() {
                 pending_thread_ids.push(thread_id);
             }
         }
-
         pending_thread_ids.sort_by_key(ThreadId::to_string);
-
         let threads = pending_thread_ids
             .into_iter()
             .map(|thread_id| self.thread_label(thread_id))
             .collect();
-
         self.chat_widget.set_pending_thread_approvals(threads);
+        self.sync_active_agent_label();
     }
 
     pub(super) async fn refresh_side_parent_status_from_store(&mut self, thread_id: ThreadId) {
@@ -1234,6 +1273,16 @@ impl App {
         } else {
             None
         };
+        let terminal_subagent_state = match &notification {
+            ServerNotification::TurnCompleted(completed) => Some(match completed.turn.status {
+                TurnStatus::Completed => SubagentState::Completed,
+                TurnStatus::Failed => SubagentState::Failed,
+                TurnStatus::Interrupted => SubagentState::Stopped,
+                TurnStatus::InProgress => SubagentState::Running,
+            }),
+            ServerNotification::ThreadClosed(_) => Some(SubagentState::Closed),
+            _ => None,
+        };
         let is_turn_started = matches!(notification, ServerNotification::TurnStarted(_));
         let is_thread_closed = matches!(notification, ServerNotification::ThreadClosed(_));
         let notification_status_change = SideParentStatusChange::for_notification(&notification);
@@ -1241,7 +1290,13 @@ impl App {
             let channel = self.ensure_thread_channel(thread_id);
             (channel.sender.clone(), Arc::clone(&channel.store))
         };
-        let (mut notification, previous_pending_status, pending_status, turn_stopped) = {
+        let (
+            mut notification,
+            previous_pending_status,
+            pending_status,
+            turn_stopped,
+            terminal_is_current,
+        ) = {
             let mut guard = store.lock().await;
             if guard.session.is_none()
                 && let Some(session) = inferred_session
@@ -1274,6 +1329,7 @@ impl App {
                 previous_pending_status,
                 guard.side_parent_pending_status(),
                 turn_stopped,
+                guard.active_turn_id().is_none(),
             )
         };
         if is_turn_started {
@@ -1282,6 +1338,9 @@ impl App {
             self.mark_agent_picker_thread_closed(thread_id);
         } else if turn_stopped {
             self.agent_navigation.mark_stopped(thread_id);
+        }
+        if terminal_is_current && let Some(state) = terminal_subagent_state {
+            self.agent_navigation.set_cached_status(thread_id, state);
         }
 
         // Settings snapshots do not belong in the transcript queue: apply them in receive order.
@@ -1557,6 +1616,7 @@ impl App {
         if self.primary_thread_id != Some(thread_id) {
             self.recap.reset_for_new_thread(Instant::now());
         }
+        self.agent_navigation.bind_status_root(thread_id);
         self.primary_thread_id = Some(thread_id);
         self.agents_overview.hidden_threads.remove(&thread_id);
         self.agents_overview.threads.entry(thread_id).or_default();
@@ -2312,3 +2372,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "subagent_status_tests.rs"]
+mod subagent_status_tests;

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Runtime configuration persistence helpers for the TUI app.
 //!
 //! This module owns the app-level glue between config.toml edits, in-memory `Config` refreshes,
@@ -1030,7 +1031,7 @@ impl App {
         }
 
         self.chat_widget
-            .add_info_message("Reset local memories.".to_string(), /*hint*/ None);
+            .add_info_message(crate::i18n::text("Local memory reset completed; existing conversations and running memory work may still retain earlier information.").to_string(), /*hint*/ None);
     }
 
     pub(super) fn reasoning_label(reasoning_effort: Option<&ReasoningEffortConfig>) -> String {

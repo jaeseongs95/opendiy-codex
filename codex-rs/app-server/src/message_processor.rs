@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex 0.165.0 local patch (2026-10-28); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
@@ -1524,6 +1524,9 @@ impl MessageProcessor {
             }
             ClientRequest::MemoryStatus { params, .. } => {
                 self.thread_processor.memory_status(params).await
+            }
+            ClientRequest::ThreadMemoryNoteAdd { params, .. } => {
+                self.thread_processor.thread_memory_note_add(params).await
             }
             ClientRequest::ThreadMemoryRead { params, .. } => {
                 self.thread_processor.thread_memory_read(params).await

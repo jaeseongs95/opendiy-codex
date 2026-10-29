@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use codex_utils_absolute_path::test_support::PathExt;
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -301,6 +302,64 @@ async fn listen_off_honors_persisted_remote_control_enable() -> Result<()> {
             || request
                 .request_line
                 .starts_with("POST /backend-api/wham/remote/control/server/refresh ")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn no_remote_control_startup_preserves_enabled_enrollment() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let listener = configured_remote_control_listener(codex_home.path()).await?;
+    let state_db = StateRuntime::init(
+        codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let enrollment = RemoteControlEnrollmentRecord {
+        websocket_url: format!(
+            "ws://{}/backend-api/wham/remote/control/server",
+            listener.local_addr()?
+        ),
+        account_id: "account_id".to_string(),
+        app_server_client_name: Some(DEFAULT_CLIENT_NAME.to_string()),
+        server_id: "server-id".to_string(),
+        environment_id: "environment-id".to_string(),
+        server_name: "server-name".to_string(),
+        remote_control_enabled: Some(true),
+    };
+    state_db
+        .upsert_remote_control_enrollment(&enrollment)
+        .await?;
+
+    let mut app_server = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .with_args(&["--no-remote-control"])
+        .with_env_overrides(&[(
+            codex_app_server_transport::REMOTE_CONTROL_DISABLED_ENV_VAR,
+            None,
+        )])
+        .build_initialized()
+        .await?;
+    let status: RemoteControlStatusReadResponse = app_server
+        .request(|request_id| ClientRequest::RemoteControlStatusRead {
+            request_id,
+            params: None,
+        })
+        .await?;
+    assert_eq!(status.status, RemoteControlConnectionStatus::Disabled);
+    assert_eq!(status.environment_id, None);
+    let exit = timeout(DEFAULT_TIMEOUT, app_server.shutdown_gracefully()).await??;
+    assert!(exit.success());
+    assert_eq!(
+        state_db
+            .get_remote_control_enrollment(
+                &enrollment.websocket_url,
+                &enrollment.account_id,
+                enrollment.app_server_client_name.as_deref(),
+            )
+            .await?,
+        Some(enrollment)
     );
     Ok(())
 }

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Slash-command dispatch and local-recall handoff for `ChatWidget`.
 //!
 //! `ChatComposer` parses slash input and stages recognized command text for local
@@ -494,7 +494,14 @@ impl ChatWidget {
                 self.open_auto_review_denials_popup();
             }
             SlashCommand::Memories => {
-                self.open_memories_popup();
+                if !self.config.features.enabled(Feature::MemoryTool) {
+                    self.open_memories_popup();
+                    return;
+                }
+                self.app_event_tx.send(AppEvent::MemoryCommand {
+                    thread_id: self.thread_id(),
+                    args: String::new(),
+                });
             }
             SlashCommand::Quit | SlashCommand::Exit => {
                 self.request_quit_without_confirmation();
@@ -1020,6 +1027,12 @@ impl ChatWidget {
                     args,
                 });
             }
+            SlashCommand::Memories => {
+                self.app_event_tx.send(AppEvent::MemoryCommand {
+                    thread_id: self.thread_id(),
+                    args,
+                });
+            }
             SlashCommand::Context => {
                 self.app_event_tx.send(AppEvent::ContextCommand {
                     thread_id: self.thread_id(),
@@ -1342,6 +1355,7 @@ impl ChatWidget {
             | SlashCommand::Stop
             | SlashCommand::Cron
             | SlashCommand::Context
+            | SlashCommand::Memories
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
@@ -1395,7 +1409,6 @@ impl ChatWidget {
             | SlashCommand::ElevateSandbox
             | SlashCommand::Experimental
             | SlashCommand::AutoReview
-            | SlashCommand::Memories
             | SlashCommand::Quit
             | SlashCommand::Exit
             | SlashCommand::Logout

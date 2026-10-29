@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use std::time::Duration;
 use std::time::Instant;
 
@@ -742,6 +742,7 @@ mod tests {
             ThreadSettingsAppliedEvent {
                 thread_id: None,
                 thread_settings: ThreadSettingsSnapshot {
+                    memory_scope: None,
                     model_context_window: None,
                     disabled_plugin_ids: Vec::new(),
                     model: "gpt-5.2-codex".to_string(),

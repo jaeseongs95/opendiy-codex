@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R27 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
 //! slash command tokens, paths, or text supplied by the user or a server.
 //!
@@ -558,6 +558,93 @@ pub fn text_for(locale: Locale, original: &str) -> &str {
         "Usage: /context [positive integer tokens|reset]" => {
             "사용법: /context [양의 정수 토큰 수|reset]"
         }
+        "Subagents" => "하위 에이전트",
+        "running" => "실행 중",
+        "approval needed" => "승인 대기",
+        "input needed" => "입력 대기",
+        "completed" => "완료",
+        "failed" => "오류",
+        "stopped" => "중지",
+        "idle" => "대기",
+        "closed" => "종료",
+        "Remote-control relay connected on" => "원격 제어 relay가 연결된 기기:",
+        "Remote-control relay on" => "원격 제어 relay 기기",
+        "Mobile pairing and visibility are not verified by this status." => {
+            "이 상태는 모바일 페어링과 기기 표시 여부를 확인하지 않습니다."
+        }
+        "Remote control is enabled but the readiness check timed out on" => {
+            "원격 제어는 켜졌지만 연결 확인 시간이 초과된 기기:"
+        }
+        "No cloud environments are available for this ChatGPT workspace." => {
+            "이 ChatGPT 작업 공간에서 사용할 수 있는 Cloud 환경이 없습니다."
+        }
+        "Not signed in. Run 'codex login' with the ChatGPT account and workspace to use Codex Cloud." => {
+            "로그인하지 않았습니다. Codex Cloud를 사용하려면 해당 ChatGPT 계정과 작업 공간으로 'codex login'을 실행하세요."
+        }
+        "Codex Cloud requires ChatGPT sign-in; API key authentication is not supported." => {
+            "Codex Cloud에는 ChatGPT 로그인이 필요합니다. API 키 인증은 지원하지 않습니다."
+        }
+        "Environment lookup failed" => "환경 조회 실패",
+        "Invalid environment response" => "올바르지 않은 환경 응답",
+        "List accessible Codex Cloud environments." => "접근 가능한 Codex Cloud 환경 목록 표시",
+        "List accessible Codex Cloud environments" => "접근 가능한 Codex Cloud 환경 목록 표시",
+        "Memories" => "메모리",
+        "Memory scope:" => "메모리 범위:",
+        "global" => "전역",
+        "project" => "프로젝트",
+        "State:" => "상태:",
+        "Storage:" => "저장 위치:",
+        "ready" => "준비됨",
+        "missing" => "저장된 요약 없음",
+        "disabled" => "꺼짐",
+        "unavailable" => "사용 불가",
+        "unreadable" => "읽기 실패",
+        "oversized" => "크기 초과",
+        "No stored memory summary is available." => "저장된 메모리 요약이 없습니다.",
+        "This is the stored summary. Existing chat context is unchanged; new context loads the latest summary." => {
+            "저장된 요약입니다. 기존 대화의 문맥은 그대로이며 새 문맥에서 최신 요약을 불러옵니다."
+        }
+        "Memory request failed:" => "메모리 요청 실패:",
+        "Open a connected chat before managing its memories." => {
+            "연결된 대화에서 메모리를 관리하세요."
+        }
+        "Memory correction saved for later consolidation. The stored summary and existing chats have not changed yet." => {
+            "메모리 정정을 저장했습니다. 통합 대기 중이며 저장된 요약과 기존 대화는 아직 바뀌지 않았습니다."
+        }
+        "Memory settings saved. Reading changes apply to new chats. Generation changes stop new claims; already running work may finish." => {
+            "메모리 설정을 저장했습니다. 읽기 변경은 새 대화부터 적용됩니다. 생성 변경은 새 작업 접수에 적용되며 실행 중인 작업은 완료될 수 있습니다."
+        }
+        "Memory scope saved for new chats. Existing global or external memories were not moved." => {
+            "새 대화에 적용할 메모리 범위를 저장했습니다. 기존 전역·외부 메모리는 옮기지 않았습니다."
+        }
+        "Memory scope was overridden by managed configuration." => {
+            "관리 설정이 메모리 범위 설정에 우선합니다."
+        }
+        "Usage: /memory view | edit <correction> | read on|off | generate on|off | scope project|global" => {
+            "사용법: /memory view | edit <정정 내용> | read on|off | generate on|off | scope project|global"
+        }
+        "Project memory reset is unavailable. Disable generation and use an explicit correction; no deletion has been performed." => {
+            "프로젝트 메모리 초기화는 아직 지원하지 않습니다. 생성을 끄고 명시적으로 정정하세요. 삭제는 수행하지 않았습니다."
+        }
+        "Local memory reset completed; existing conversations and running memory work may still retain earlier information." => {
+            "로컬 메모리 초기화를 수행했습니다. 기존 대화와 실행 중인 메모리 작업에는 이전 정보가 남아 있을 수 있습니다."
+        }
+        "Start with remote control disabled, preserving saved registrations and settings" => {
+            "저장된 등록과 설정을 유지하며 원격 제어를 끈 상태로 시작합니다"
+        }
+        "Start with remote control disabled, preserving saved registrations and settings." => {
+            "저장된 등록과 설정을 유지하며 원격 제어를 끈 상태로 시작합니다"
+        }
+        "Read relay status from the existing shared daemon without starting it" => {
+            "기존 공유 daemon을 새로 시작하지 않고 relay 상태를 조회합니다"
+        }
+        "Read relay status from the existing shared daemon without starting it." => {
+            "기존 공유 daemon을 새로 시작하지 않고 relay 상태를 조회합니다"
+        }
+        "Emit JSON instead of plain text" => "일반 텍스트 대신 JSON 출력",
+        "Emit JSON instead of plain text." => "일반 텍스트 대신 JSON 출력",
+        "Emit machine-readable JSON" => "기계가 읽을 수 있는 JSON 출력",
+        "Emit machine-readable JSON." => "기계가 읽을 수 있는 JSON 출력",
         _ => original,
     }
 }
@@ -606,6 +693,20 @@ mod tests {
             "untranslated UI",
         ] {
             assert_eq!(text_for(Locale::Korean, token), token);
+        }
+    }
+
+    #[test]
+    fn memory_scope_labels_translate_without_changing_commands_or_paths() {
+        assert_eq!(text_for(Locale::Korean, "Memory scope:"), "메모리 범위:");
+        assert_eq!(text_for(Locale::Korean, "project"), "프로젝트");
+        assert_eq!(text_for(Locale::English, "project"), "project");
+        for opaque in [
+            "/memory view",
+            "thread/memory/note/add",
+            "project_memories/key/memories_v2",
+        ] {
+            assert_eq!(text_for(Locale::Korean, opaque), opaque);
         }
     }
 

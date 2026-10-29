@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 mod app;
 mod cli;
 pub(crate) mod env_detect;
@@ -10,12 +11,12 @@ pub use cli::Cli;
 use anyhow::anyhow;
 use chrono::Utc;
 use codex_cloud_tasks_client::TaskStatus;
+use codex_core::config::Config;
 use codex_git_utils::current_branch_name;
 use codex_git_utils::default_branch_name;
 use codex_http_client::ClientRouteClass;
-use codex_http_client::HttpClientFactory;
-use codex_http_client::OutboundProxyPolicy;
 use codex_http_client::RouteAwareClientPool;
+use codex_login::AuthManager;
 use codex_login::default_client::get_codex_user_agent;
 use owo_colors::OwoColorize;
 use owo_colors::Stream;
@@ -43,23 +44,25 @@ struct BackendContext {
     backend: Arc<dyn codex_cloud_tasks_client::CloudBackend>,
     base_url: String,
     environment_http: RouteAwareClientPool,
+    auth_manager: Arc<AuthManager>,
 }
 
-async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext> {
+async fn init_backend(user_agent_suffix: &str, config: &Config) -> anyhow::Result<BackendContext> {
     #[cfg(debug_assertions)]
     let use_mock = matches!(
         std::env::var("CODEX_CLOUD_TASKS_MODE").ok().as_deref(),
         Some("mock") | Some("MOCK")
     );
     let base_url = std::env::var("CODEX_CLOUD_TASKS_BASE_URL")
-        .unwrap_or_else(|_| "https://chatgpt.com/backend-api".to_string());
+        .unwrap_or_else(|_| config.chatgpt_base_url.clone());
     let base_url = util::validate_chatgpt_base_url(&base_url)?;
 
     set_user_agent_suffix(user_agent_suffix);
+    let auth_manager = util::load_auth_manager(config, base_url.clone()).await?;
+    let http_client_factory = config.http_client_factory();
 
     #[cfg(debug_assertions)]
     if use_mock {
-        let http_client_factory = HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault);
         return Ok(BackendContext {
             backend: Arc::new(codex_cloud_tasks_mock_client::MockClient),
             base_url,
@@ -67,11 +70,11 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
                 http_client_factory,
                 ClientRouteClass::Api,
             ),
+            auth_manager,
         });
     }
 
     let ua = get_codex_user_agent();
-    let (auth_manager, http_client_factory) = util::load_auth_manager(Some(base_url.clone())).await;
     let environment_http = RouteAwareClientPool::new_without_redirects_or_request_logging(
         http_client_factory.clone(),
         ClientRouteClass::Api,
@@ -85,41 +88,27 @@ async fn init_backend(user_agent_suffix: &str) -> anyhow::Result<BackendContext>
     };
     append_error_log(format!("startup: base_url={base_url} path_style={style}"));
 
-    let auth = match auth_manager.as_ref() {
-        Some(manager) => manager.auth().await,
-        None => None,
-    };
-    let auth = match auth {
-        Some(auth) => auth,
-        None => {
-            eprintln!(
-                "Not signed in. Please run 'codex login' to sign in with ChatGPT, then re-run 'codex cloud'."
-            );
-            std::process::exit(1);
-        }
-    };
-
-    if let Some(acc) = auth.get_account_id() {
-        append_error_log(format!("auth: mode=ChatGPT account_id={acc}"));
-    }
+    let auth = auth_manager.auth().await.ok_or_else(|| anyhow!(
+        "{}", codex_tui::i18n::text("Not signed in. Run 'codex login' with the ChatGPT account and workspace to use Codex Cloud.")
+    ))?;
 
     if !auth.uses_codex_backend() {
-        eprintln!(
-            "Not signed in. Please run 'codex login' to sign in with ChatGPT, then re-run 'codex cloud'."
-        );
-        std::process::exit(1);
+        return Err(anyhow!(
+            "{}",
+            codex_tui::i18n::text(
+                "Codex Cloud requires ChatGPT sign-in; API key authentication is not supported."
+            )
+        ));
     }
 
     let auth_provider = codex_model_provider::auth_provider_from_auth(&auth);
     http = http.with_auth_provider(auth_provider);
-    if let Some(acc) = auth.get_account_id() {
-        append_error_log(format!("auth: set ChatGPT-Account-Id header: {acc}"));
-    }
 
     Ok(BackendContext {
         backend: Arc::new(http),
         base_url,
         environment_http,
+        auth_manager,
     })
 }
 
@@ -175,14 +164,14 @@ async fn resolve_git_ref_with_git_info(
     }
 }
 
-async fn run_exec_command(args: crate::cli::ExecCommand) -> anyhow::Result<()> {
+async fn run_exec_command(args: crate::cli::ExecCommand, config: &Config) -> anyhow::Result<()> {
     let crate::cli::ExecCommand {
         query,
         environment,
         branch,
         attempts,
     } = args;
-    let ctx = init_backend("codex_cloud_tasks_exec").await?;
+    let ctx = init_backend("codex_cloud_tasks_exec", config).await?;
     let prompt = resolve_query_input(query)?;
     let env_id = resolve_environment_id(&ctx, &environment).await?;
     let git_ref = resolve_git_ref(branch.as_ref()).await;
@@ -206,7 +195,7 @@ async fn resolve_environment_id(ctx: &BackendContext, requested: &str) -> anyhow
         return Err(anyhow!("environment id must not be empty"));
     }
     let normalized = util::normalize_base_url(&ctx.base_url);
-    let headers = util::build_chatgpt_headers().await?;
+    let headers = util::build_chatgpt_headers(&ctx.auth_manager).await?;
     let environments =
         crate::env_detect::list_environments(&ctx.environment_http, &normalized, &headers).await?;
     if environments.is_empty() {
@@ -512,8 +501,11 @@ fn format_task_list_lines(
     lines
 }
 
-async fn run_status_command(args: crate::cli::StatusCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_status").await?;
+async fn run_status_command(
+    args: crate::cli::StatusCommand,
+    config: &Config,
+) -> anyhow::Result<()> {
+    let ctx = init_backend("codex_cloud_tasks_status", config).await?;
     let task_id = parse_task_id(&args.task_id)?;
     let summary =
         codex_cloud_tasks_client::CloudBackend::get_task_summary(&*ctx.backend, task_id).await?;
@@ -528,8 +520,51 @@ async fn run_status_command(args: crate::cli::StatusCommand) -> anyhow::Result<(
     Ok(())
 }
 
-async fn run_list_command(args: crate::cli::ListCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_list").await?;
+async fn run_environments_command(
+    args: crate::cli::EnvironmentsCommand,
+    config: &Config,
+) -> anyhow::Result<()> {
+    let ctx = init_backend("codex_cloud_tasks_environments", config).await?;
+    let headers = util::build_chatgpt_headers(&ctx.auth_manager).await?;
+    let rows =
+        env_detect::list_all_environments(&ctx.environment_http, &ctx.base_url, &headers).await?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&environment_list_json(&rows))?
+        );
+    } else if rows.is_empty() {
+        println!(
+            "{}",
+            codex_tui::i18n::text(
+                "No cloud environments are available for this ChatGPT workspace."
+            )
+        );
+    } else {
+        for row in rows {
+            println!("{}\t{}", row.id, row.label.as_deref().unwrap_or(""));
+        }
+    }
+    Ok(())
+}
+
+fn environment_list_json(rows: &[app::EnvironmentRow]) -> serde_json::Value {
+    // Publish only the documented display fields, never the raw backend response.
+    let environments: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.id,
+                "label": row.label,
+                "is_pinned": row.is_pinned,
+            })
+        })
+        .collect();
+    serde_json::json!({ "environments": environments })
+}
+
+async fn run_list_command(args: crate::cli::ListCommand, config: &Config) -> anyhow::Result<()> {
+    let ctx = init_backend("codex_cloud_tasks_list", config).await?;
     let env_filter = if let Some(env) = args.environment {
         Some(resolve_environment_id(&ctx, &env).await?)
     } else {
@@ -595,8 +630,8 @@ async fn run_list_command(args: crate::cli::ListCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_diff_command(args: crate::cli::DiffCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_diff").await?;
+async fn run_diff_command(args: crate::cli::DiffCommand, config: &Config) -> anyhow::Result<()> {
+    let ctx = init_backend("codex_cloud_tasks_diff", config).await?;
     let task_id = parse_task_id(&args.task_id)?;
     let attempts = collect_attempt_diffs(&*ctx.backend, &task_id).await?;
     let selected = select_attempt(&attempts, args.attempt)?;
@@ -604,8 +639,8 @@ async fn run_diff_command(args: crate::cli::DiffCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_apply_command(args: crate::cli::ApplyCommand) -> anyhow::Result<()> {
-    let ctx = init_backend("codex_cloud_tasks_apply").await?;
+async fn run_apply_command(args: crate::cli::ApplyCommand, config: &Config) -> anyhow::Result<()> {
+    let ctx = init_backend("codex_cloud_tasks_apply", config).await?;
     let task_id = parse_task_id(&args.task_id)?;
     let attempts = collect_attempt_diffs(&*ctx.backend, &task_id).await?;
     let selected = select_attempt(&attempts, args.attempt)?;
@@ -751,13 +786,22 @@ fn spawn_apply(
 
 /// Entry point for the `codex cloud` subcommand.
 pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
+    let config = Config::load_with_cli_overrides(
+        cli.config_overrides
+            .parse_overrides()
+            .map_err(anyhow::Error::msg)?,
+    )
+    .await?;
     if let Some(command) = cli.command {
         return match command {
-            crate::cli::Command::Exec(args) => run_exec_command(args).await,
-            crate::cli::Command::Status(args) => run_status_command(args).await,
-            crate::cli::Command::List(args) => run_list_command(args).await,
-            crate::cli::Command::Apply(args) => run_apply_command(args).await,
-            crate::cli::Command::Diff(args) => run_diff_command(args).await,
+            crate::cli::Command::Exec(args) => run_exec_command(args, &config).await,
+            crate::cli::Command::Status(args) => run_status_command(args, &config).await,
+            crate::cli::Command::List(args) => run_list_command(args, &config).await,
+            crate::cli::Command::Environments(args) => {
+                run_environments_command(args, &config).await
+            }
+            crate::cli::Command::Apply(args) => run_apply_command(args, &config).await,
+            crate::cli::Command::Diff(args) => run_diff_command(args, &config).await,
         };
     }
     let Cli { .. } = cli;
@@ -779,7 +823,8 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         backend,
         base_url,
         environment_http,
-    } = init_backend("codex_cloud_tasks_tui").await?;
+        auth_manager,
+    } = init_backend("codex_cloud_tasks_tui", &config).await?;
 
     // Terminal setup
     use crossterm::ExecutableCommand;
@@ -859,7 +904,12 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         });
     }
     // Fetch environment list in parallel so the header can show friendly names quickly.
-    spawn_environment_load(tx.clone(), base_url.clone(), environment_http.clone());
+    spawn_environment_load(
+        tx.clone(),
+        base_url.clone(),
+        environment_http.clone(),
+        Arc::clone(&auth_manager),
+    );
 
     // Try to auto-detect a likely environment id on startup and refresh if found.
     // Do this concurrently so the initial list shows quickly; on success we refetch with filter.
@@ -867,10 +917,11 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
         let tx = tx.clone();
         let base_url = base_url.clone();
         let environment_http = environment_http.clone();
+        let auth_manager = Arc::clone(&auth_manager);
         tokio::spawn(async move {
             let base_url = util::normalize_base_url(&base_url);
             // Build headers: UA + ChatGPT auth if available
-            let headers = match util::build_chatgpt_headers().await {
+            let headers = match util::build_chatgpt_headers(&auth_manager).await {
                 Ok(headers) => headers,
                 Err(error) => {
                     let _ = tx.send(app::AppEvent::EnvironmentAutodetected(Err(error)));
@@ -1109,6 +1160,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                         tx.clone(),
                                         base_url.clone(),
                                         environment_http.clone(),
+                                        Arc::clone(&auth_manager),
                                     );
                                     let _ = frame_tx.send(Instant::now());
                                 }
@@ -1489,6 +1541,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                     tx.clone(),
                                     base_url.clone(),
                                     environment_http.clone(),
+                                        Arc::clone(&auth_manager),
                                 );
                             }
                             // Render after opening env modal to show it instantly.
@@ -1673,6 +1726,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                             tx.clone(),
                                             base_url.clone(),
                                             environment_http.clone(),
+                                        Arc::clone(&auth_manager),
                                         );
                                     }
                                 }
@@ -1847,6 +1901,7 @@ pub async fn run_main(cli: Cli, _codex_linux_sandbox_exe: Option<PathBuf>) -> an
                                             tx.clone(),
                                             base_url.clone(),
                                             environment_http.clone(),
+                                        Arc::clone(&auth_manager),
                                         );
                                     }
                                 }
@@ -2033,10 +2088,11 @@ fn spawn_environment_load(
     tx: UnboundedSender<app::AppEvent>,
     base_url: String,
     http: RouteAwareClientPool,
+    auth_manager: Arc<AuthManager>,
 ) {
     tokio::spawn(async move {
         let base_url = util::normalize_base_url(&base_url);
-        let result = match util::build_chatgpt_headers().await {
+        let result = match util::build_chatgpt_headers(&auth_manager).await {
             Ok(headers) => crate::env_detect::list_environments(&http, &base_url, &headers).await,
             Err(error) => Err(error),
         };
@@ -2163,6 +2219,44 @@ mod tests {
     use codex_cloud_tasks_client::TaskSummary;
     use codex_cloud_tasks_mock_client::MockClient;
     use pretty_assertions::assert_eq;
+
+    #[tokio::test]
+    async fn cloud_rejects_invalid_config_overrides_before_loading_auth() {
+        let error = run_main(
+            Cli {
+                config_overrides: codex_utils_cli::CliConfigOverrides {
+                    raw_overrides: vec!["missing-equals".to_string()],
+                },
+                command: Some(cli::Command::Environments(cli::EnvironmentsCommand {
+                    json: true,
+                })),
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("Invalid override"), "{error}");
+    }
+
+    #[test]
+    fn environment_json_has_a_stable_empty_list_and_display_fields_only() {
+        assert_eq!(
+            environment_list_json(&[]),
+            serde_json::json!({"environments": []})
+        );
+        let row = app::EnvironmentRow {
+            id: "env-1".to_string(),
+            label: Some("환경".to_string()),
+            is_pinned: true,
+            repo_hints: Some("internal-repository".to_string()),
+        };
+        assert_eq!(
+            environment_list_json(&[row]),
+            serde_json::json!({"environments": [{
+                "id": "env-1", "label": "환경", "is_pinned": true,
+            }]})
+        );
+    }
 
     struct StubGitInfo {
         default_branch: Option<String>,

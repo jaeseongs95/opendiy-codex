@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Types used to define loaded and effective Codex configuration values.
 
 // Note this file should generally be restricted to simple struct/enum
@@ -316,10 +317,21 @@ pub struct ToolSuggestConfig {
 
 pub use codex_protocol::MemoryVersion;
 
+/// Storage and source-selection boundary for generated memory.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryScope {
+    #[default]
+    Global,
+    Project,
+}
+
 /// Memories settings loaded from config.toml.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct MemoriesToml {
+    /// Project scope isolates sources, generated files, and memory jobs by repository.
+    pub scope: Option<MemoryScope>,
     /// Selects the memory pipeline. Fresh profiles default to v2 when memories are enabled,
     /// unless dual-write is explicitly disabled; existing v1 profiles default to v1.
     pub version: Option<MemoryVersion>,
@@ -358,6 +370,10 @@ pub struct MemoriesToml {
 /// Effective memories settings after defaults are applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MemoriesConfig {
+    pub scope: MemoryScope,
+    /// Resolved once from the thread's actual project, never from model input.
+    #[serde(skip)]
+    pub project: Option<crate::memory_scope::MemoryProject>,
     pub version: MemoryVersion,
     pub dual_write: bool,
     pub disable_on_external_context: bool,
@@ -377,6 +393,8 @@ pub struct MemoriesConfig {
 impl Default for MemoriesConfig {
     fn default() -> Self {
         Self {
+            scope: MemoryScope::Global,
+            project: None,
             version: MemoryVersion::V1,
             dual_write: false,
             disable_on_external_context: false,
@@ -399,6 +417,8 @@ impl From<MemoriesToml> for MemoriesConfig {
     fn from(toml: MemoriesToml) -> Self {
         let defaults = Self::default();
         Self {
+            scope: toml.scope.unwrap_or(defaults.scope),
+            project: None,
             version: toml.version.unwrap_or(defaults.version),
             dual_write: toml.dual_write.unwrap_or(defaults.dual_write),
             disable_on_external_context: toml

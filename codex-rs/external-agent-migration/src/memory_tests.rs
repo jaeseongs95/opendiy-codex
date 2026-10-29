@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::*;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
@@ -115,4 +116,98 @@ fn skips_symlinked_memory_directory() {
         discover_external_memory_files(&external_agent_home).expect("discover memories"),
         Vec::new()
     );
+}
+
+#[test]
+fn memory_discovery_caps_file_count_before_returning_a_partial_catalog() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let memory = temp.path().join("projects/a/memory");
+    fs::create_dir_all(&memory)?;
+    for index in 0..MAX_MEMORY_FILES {
+        fs::write(memory.join(format!("{index}.md")), "")?;
+    }
+    assert_eq!(
+        discover_external_memory_files(temp.path())?.len(),
+        MAX_MEMORY_FILES
+    );
+    fs::write(memory.join("extra.md"), "")?;
+    assert_eq!(
+        discover_external_memory_files(temp.path())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    Ok(())
+}
+
+#[test]
+fn memory_discovery_caps_file_and_total_bytes_from_metadata() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let memory = temp.path().join("projects/a/memory");
+    fs::create_dir_all(&memory)?;
+    let first = memory.join("0.md");
+    fs::File::create(&first)?.set_len(MAX_MEMORY_FILE_BYTES + 1)?;
+    assert_eq!(
+        discover_external_memory_files(temp.path())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    fs::File::create(&first)?.set_len(MAX_MEMORY_FILE_BYTES)?;
+    for index in 1..16 {
+        fs::File::create(memory.join(format!("{index}.md")))?.set_len(MAX_MEMORY_FILE_BYTES)?;
+    }
+    assert_eq!(discover_external_memory_files(temp.path())?.len(), 16);
+    fs::write(memory.join("extra.md"), "x")?;
+    assert_eq!(
+        discover_external_memory_files(temp.path())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    Ok(())
+}
+
+#[test]
+fn memory_discovery_caps_depth_and_directory_allocation() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let mut nested = temp.path().join("projects/a/memory");
+    for _ in 0..MAX_MEMORY_DEPTH {
+        nested.push("d");
+    }
+    fs::create_dir_all(&nested)?;
+    fs::write(nested.join("topic.md"), "topic")?;
+    assert_eq!(discover_external_memory_files(temp.path())?.len(), 1);
+    fs::create_dir(nested.join("too-deep"))?;
+    assert_eq!(
+        discover_external_memory_files(temp.path())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    let mut scanned = MAX_MEMORY_DIRECTORY_ENTRIES;
+    assert_eq!(
+        bounded_memory_entries(&nested, &mut scanned)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert_eq!(scanned, MAX_MEMORY_DIRECTORY_ENTRIES);
+    Ok(())
+}
+
+#[test]
+fn memory_discovery_bounds_session_metadata_reads() -> io::Result<()> {
+    let temp = TempDir::new()?;
+    let project = temp.path().join("projects/a");
+    fs::create_dir_all(project.join("memory"))?;
+    fs::write(project.join("memory/MEMORY.md"), "memory")?;
+    fs::File::create(project.join("large.jsonl"))?.set_len(MAX_MEMORY_FILE_BYTES + 1)?;
+    assert_eq!(
+        discover_external_memory_files(temp.path())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    Ok(())
 }
