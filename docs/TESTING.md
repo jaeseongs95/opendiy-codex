@@ -106,19 +106,30 @@ cargo metadata --manifest-path codex-rs/Cargo.toml --no-deps --offline --locked 
 
 Historical r22 Windows testing passed a locked/offline CLI and App Server all-targets check and 18 targeted Cargo tests. A separate socket fixture checked IO, inheritance, cleanup and named pipes; its Mio artifact matched the App Server test artifact, not the entire Tokio/RMCP graph. Source-import checks separately verified provenance, local build inputs and Cargo metadata. Verifier self-tests had five passes and one real-symlink skip. Desktop typing/navigation traces and external memory/TCP/process observations at one-minute intervals were separate diagnostics. A fresh public-clone release build, full desktop reproduction and complete resolution of performance or connection issues are not claimed. Private UI assets and raw operational evidence are excluded.
 
-## 공유 로컬 서버 후속 회귀시험—미실행
+## 공유 로컬 서버 후속 회귀시험—검증 범위
 
-고정 소스 `9766a8b7b8c4d56d7076367ddc12f2917a3df197`의 후속 후보는 컴파일 중이며 수정 후 제품 시험·독립감사 통과·설치는 미완료다. 프록시 3개 시험 함수의 3사례와 재개 4개 함수의 10사례, 총 13사례를 작성했으며 새 제품 시험 실행은 0건이다. 아래는 실행할 시험 필터이며 통과 기록이 아니다. 소스 내보내기 검증기와 검증기 자체 시험은 제품 시험과 별개다.
+고정 원본 소스 `9766a8b7b8c4d56d7076367ddc12f2917a3df197`에서 다음 시험과 빌드를 완료했다. 공개 사본에는 수정 고지가 추가되므로, 이 결과가 새 공개 사본 자체의 빌드·실행을 뜻하지는 않는다. 원시 로그·실행 파일·운영 경로·인증 자료는 게시하지 않는다.
 
-이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 독립감사 05 결과는 `FAIL`이었다. 현재 후보 `9766a8b7b8c4d56d7076367ddc12f2917a3df197`는 그 판정을 이어받지 않는다. 새 후보는 컴파일 중이며 수정 후 제품 시험은 아직 실행하지 않았다. 독립감사를 통과하지 않았고 설치도 완료하지 않았다. 이전 갱신은 SQLite 설정별 회귀·MCP 시험 요청·판정 및 예약 도구 노출 기대값을 보강했고, 이번 갱신에는 미저장 대화의 커서 저장소 조건 수정도 포함된다.
+| 확인 범위 | 실제 결과 |
+| --- | --- |
+| 예약·재접속·재개·도구·프록시·소켓 표적 8개 그룹 | 107개 통과·0개 실패, 각 그룹 종료 코드 0 |
+| 전체 TUI 시험 실행 파일 | 5,849개 통과·0개 실패·4개 무시, 종료 코드 0 |
+| 일반 CLI 개발 빌드 | `dev-small`, `--offline --locked`, `-j2`, 종료 코드 0. 최적화한 `release` 빌드가 아님 |
+| 고정 개발 실행 파일의 격리 시험 | 기본 프록시의 두 이력 형식 재개와 `--logging` 용량 오류 세 조건 통과, 시험 실행기 종료 코드 0 |
 
-이전 자연어 예약 후보 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 건너뜀으로 종료 코드 101이었다. 실패 중 2개는 MCP 요청의 필수 메타데이터 누락으로 `a3edca405d1eddf138f549764459394603576804`에서 보강했다. 나머지 2개는 새 `cron` 노출을 빠뜨린 도구 목록·`deferLoading` 기대값으로 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`에서 보강했다. 새 후보는 컴파일 중이며 수정 후 제품 시험은 아직 실행하지 않았다. 독립감사를 통과하지 않았고 설치도 완료하지 않았다.
+일반 개발 실행 파일의 SHA-256은 `7b2e4c2d38a38d7a1187f02673177ae370c1e9ceb252cf2370ccf09e27b68a1b`다. 전체 TUI 결과는 같은 소스의 시험 실행 파일에서 얻었으며, 이 일반 실행 파일에서 5,849개 시험을 다시 실행했다는 뜻이 아니다. 기존 설치 실행 파일은 바꾸지 않았다.
 
-직전 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609` 후보의 표적 실행은 100개 통과·7개 실패였고, 8개 실행 그룹 중 3개 통과·5개 실패였다. 이번 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 후보는 그 실패에 대한 수정본이며 아직 수정 후 실행 결과가 없다. 앞선 결과를 새 후보의 통과 근거로 사용하지 않는다.
+처음 일반 개발 빌드는 같은 소스에서 종료 코드 101과 `RemoteControlStartConfig`의 `client_name` 누락 오류로 실패했다. 현재 소스에는 그 필드가 없는데 이전 `app-server-transport` 메타데이터가 재사용된 사실과 일치한다. 관련 `app-server`·transport·TUI 지문 6개만 보존 이동한 뒤 같은 소스·잠금 파일·빌드 인자로 재컴파일해 종료 코드 0을 확인했다. 전체 캐시를 삭제한 것은 아니며, 잘못된 메타데이터가 처음 유입된 경위와 향후 다른 작업 트리의 캐시 재혼입 방지는 미확인이다.
 
-이번 제품 변경은 저장 메타데이터가 없는 미저장 대화의 페이징 재개에서 커서 저장소를 붙이지 않는 조건으로 한정한다. 나머지는 실제 원격 대화의 기록 준비와 같은 `sessionId` 확인, `deferLoading=false` 필드 생략·역직렬화 기본값 검사, 새 `cron` 도구가 포함된 작업트리 목록 스냅샷, 임시 접근 제어 목록 시험의 `Set-Acl`을 `icacls`로 바꾸는 보강이다. 접근 제어 목록 시험은 감사 권한을 요청하지 않는다. 빈 미저장 대화의 실제 화면 전환까지 해결됐다고 주장하지 않는다.
+격리 프록시 시험은 새 시험용 홈과 로컬 제공자를 사용했다. `legacy`·`paginated` 각각에서 첫 입력 전 대화의 `thread/read`와 `thread/resume(excludeTurns=true)`가 같은 대화·세션 식별자를 반환하고 두 커서가 `null`임을 확인했다. 각 형식의 프록시 두 개를 회수한 뒤에도 같은 서버가 유지됐다. 마지막에는 시험이 직접 만든 서버만 종료했고 모델 요청은 0건이었다. 첫 격리 시도는 시험용 소켓 경로 길이 제한으로 실패했으며, 제품 코드를 바꾸지 않고 짧은 새 시험 경로로 다시 실행했다. 이 결과는 실제 TUI의 전체 이력 복원 검증과 구분한다.
 
-MCP 큐 회귀는 필수 `io.modelcontextprotocol/protocolVersion`·`io.modelcontextprotocol/clientCapabilities` 메타데이터, 정확한 부정 응답 코드·메시지, 큐 도착 전 응답 본문 판정을 보강했다. 제품 전달 성공이나 새 후보의 시험 통과를 주장하지 않는다.
+용량 오류 시험은 새 시험용 홈, 인증이 필요 없는 로컬 제공자, `--no-daemon exec --sandbox read-only`와 `--logging`을 사용했다. 정상 재시도는 모델 요청 2건·종료 코드 0, 부분 응답 후 실패는 재전송 없이 요청 1건·종료 코드 1, 허용 대기 범위를 넘는 `Retry-After: 300`은 기다리거나 재시도하지 않고 요청 1건·종료 코드 1이었다. 뒤의 두 종료 코드 1은 예상한 거부 결과이며 세 조건을 평가한 시험 실행기는 종료 코드 0이다.
+
+독립감사 07은 소스 변경 없는 캐시 복구, 고정 개발 실행 파일의 소스·빌드 결속과 제한된 격리 실행, 기존 시험 근거 보존 범위에서 `PASS`였다. 전체 제품 완료·설치 가능 상태와 미래 작업의 캐시 혼입 차단 보장은 `BLOCKED`다. 실제 TUI의 빈 미저장 대화 이력 복원, 모델의 자연어 예약 도구 선택, 실제 모바일의 동일 서버 사용, 장시간 동시 부하, 최적화한 `release`, 설치·배포와 바탕화면·스케줄러 대상 정합성은 미검증이다.
+
+이전 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 무시, 종료 코드 101이었다. MCP 필수 메타데이터 누락 2건과 새 예약 도구의 목록·`deferLoading` 기대값 누락 2건을 보강했다. 이어진 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`의 표적 실행도 100개 통과·7개 실패였고 8개 그룹 중 3개만 통과했다. 현재 결과는 그 후 미저장 대화의 커서 저장소 조건, 실제 대화의 기록 준비, 직렬화 기본값, 도구 목록 스냅샷과 임시 접근 제어 목록 시험을 수정한 고정 소스에 대한 것이다. 이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 감사 05 실패를 취소하거나 전체 소스 감사 통과로 바꾸는 판정은 아니다.
+
+아래 필터는 공개 소스에서 대응 시험을 실행하는 방법이다. 표적 시험 수와 전체 TUI 시험 수는 서로 겹치므로 합산하지 않는다.
 
 프록시 시험은 Windows에서 넓은 디렉터리를 접속 전에 거부하고, 없는 디렉터리를 생성·복구하지 않으며, 실제 운영체제 토큰에 따라 연결 상대를 검사한 뒤 바이트 왕복 또는 전송 전 거부를 확인하도록 작성했다. 상대 토큰을 조회하는 PowerShell 자식은 숨김으로 실행한다.
 
@@ -144,4 +155,5 @@ cargo test --locked -p codex-tui --lib model_cron_mcp_metadata_and_cancelled_que
 cargo test --locked -p codex-tui --lib reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue
 cargo test --locked -p codex-tui --lib external_transport_registers_dynamic_tools_and_finds_task_mentions
 cargo test --locked -p codex-tui --lib creation_attaches_to_original_task_and_survives_service_restart
+cargo test --locked -p codex-tui --lib -- --test-threads=1
 ```
