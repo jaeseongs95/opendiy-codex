@@ -450,6 +450,21 @@ async fn explicit_complete_history_does_not_inherit_the_display_item_budget() ->
         450
     );
     assert!(recorded_params(&requests, "thread/items/list").len() >= 5);
+    let mut anchored = server.thread_read(target.thread_id, false).await?;
+    server
+        .hydrate_initial_thread_history(
+            &mut anchored,
+            None,
+            None,
+            None,
+            None,
+            HistoryHydrationScope::ThroughTurn("turn-0"),
+        )
+        .await?;
+    assert_eq!(
+        anchored.turns.iter().flat_map(|turn| &turn.items).count(),
+        450
+    );
     server.shutdown().await?;
     proxy.await??;
     Ok(())
@@ -568,6 +583,108 @@ async fn fifty_turn_window_returns_through_every_evicted_turn_in_both_directions
             .iter()
             .all(|params| params["itemsView"] == "notLoaded")
     );
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oversized_display_item_stays_available_to_complete_and_anchor_queries() -> Result<()> {
+    use crate::app_server_session::HistoryDirection;
+    let (mut app, _home, target) = history_fixture(&[1, 1]).await?;
+    app.local_settings.transcript_mode = TranscriptMode::Owned;
+    let path = target.path.as_ref().unwrap();
+    let mut records = std::fs::read_to_string(path)?
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    let size = crate::history_window::MAX_HISTORY_BYTES + 1024;
+    for record in &mut records {
+        if record["type"] != "event_msg" {
+            continue;
+        }
+        let mut event: EventMsg = serde_json::from_value(record["payload"].clone())?;
+        if let EventMsg::ItemCompleted(completed) = &mut event
+            && completed.turn_id == "turn-1"
+            && let TurnItem::UserMessage(item) = &mut completed.item
+        {
+            item.content = vec![CoreUserInput::Text {
+                text: "x".repeat(size),
+                text_elements: Vec::new(),
+            }];
+            record["payload"] = serde_json::to_value(event)?;
+        }
+    }
+    let contents = records
+        .into_iter()
+        .map(|record| record.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(path, format!("{contents}\n"))?;
+    drop(contents);
+    let (mut server, _requests, proxy) =
+        start_recording_app_server(&app.config, None, None).await?;
+    let _: ThreadResumeResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadResume {
+            request_id: server.next_request_id(),
+            params: ThreadResumeParams {
+                thread_id: target.thread_id.to_string(),
+                exclude_turns: true,
+                ..Default::default()
+            },
+        })
+        .await?;
+    let mut initial = server.thread_read(target.thread_id, false).await?;
+    server
+        .hydrate_initial_thread_history(
+            &mut initial,
+            None,
+            None,
+            Some(&app.config),
+            Some(&app.local_settings),
+            HistoryHydrationScope::Initial,
+        )
+        .await?;
+    assert_eq!(
+        server.take_history_errors(target.thread_id),
+        [crate::history_window::OVERSIZED_HISTORY]
+    );
+    assert!(initial.turns.iter().all(|turn| turn.items.is_empty()));
+    let request = server
+        .begin_history_page(target.thread_id, HistoryDirection::Older)
+        .unwrap();
+    assert_eq!(request.params.turn_id.as_deref(), Some("turn-0"));
+    let page: ThreadItemsListResponse = server
+        .request_handle()
+        .request_typed(ClientRequest::ThreadItemsList {
+            request_id: request.request_id,
+            params: request.params,
+        })
+        .await?;
+    let items = server
+        .apply_older_history_page(target.thread_id, &request.token, page, &mut initial.turns)
+        .await?;
+    assert_eq!(items[0].id(), "item-0-0");
+    for scope in [
+        HistoryHydrationScope::Complete,
+        HistoryHydrationScope::ThroughTurn("turn-1"),
+    ] {
+        let mut complete = server.thread_read(target.thread_id, false).await?;
+        server
+            .hydrate_initial_thread_history(&mut complete, None, None, None, None, scope)
+            .await?;
+        let giant = complete
+            .turns
+            .iter()
+            .flat_map(|turn| &turn.items)
+            .find(|item| item.id() == "item-1-0")
+            .unwrap();
+        let ThreadItem::UserMessage { content, .. } = giant else {
+            panic!("user item");
+        };
+        assert!(content.iter().any(|input| matches!(input, codex_app_server_protocol::UserInput::Text { text, .. } if text.len() == size)));
+    }
     server.shutdown().await?;
     proxy.await??;
     Ok(())

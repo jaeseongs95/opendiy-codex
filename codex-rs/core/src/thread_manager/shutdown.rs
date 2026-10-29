@@ -17,7 +17,6 @@ pub(crate) fn thread_store_error_kind(error: &ThreadStoreError) -> &'static str 
         ThreadStoreError::HistoryProjectionUnavailable => {
             "thread_store_history_projection_unavailable"
         }
-        ThreadStoreError::HistoryPayloadTooLarge { .. } => "thread_store_history_payload_too_large",
         ThreadStoreError::ThreadNotFound { .. } => "thread_store_not_found",
         ThreadStoreError::InvalidRequest { .. } => "thread_store_invalid_request",
         ThreadStoreError::Conflict { .. } => "thread_store_conflict",

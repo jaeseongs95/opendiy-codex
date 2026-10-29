@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Queue native terminal output behind unfinished dynamic tools.
 //! Fullscreen rendering reads retained cells directly and never queues terminal output.
 //!
@@ -94,11 +95,14 @@ impl NativeHistory {
         let end = self
             .pending
             .iter()
-            .find(|entry| entry.owner.strong_count() > 0 && is_pending(entry.source.as_ref()))
-            .and_then(|entry| {
+            .find(|entry| is_pending(entry.source.as_ref()))
+            .map(|entry| {
+                // A cache-evicted blocker still precedes every queued native output. Explicit
+                // rollback/clear already prunes this FIFO through retain/reset.
                 cells
                     .iter()
                     .position(|cell| entry.owner.ptr_eq(&Arc::downgrade(cell)))
+                    .unwrap_or(0)
             })
             .unwrap_or(cells.len());
         &cells[..end]
@@ -121,10 +125,6 @@ impl App {
         }
         let mut ready = Vec::new();
         while let Some(entry) = self.native_history.pending.front() {
-            if entry.owner.strong_count() == 0 {
-                self.native_history.pending.pop_front();
-                continue;
-            }
             if ready.len() == CELLS_PER_FRAME || is_pending(entry.source.as_ref()) {
                 break;
             }

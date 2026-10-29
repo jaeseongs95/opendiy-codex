@@ -318,3 +318,31 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/thread_transcript/exploration_groups.rs`
 - `codex-rs/tui/src/transcript_view/layout.rs`
 - `codex-rs/tui/src/transcript_view/snapshot.rs`
+
+소스 갱신 `8dfe79b00aeb9f950a86f2baaad9ea81b45b8921` (통합 진행 중):
+
+- `codex-rs/app-server/src/request_processors/thread_attachments.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor.rs`
+- `codex-rs/app-server/src/request_processors/thread_processor_tests.rs`
+- `codex-rs/app-server/src/request_processors/thread_sections.rs`
+- `codex-rs/app-server/tests/suite/v2/thread_read.rs`
+- `codex-rs/core/src/session_rollout_init_error.rs`
+- `codex-rs/core/src/session_rollout_init_error_tests.rs`
+- `codex-rs/core/src/thread_manager/shutdown.rs`
+- `codex-rs/thread-store/src/error.rs`
+- `codex-rs/thread-store/src/lib.rs`
+- `codex-rs/thread-store/src/local/thread_history/read.rs`
+- `codex-rs/thread-store/src/local/thread_history/read_tests.rs`
+- `codex-rs/thread-store/src/local/thread_history/segment_paging.rs`
+- `codex-rs/tui/src/app/history_pagination.rs`
+- `codex-rs/tui/src/app/history_window.rs`
+- `codex-rs/tui/src/app/native_history.rs`
+- `codex-rs/tui/src/app/native_history_tests.rs`
+- `codex-rs/tui/src/app/tests/history_hydration_tests.rs`
+- `codex-rs/tui/src/app/thread_event_buffer.rs`
+- `codex-rs/tui/src/app/thread_event_buffer_tests.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/chatwidget/streaming.rs`
+- `codex-rs/tui/src/chatwidget/tests/copy_export_picker_tests.rs`
+- `codex-rs/tui/src/chatwidget/transcript.rs`
+- `codex-rs/tui/src/history_window.rs`

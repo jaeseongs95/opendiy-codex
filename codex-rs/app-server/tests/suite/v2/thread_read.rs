@@ -1715,7 +1715,7 @@ async fn thread_turns_list_rejects_unmaterialized_loaded_thread() -> Result<()> 
 }
 
 #[tokio::test]
-async fn paginated_history_payload_admission_keeps_shells_and_cursors() -> Result<()> {
+async fn paginated_history_soft_pages_preserve_large_items_and_full_reads() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
     MockResponsesConfig::new(&server.uri()).write(codex_home.path())?;
@@ -1768,7 +1768,7 @@ async fn paginated_history_payload_admission_keeps_shells_and_cursors() -> Resul
         (
             "large-turn",
             vec!["large-agent"],
-            codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES + 1,
+            codex_thread_store::HISTORY_PAGE_TARGET_BYTES + 1,
         ),
         (
             "normal-turn",
@@ -1825,9 +1825,7 @@ async fn paginated_history_payload_admission_keeps_shells_and_cursors() -> Resul
     )
     .await?;
     assert_eq!(first.data.len(), 2);
-    assert!(
-        serde_json::to_vec(&first)?.len() <= codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES
-    );
+    assert!(serde_json::to_vec(&first)?.len() <= codex_thread_store::HISTORY_PAGE_TARGET_BYTES);
     let second = read_items_page(
         &mut mcp,
         thread_id,
@@ -1839,33 +1837,63 @@ async fn paginated_history_payload_admission_keeps_shells_and_cursors() -> Resul
     .await?;
     assert_eq!(second.data.len(), 1);
     assert!(second.next_cursor.is_none());
-    let id = mcp
-        .send_thread_items_list_request(ThreadItemsListParams {
-            thread_id: thread_id.to_string(),
-            turn_id: Some("large-turn".to_string()),
-            cursor: None,
-            limit: Some(100),
-            sort_direction: Some(SortDirection::Asc),
-        })
-        .await?;
-    let error: JSONRPCError = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(id)),
+    let large = read_items_page(
+        &mut mcp,
+        thread_id,
+        Some("large-turn"),
+        None,
+        Some(100),
+        SortDirection::Asc,
     )
-    .await??;
-    assert_eq!(error.error.code, -32600);
-    let data = error.error.data.expect("numeric size classification");
-    assert_eq!(data["kind"], "historyItemTooLarge");
+    .await?;
+    assert_eq!(large.data.len(), 1);
+    assert!(large.next_cursor.is_none());
+    let ThreadItem::AgentMessage { text, .. } = &large.data[0].item else {
+        panic!("expected intact large agent message");
+    };
     assert_eq!(
-        data["maxBytes"],
-        codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES
+        text.len(),
+        codex_thread_store::HISTORY_PAGE_TARGET_BYTES + 1
     );
-    assert!(
-        data["actualBytes"].as_u64().unwrap()
-            > codex_thread_store::HISTORY_ITEM_MAX_SERIALIZED_BYTES as u64
+    assert!(text.bytes().all(|byte| byte == b'x'));
+    // Full is an explicit complete-turn request: retain the requested count and
+    // accept the combined response even when it exceeds the soft page target.
+    let full = read_turns_page(
+        &mut mcp,
+        thread_id,
+        None,
+        Some(10),
+        SortDirection::Desc,
+        Some(TurnItemsView::Full),
+    )
+    .await?;
+    assert_eq!(full.data.len(), 2);
+    assert!(full.next_cursor.is_none());
+    assert_eq!(
+        full.data.iter().map(|turn| turn.items.len()).sum::<usize>(),
+        4
     );
-    assert_eq!(data.as_object().unwrap().len(), 3);
-    // A failed payload does not prevent browsing another turn's metadata.
+    // Complete/ThroughTurn clients repeatedly use this same existing paging API.
+    let mut cursor = None;
+    let mut ids = Vec::new();
+    loop {
+        let page = read_items_page(
+            &mut mcp,
+            thread_id,
+            None,
+            cursor,
+            Some(100),
+            SortDirection::Desc,
+        )
+        .await?;
+        ids.extend(page.data.iter().map(|entry| entry.item.id().to_string()));
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(ids, vec!["agent-3", "agent-2", "agent-1", "large-agent"]);
+    // Payload reads do not change the metadata-only shell contract.
     let shells_after = read_turns_page(
         &mut mcp,
         thread_id,

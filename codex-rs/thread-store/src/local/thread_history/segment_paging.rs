@@ -1,8 +1,4 @@
 // Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
-use codex_app_server_protocol::Turn;
-use codex_app_server_protocol::TurnError;
-use codex_app_server_protocol::TurnItemsView;
-use codex_app_server_protocol::TurnStatus;
 use codex_protocol::ThreadId;
 use sqlx::QueryBuilder;
 use sqlx::Row;
@@ -21,8 +17,7 @@ use super::read::serialize_cursor;
 use super::read::stored_thread_item_row;
 use super::read::stored_turn_row;
 use super::thread_history_error;
-use crate::HISTORY_ITEM_MAX_SERIALIZED_BYTES;
-use crate::HISTORY_PAGE_MAX_SERIALIZED_BYTES;
+use crate::HISTORY_PAGE_TARGET_BYTES;
 use crate::ItemSortKey;
 use crate::ListItemsParams;
 use crate::ListItemsPosition;
@@ -70,7 +65,7 @@ pub(super) async fn page_turn_rows(
         if remaining == 0 {
             break;
         }
-        // Read bounded metadata first; even a very large error body stays in SQLite
+        // Read count-limited metadata first; even a very large error body stays in SQLite
         // until its UTF-8 size is admitted in this same read transaction.
         let mut query = QueryBuilder::<Sqlite>::new(
             "SELECT turn_id, root_turn_id, rollout_ordinal, status, length(CAST(error_json AS BLOB)) AS error_bytes, started_at, completed_at, duration_ms, first_user_item_id, final_agent_item_id FROM thread_turns WHERE thread_id = ",
@@ -103,14 +98,7 @@ pub(super) async fn page_turn_rows(
             }
             let error_size = candidate.try_get::<Option<i64>, _>("error_bytes")?;
             let bytes = usize::try_from(error_size.unwrap_or(0)).map_err(thread_history_error)?;
-            if let Err(error) = check_item_bytes(bytes) {
-                if rows.is_empty() {
-                    return Err(error);
-                }
-                has_more = true;
-                break 'segments;
-            }
-            if error_bytes.saturating_add(bytes) > HISTORY_PAGE_MAX_SERIALIZED_BYTES {
+            if !rows.is_empty() && error_bytes.saturating_add(bytes) > HISTORY_PAGE_TARGET_BYTES {
                 has_more = true;
                 break 'segments;
             }
@@ -126,7 +114,7 @@ pub(super) async fn page_turn_rows(
             } else {
                 None
             };
-            error_bytes += bytes;
+            error_bytes = error_bytes.saturating_add(bytes);
             rows.push(stored_turn_row(
                 candidate,
                 segment.rollout_id(),
@@ -152,9 +140,9 @@ pub(super) async fn page_item_rows(
     // this transaction on error or cancellation also returns its pooled connection.
     let mut transaction = pool.begin().await.map_err(thread_history_error)?;
     let mut budget = if params.item_ids.is_some() {
-        ItemPageByteBudget::for_item_lookup()?
+        HistoryPageByteTarget::for_item_lookup()
     } else {
-        ItemPageByteBudget::new(params.thread_id)?
+        HistoryPageByteTarget::default()
     };
     let (cursor, anchor_item_id) = match params.position.as_ref() {
         Some(ListItemsPosition::Cursor(cursor)) => (Some(cursor.as_str()), None),
@@ -300,31 +288,18 @@ FROM thread_items"#,
                 has_more = true;
                 break 'segments;
             }
-            match load_admitted_item(
+            if let Some(row) = load_admitted_item(
                 &mut transaction,
                 segment.rollout_id(),
                 candidate,
                 &mut budget,
             )
-            .await
+            .await?
             {
-                Ok(Some(row)) => rows.push(row),
-                Ok(None) => {
-                    if params.item_ids.is_some() {
-                        return Err(budget.page_too_large());
-                    }
-                    has_more = true;
-                    break 'segments;
-                }
-                Err(error)
-                    if !rows.is_empty()
-                        && params.item_ids.is_none()
-                        && matches!(error, ThreadStoreError::HistoryPayloadTooLarge { .. }) =>
-                {
-                    has_more = true;
-                    break 'segments;
-                }
-                Err(error) => return Err(error),
+                rows.push(row);
+            } else {
+                has_more = true;
+                break 'segments;
             }
         }
     }
@@ -391,7 +366,7 @@ WHERE thread_id =
         .await
         .map_err(thread_history_error)?;
     let mut rows = Vec::new();
-    let mut budget = ItemPageByteBudget::new(params.thread_id)?;
+    let mut budget = HistoryPageByteTarget::default();
     let mut has_more = false;
     for candidate in candidates {
         if rows.len() == params.page_size {
@@ -400,23 +375,14 @@ WHERE thread_id =
         }
         // Keep the update-order position rather than the item's creation ordinal.
         let position = candidate.try_get::<i64, _>("rollout_ordinal")?;
-        match load_admitted_item(transaction, rollout_id, candidate, &mut budget).await {
-            Ok(Some(mut row)) => {
-                row.position.rollout_ordinal = position;
-                rows.push(row);
-            }
-            Ok(None) => {
-                has_more = true;
-                break;
-            }
-            Err(error)
-                if !rows.is_empty()
-                    && matches!(error, ThreadStoreError::HistoryPayloadTooLarge { .. }) =>
-            {
-                has_more = true;
-                break;
-            }
-            Err(error) => return Err(error),
+        if let Some(mut row) =
+            load_admitted_item(transaction, rollout_id, candidate, &mut budget).await?
+        {
+            row.position.rollout_ordinal = position;
+            rows.push(row);
+        } else {
+            has_more = true;
+            break;
         }
     }
     finish_page_with_more(
@@ -557,150 +523,33 @@ pub(super) fn finish_page_with_more<T: HasPosition>(
     })
 }
 
-pub(super) struct ItemPageByteBudget {
-    serialized_bytes: usize,
+/// A page-size target, never an item-readability limit. An indivisible first
+/// item or summary turn may exceed it; explicit ID reads have no continuation.
+#[derive(Default)]
+pub(super) struct HistoryPageByteTarget {
+    bytes: usize,
     entries: usize,
-    next_required_bytes: usize,
+    unpaged: bool,
 }
 
-impl ItemPageByteBudget {
-    fn for_item_lookup() -> ThreadStoreResult<Self> {
-        // ID reads have no continuation fields, so the rejected byte count uses
-        // their actual response envelope rather than the paging cursor reserve.
-        let envelope = codex_app_server_protocol::ThreadItemsReadResponse { data: Vec::new() };
-        let serialized_bytes = serde_json::to_vec(&envelope)
-            .map_err(thread_history_error)?
-            .len();
-        Ok(Self {
-            serialized_bytes,
-            entries: 0,
-            next_required_bytes: serialized_bytes,
-        })
-    }
-
-    pub(super) fn new(thread_id: ThreadId) -> ThreadStoreResult<Self> {
-        // Account for the serialized response envelope, including the longest
-        // possible existing opaque cursors. This also covers an underfilled last page.
-        let cursor = serialize_cursor(
-            thread_id,
-            CursorScope::ItemsByCreatedAtOrdinal,
-            i64::MAX,
-            false,
-        )?;
-        let backwards = serialize_cursor(
-            thread_id,
-            CursorScope::ItemsByCreatedAtOrdinal,
-            i64::MAX,
-            true,
-        )?;
-        let envelope = codex_app_server_protocol::ThreadItemsListResponse {
-            data: Vec::new(),
-            next_cursor: Some(cursor),
-            backwards_cursor: Some(backwards),
-        };
-        let serialized_bytes = serde_json::to_vec(&envelope)
-            .map_err(thread_history_error)?
-            .len();
-        Ok(Self {
-            serialized_bytes,
-            entries: 0,
-            next_required_bytes: serialized_bytes,
-        })
-    }
-
-    pub(super) fn admit(&mut self, item: &crate::StoredThreadItem) -> ThreadStoreResult<bool> {
-        let entry = codex_app_server_protocol::ThreadItemEntry {
-            turn_id: item.turn_id.clone(),
-            item: serde_json::from_slice(&item.item_json).map_err(thread_history_error)?,
-            started_at_ms: item.started_at_ms,
-            completed_at_ms: item.completed_at_ms,
-        };
-        let bytes = serde_json::to_vec(&entry)
-            .map_err(thread_history_error)?
-            .len();
-        check_item_bytes(bytes)?;
-        Ok(self.admit_serialized_bytes(bytes))
-    }
-
-    pub(super) fn preflight_raw_bytes(&mut self, bytes: usize) -> bool {
-        self.next_required_bytes = self
-            .serialized_bytes
-            .saturating_add(bytes)
-            .saturating_add(usize::from(self.entries > 0));
-        self.next_required_bytes <= HISTORY_PAGE_MAX_SERIALIZED_BYTES
-    }
-
-    fn admit_serialized_bytes(&mut self, bytes: usize) -> bool {
-        self.next_required_bytes = self
-            .serialized_bytes
-            .saturating_add(bytes)
-            .saturating_add(usize::from(self.entries > 0));
-        if self.next_required_bytes > HISTORY_PAGE_MAX_SERIALIZED_BYTES {
-            return false;
-        }
-        self.serialized_bytes = self.next_required_bytes;
-        self.entries += 1;
-        true
-    }
-
-    pub(super) fn admit_turn(
-        &mut self,
-        turn: &StoredTurnRow,
-        view: StoredTurnItemsView,
-    ) -> ThreadStoreResult<bool> {
-        let wire = Turn {
-            id: turn.turn_id.clone(),
-            root_turn_id: turn.root_turn_id.clone(),
-            items: turn
-                .summary_items
-                .iter()
-                .map(|item| serde_json::from_slice(&item.item_json).map_err(thread_history_error))
-                .collect::<ThreadStoreResult<Vec<_>>>()?,
-            items_view: match view {
-                StoredTurnItemsView::Summary => TurnItemsView::Summary,
-                StoredTurnItemsView::NotLoaded => TurnItemsView::NotLoaded,
-            },
-            status: match turn.status {
-                crate::StoredTurnStatus::Completed => TurnStatus::Completed,
-                crate::StoredTurnStatus::Interrupted => TurnStatus::Interrupted,
-                crate::StoredTurnStatus::Failed => TurnStatus::Failed,
-                crate::StoredTurnStatus::InProgress => TurnStatus::InProgress,
-            },
-            error: turn.error.as_ref().map(|error| TurnError {
-                misalignment: None,
-                message: error.message.clone(),
-                codex_error_info: error.codex_error_info.clone(),
-                additional_details: error.additional_details.clone(),
-            }),
-            started_at: turn.started_at,
-            completed_at: turn.completed_at,
-            duration_ms: turn.duration_ms,
-        };
-        let bytes = serde_json::to_vec(&wire)
-            .map_err(thread_history_error)?
-            .len();
-        // Status normalization may replace `inProgress` with `interrupted` (+1 byte).
-        Ok(self.admit_serialized_bytes(bytes.saturating_add(1)))
-    }
-
-    pub(super) fn page_too_large(&self) -> ThreadStoreError {
-        ThreadStoreError::HistoryPayloadTooLarge {
-            max_bytes: HISTORY_PAGE_MAX_SERIALIZED_BYTES,
-            actual_bytes: self.next_required_bytes,
-            item: false,
+impl HistoryPageByteTarget {
+    pub(super) fn for_item_lookup() -> Self {
+        Self {
+            unpaged: true,
+            ..Self::default()
         }
     }
-}
 
-pub(super) fn check_item_bytes(actual_bytes: usize) -> ThreadStoreResult<()> {
-    if actual_bytes > HISTORY_ITEM_MAX_SERIALIZED_BYTES {
-        return Err(ThreadStoreError::HistoryPayloadTooLarge {
-            max_bytes: HISTORY_ITEM_MAX_SERIALIZED_BYTES,
-            actual_bytes,
-            item: true,
-        });
+    pub(super) fn can_add(&self, bytes: usize) -> bool {
+        self.unpaged
+            || self.entries == 0
+            || self.bytes.saturating_add(bytes) <= HISTORY_PAGE_TARGET_BYTES
     }
-    Ok(())
+
+    pub(super) fn push(&mut self, bytes: usize) {
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.entries = self.entries.saturating_add(1);
+    }
 }
 
 async fn ensure_projection_available(
@@ -726,12 +575,11 @@ pub(super) async fn load_admitted_item(
     transaction: &mut sqlx::Transaction<'_, Sqlite>,
     rollout_id: ThreadId,
     candidate: sqlx::sqlite::SqliteRow,
-    budget: &mut ItemPageByteBudget,
+    budget: &mut HistoryPageByteTarget,
 ) -> ThreadStoreResult<Option<StoredThreadItemRow>> {
     let bytes = usize::try_from(candidate.try_get::<i64, _>("item_json_bytes")?)
         .map_err(thread_history_error)?;
-    check_item_bytes(bytes)?;
-    if !budget.preflight_raw_bytes(bytes) {
+    if !budget.can_add(bytes) {
         return Ok(None);
     }
     // No payload is fetched until its exact UTF-8 byte length has passed admission.
@@ -742,9 +590,7 @@ pub(super) async fn load_admitted_item(
         .bind(candidate.try_get::<String, _>("item_id")?)
         .fetch_one(&mut **transaction).await.map_err(thread_history_error)?;
     let row = stored_thread_item_row(row)?;
-    if !budget.admit(&row.item)? {
-        return Ok(None);
-    }
+    budget.push(bytes);
     Ok(Some(row))
 }
 

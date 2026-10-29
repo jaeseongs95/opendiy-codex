@@ -4,78 +4,9 @@ use codex_thread_store::ThreadStoreError;
 use pretty_assertions::assert_eq;
 
 #[test]
-fn history_response_byte_limit_counts_giant_utf8_metadata() {
-    let limit = codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES;
-    let mut response = codex_app_server_protocol::ThreadTurnsListResponse {
-        data: Vec::new(),
-        next_cursor: Some(String::new()),
-        backwards_cursor: None,
-    };
-    // Only this small empty envelope is buffered by the test oracle.
-    let overhead = serde_json::to_vec(&response).unwrap().len();
-    let content_bytes = limit - overhead;
-    let cursor = response.next_cursor.as_mut().unwrap();
-    *cursor = "한".repeat(content_bytes / 3);
-    cursor.push_str(&"x".repeat(content_bytes % 3));
-    super::check_history_response_bytes(&response).expect("exact serialized-byte boundary");
-    response.next_cursor.as_mut().unwrap().push('x');
-    let error = super::check_history_response_bytes(&response).unwrap_err();
-    assert_eq!(error.code, -32600);
-    assert_eq!(
-        error.data,
-        Some(serde_json::json!({
-            "kind": "historyPageTooLarge", "maxBytes": limit, "actualBytes": limit + 1,
-        }))
-    );
-}
-
-#[test]
-fn history_response_byte_limit_counts_json_escape_expansion() {
-    let limit = codex_thread_store::HISTORY_PAGE_MAX_SERIALIZED_BYTES;
-    let mut response = codex_app_server_protocol::ThreadItemsListResponse {
-        data: Vec::new(),
-        next_cursor: Some(String::new()),
-        backwards_cursor: None,
-    };
-    let overhead = serde_json::to_vec(&response).unwrap().len();
-    let content_bytes = limit - overhead;
-    let cursor = response.next_cursor.as_mut().unwrap();
-    // Each one-byte NUL is six bytes (\u0000) in the serialized response.
-    *cursor = "\0".repeat(content_bytes / 6);
-    cursor.push_str(&"x".repeat(content_bytes % 6));
-    assert!(cursor.len() < limit / 4);
-    super::check_history_response_bytes(&response).expect("escaped bytes exactly fit");
-    response.next_cursor.as_mut().unwrap().push('\0');
-    let error = super::check_history_response_bytes(&response).unwrap_err();
-    assert_eq!(error.code, -32600);
-    assert_eq!(
-        error.data,
-        Some(serde_json::json!({
-            "kind": "historyPageTooLarge", "maxBytes": limit, "actualBytes": limit + 6,
-        }))
-    );
-}
-
-#[test]
-fn history_response_serialization_failure_is_not_a_size_error() {
-    struct FailsSerialization;
-    impl serde::Serialize for FailsSerialization {
-        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            Err(serde::ser::Error::custom("private fixture content"))
-        }
-    }
-    let error = super::check_history_response_bytes(&FailsSerialization).unwrap_err();
-    assert_eq!(error.code, -32603);
-    assert_eq!(error.message, "failed to serialize history response");
-    assert_eq!(error.data, None);
-}
-
-#[test]
 fn storage_failure_classification_does_not_change_mutation_error_policy() {
     for error in [
+        ThreadStoreError::HistoryProjectionUnavailable,
         ThreadStoreError::Internal {
             message: "retryable conflict; outcome unknown".to_owned(),
         },

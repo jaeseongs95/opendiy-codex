@@ -7,7 +7,7 @@ use sqlx::Row;
 
 use super::super::LocalThreadStore;
 use super::super::rollout_lineage::RolloutLineage;
-use super::segment_paging::ItemPageByteBudget;
+use super::segment_paging::HistoryPageByteTarget;
 use super::segment_paging::finish_page_with_more;
 use super::segment_paging::load_admitted_item;
 use super::segment_paging::page_item_rows;
@@ -60,6 +60,7 @@ pub(super) struct StoredTurnRow {
     pub root_turn_id: Option<String>,
     pub status: StoredTurnStatus,
     pub error: Option<StoredTurnError>,
+    pub error_json_bytes: usize,
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub duration_ms: Option<i64>,
@@ -99,30 +100,28 @@ pub(in crate::local) async fn list_turns(
         params.items_view,
     )
     .await?;
-    let mut budget = ItemPageByteBudget::new(params.thread_id)?;
+    let mut budget = HistoryPageByteTarget::default();
     let mut rows = Vec::with_capacity(page.rows.len());
     let mut has_more = page.next_cursor.is_some();
     for mut turn in page.rows {
         if matches!(params.items_view, StoredTurnItemsView::Summary) {
-            match load_summary_items(pool, &lineage, &turn, &mut budget).await {
-                Ok(items) => turn.summary_items = items,
-                Err(error)
-                    if !rows.is_empty()
-                        && matches!(error, ThreadStoreError::HistoryPayloadTooLarge { .. }) =>
-                {
-                    has_more = true;
-                    break;
-                }
-                Err(error) => return Err(error),
-            }
+            let Some(items) = load_summary_items(pool, &lineage, &turn, &budget).await? else {
+                has_more = true;
+                break;
+            };
+            turn.summary_items = items;
         }
-        if !budget.admit_turn(&turn, params.items_view)? {
-            if rows.is_empty() {
-                return Err(budget.page_too_large());
-            }
+        let bytes = turn
+            .summary_items
+            .iter()
+            .fold(turn.error_json_bytes, |sum, item| {
+                sum.saturating_add(item.item_json.len())
+            });
+        if !budget.can_add(bytes) {
             has_more = true;
             break;
         }
+        budget.push(bytes);
         rows.push(turn);
     }
     let page = finish_page_with_more(
@@ -229,8 +228,8 @@ async fn load_summary_items(
     pool: &sqlx::SqlitePool,
     lineage: &RolloutLineage,
     turn: &StoredTurnRow,
-    page_budget: &mut ItemPageByteBudget,
-) -> ThreadStoreResult<Vec<StoredThreadItem>> {
+    page_budget: &HistoryPageByteTarget,
+) -> ThreadStoreResult<Option<Vec<StoredThreadItem>>> {
     // A synthetic fork boundary inherits the earliest visible source's summary.
     let (rollout_id, first_user, final_agent) =
         if matches!(turn.status, StoredTurnStatus::Interrupted)
@@ -255,7 +254,7 @@ async fn load_summary_items(
         .iter()
         .find(|segment| segment.rollout_id() == rollout_id)
     else {
-        return Ok(Vec::new());
+        return Ok(Some(Vec::new()));
     };
     let start = sqlite_integer(segment.start_ordinal(), "rollout ordinal")?;
     let end = segment
@@ -266,27 +265,30 @@ async fn load_summary_items(
     let candidates = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ? AND turn_id = ? AND rollout_ordinal >= ? AND (? IS NULL OR rollout_ordinal < ?) AND (item_id = ? OR item_id = ?) ORDER BY rollout_ordinal ASC")
         .bind(rollout_id.to_string()).bind(&turn.turn_id).bind(start).bind(end).bind(end)
         .bind(first_user).bind(final_agent).fetch_all(&mut *transaction).await.map_err(super::thread_history_error)?;
-    let mut raw_bytes = 0usize;
+    let mut raw_bytes = turn.error_json_bytes;
     for candidate in &candidates {
         let bytes = usize::try_from(candidate.try_get::<i64, _>("item_json_bytes")?)
             .map_err(super::thread_history_error)?;
-        super::segment_paging::check_item_bytes(bytes)?;
         raw_bytes = raw_bytes.saturating_add(bytes);
     }
-    if !page_budget.preflight_raw_bytes(raw_bytes) {
-        return Err(page_budget.page_too_large());
+    if !page_budget.can_add(raw_bytes) {
+        return Ok(None);
     }
-    let mut budget = ItemPageByteBudget::new(rollout_id)?;
+    // A summary turn is indivisible. Its selected first/final items have passed
+    // the page target together, and a large first turn must remain readable.
+    let mut budget = HistoryPageByteTarget::for_item_lookup();
     let mut items = Vec::new();
     for candidate in candidates {
         let Some(row) =
             load_admitted_item(&mut transaction, rollout_id, candidate, &mut budget).await?
         else {
-            return Err(budget.page_too_large());
+            return Err(ThreadStoreError::Internal {
+                message: "unpaged summary unexpectedly split".to_string(),
+            });
         };
         items.push(row.item);
     }
-    Ok(items)
+    Ok(Some(items))
 }
 
 pub(super) fn parse_cursor(
@@ -338,6 +340,7 @@ pub(super) fn stored_turn_row(
             });
         }
     };
+    let error_json_bytes = error_json.as_ref().map_or(0, String::len);
     let error = error_json
         .as_deref()
         .map(serde_json::from_str)
@@ -352,6 +355,7 @@ pub(super) fn stored_turn_row(
         root_turn_id: row.try_get("root_turn_id")?,
         status,
         error,
+        error_json_bytes,
         started_at: row.try_get("started_at")?,
         completed_at: row.try_get("completed_at")?,
         duration_ms: row.try_get("duration_ms")?,

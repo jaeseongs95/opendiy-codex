@@ -283,14 +283,8 @@ impl ChatWidget {
     }
 
     pub(super) fn on_plan_item_completed(&mut self, text: String) {
-        if text.len() > crate::history_window::MAX_HISTORY_BYTES
-            || self.transcript.live_display_oversized[1]
-        {
-            self.reject_oversized_live_display(1);
-            self.reset_live_display_budget(1);
-            self.handle_stream_finished();
-            return;
-        }
+        let oversized = text.len() > crate::history_window::MAX_HISTORY_BYTES
+            || self.transcript.live_display_oversized[1];
         let (plan_text, source) = if text.trim().is_empty() {
             (
                 self.transcript.plan_delta_buffer.trim().to_string(),
@@ -303,6 +297,12 @@ impl ChatWidget {
             self.transcript
                 .record_agent_markdown(plan_text.clone(), source);
             self.transcript.latest_proposed_plan_markdown = Some(plan_text.clone());
+        }
+        if oversized {
+            self.reject_oversized_live_display(1);
+            self.reset_live_display_budget(1);
+            self.handle_stream_finished();
+            return;
         }
         // Plan commit ticks can hide the status row; remember whether we streamed plan output so
         // completion can restore it once stream queues are idle.
@@ -478,15 +478,6 @@ impl ChatWidget {
                 AgentMessageContent::Text { text } => text.len(),
             })
             .fold(0usize, usize::saturating_add);
-        if completed_bytes > crate::history_window::MAX_HISTORY_BYTES
-            || self.transcript.live_display_oversized[0]
-        {
-            self.reject_oversized_live_display(0);
-            self.reset_live_display_budget(0);
-            self.handle_stream_finished();
-            self.request_redraw();
-            return;
-        }
         let mut message = String::new();
         for content in &item.content {
             match content {
@@ -494,7 +485,13 @@ impl ChatWidget {
             }
         }
         let parsed = parse_assistant_markdown(&message, self.config.cwd.as_path());
-        if from_replay
+        if completed_bytes > crate::history_window::MAX_HISTORY_BYTES
+            || self.transcript.live_display_oversized[0]
+        {
+            self.reject_oversized_live_display(0);
+            self.handle_stream_finished();
+            self.request_redraw();
+        } else if from_replay
             && self.stream_controller.is_none()
             && !parsed.visible_markdown.is_empty()
             && !self.completed_agent_message_was_flushed(&message)
@@ -801,7 +798,6 @@ impl ChatWidget {
         self.transcript.live_display_bytes[kind] = 0;
         match kind {
             0 => {
-                self.transcript.reset_copy_history();
                 self.stream_controller = None;
                 self.clear_active_stream_tail();
                 self.transcript.last_flushed_agent_message = None;

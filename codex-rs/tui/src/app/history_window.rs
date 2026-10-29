@@ -135,7 +135,6 @@ impl App {
                 .nth_user_message
                 .saturating_sub(removed_prompts);
         }
-        self.native_history.retain(&self.transcript_cells);
         self.transcript_view.retain_window(&self.transcript_cells);
         if let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut() {
             overlay.retain_window(&self.transcript_cells);

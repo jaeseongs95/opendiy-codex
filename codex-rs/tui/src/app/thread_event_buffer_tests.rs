@@ -235,3 +235,20 @@ fn thread_event_store_coalesces_only_adjacent_matching_agent_message_deltas() {
     );
     assert!(store.has_pending_thread_approvals());
 }
+
+#[test]
+fn resolved_requests_do_not_keep_the_pending_request_retention_exception() {
+    let mut store = ThreadEventStore::new(4);
+    let thread_id = ThreadId::new();
+    for index in 0..20 {
+        let id = format!("approval-{index}");
+        store.push_request(exec_approval_request(thread_id, "turn", &id, None));
+        store.note_outbound_op(&crate::app_command::AppCommand::ExecApproval {
+            id,
+            turn_id: Some("turn".to_string()),
+            decision: codex_app_server_protocol::CommandExecutionApprovalDecision::Accept,
+        });
+    }
+    assert!(!store.has_pending_thread_approvals());
+    assert!(store.buffer.len() <= 5);
+}

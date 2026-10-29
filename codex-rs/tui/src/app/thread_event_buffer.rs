@@ -90,7 +90,10 @@ impl ThreadEventStore {
         while self
             .buffer
             .iter()
-            .filter(|event| !matches!(event, ThreadBufferedEvent::Request(_)))
+            .filter(|event| {
+                !matches!(event, ThreadBufferedEvent::Request(request)
+                if self.pending_interactive_replay.should_replay_snapshot_request(request))
+            })
             .count()
             > self.capacity.min(crate::history_window::MAX_HISTORY_ITEMS)
             || self.buffered_display_bytes > crate::history_window::MAX_HISTORY_BYTES

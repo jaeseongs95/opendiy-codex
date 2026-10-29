@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 use super::thread_processor::THREAD_LIST_DEFAULT_LIMIT;
 use super::thread_processor::THREAD_LIST_MAX_LIMIT;
 use super::thread_processor::ThreadRequestProcessor;
@@ -226,7 +227,8 @@ fn thread_section_store_error(
         | ThreadStoreError::Conflict { .. }
         | ThreadStoreError::Retryable { .. }
         | ThreadStoreError::OutcomeUnknown { .. }
-        | ThreadStoreError::Internal { .. }) => {
+        | ThreadStoreError::Internal { .. }
+        | ThreadStoreError::HistoryProjectionUnavailable) => {
             let action = operation
                 .strip_prefix("threadSection/")
                 .unwrap_or(operation);

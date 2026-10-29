@@ -109,7 +109,9 @@ impl App {
                     let failure = if error.contains("historyItemTooLarge")
                         || error.contains("historyPageTooLarge")
                     {
-                        app_server.fail_history_page(thread_id, &mut turns).await
+                        app_server
+                            .fail_history_page(thread_id, None, &mut turns)
+                            .await
                     } else {
                         app_server.cancel_older_history_page(thread_id, cursor);
                         Ok(())
@@ -132,6 +134,29 @@ impl App {
             app_server.cancel_older_history_page(thread_id, cursor);
             return Ok(());
         };
+        let page_fits = page
+            .data
+            .iter()
+            .try_fold(0usize, |sum, entry| {
+                crate::history_window::payload_bytes(&entry.item)
+                    .map(|size| sum.saturating_add(size))
+            })
+            .is_ok_and(|bytes| bytes <= crate::history_window::MAX_HISTORY_BYTES);
+        if !page_fits {
+            let mut turns = std::mem::take(&mut store.lock().await.turns);
+            let rejected = page.data.first().map(|entry| entry.turn_id.as_str());
+            let failure = app_server
+                .fail_history_page(thread_id, rejected, &mut turns)
+                .await;
+            merge_older_turns(&mut store.lock().await.turns, turns);
+            failure?;
+            self.scrollback_has_older_history = app_server.has_older_history(thread_id);
+            self.chat_widget
+                .add_error_message(crate::history_window::OVERSIZED_HISTORY.to_string());
+            self.transcript_view.history = TranscriptHistoryState::Failed;
+            tui.frame_requester().schedule_frame();
+            return Ok(());
+        }
         let (cwd, mut turns) = {
             let mut store = store.lock().await;
             (
@@ -155,7 +180,6 @@ impl App {
         if direction == HistoryDirection::Latest {
             self.transcript_cells
                 .retain(|cell| is_session_history_prefix_cell(cell.as_ref()));
-            self.native_history.retain(&self.transcript_cells);
             self.transcript_view.retain_window(&self.transcript_cells);
             if let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut() {
                 overlay.retain_window(&self.transcript_cells);
