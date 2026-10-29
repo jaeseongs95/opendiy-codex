@@ -452,7 +452,7 @@ mod read_status_tests {
                 id: initialize.id,
                 result: serde_json::json!({
                     "userAgent": "codex_app_server/1.2.3",
-                    "codexHome": "/test-home",
+                    "codexHome": std::env::current_dir()?.join("test-home"),
                     "platformFamily": "test",
                     "platformOs": "test",
                 }),
@@ -517,8 +517,8 @@ mod read_status_tests {
         };
         let start = Instant::now();
         let (response, served) = tokio::join!(pairing_client(client_stream), server);
-        served?;
         assert_eq!(response?, expected);
+        served?;
         assert_eq!(start.elapsed(), Duration::from_secs(3));
         Ok(())
     }
@@ -600,8 +600,8 @@ mod read_status_tests {
                 read_status_on_connection(&mut websocket).await
             };
             let (response, served) = tokio::join!(client, server);
-            served?;
             assert_eq!(response?, expected);
+            served?;
         }
         Ok(())
     }

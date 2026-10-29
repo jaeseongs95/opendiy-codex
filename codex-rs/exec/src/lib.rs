@@ -685,9 +685,12 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
 
     let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
 
-    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
-    let batch_layer = batch_layer.map(|layer| layer.with_filter(
-        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
+    let (batch_layer, batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
+    let batch_layer = batch_layer.map(|layer| {
+        layer.with_filter(tracing_subscriber::filter::filter_fn(
+            codex_diagnostics::batch_log::metadata_enabled,
+        ))
+    });
     let _ = tracing_subscriber::registry()
         .with(fmt_layer)
         .with(otel_tracing_layer)
@@ -754,7 +757,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         opt_out_notification_methods: Vec::new(),
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
     };
-    run_exec_session(ExecRunArgs {
+    let exit_code = run_exec_session(ExecRunArgs {
         in_process_start_args,
         state_db,
         command,
@@ -777,7 +780,14 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         cyber_access_program: cyber_access_program.map(Into::into),
     })
     .instrument(exec_span)
-    .await
+    .await?;
+    // process::exit skips destructors. Finish the bounded local log drain first;
+    // streaming-drive export remains asynchronous and is never awaited here.
+    drop(batch_guard);
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+    Ok(())
 }
 
 async fn build_exec_config<BuildConfig, BuildFuture>(
@@ -855,7 +865,7 @@ async fn load_bootstrap_config_or_exit(
     }
 }
 
-async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
+async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<i32> {
     let ExecRunArgs {
         in_process_start_args,
         state_db,
@@ -1019,7 +1029,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         && get_git_repo_root(&default_cwd).is_none()
     {
         eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
-        std::process::exit(1);
+        return Ok(1);
     }
 
     let mut request_ids = RequestIdSequencer::new();
@@ -1209,7 +1219,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| anyhow::anyhow!("in-process app-server shutdown failed: {err}"))?;
             event_processor.print_final_output();
-            return Ok(());
+            return Ok(0);
         }
         InitialOperation::UserTurn {
             items,
@@ -1406,10 +1416,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     }
     event_processor.print_final_output();
     if error_seen {
-        std::process::exit(1);
+        return Ok(1);
     }
 
-    Ok(())
+    Ok(0)
 }
 
 async fn start_thread(
