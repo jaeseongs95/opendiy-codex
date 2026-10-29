@@ -848,10 +848,10 @@ impl AppServerSession {
         Ok(items)
     }
 
-    /// Hydrates paginated threads through bounded turn and item pages.
+    /// 페이지 형식 이력은 크기를 제한한 차례·항목 페이지로 불러온다.
     ///
-    /// Legacy servers expose neither paging method, so only legacy threads may
-    /// use `thread/read(includeTurns: true)` to preserve their existing history.
+    /// 이전 형식 이력은 서버의 페이징 지원 여부와 관계없이 기존 내용을 보존하기 위해
+    /// `thread/read(includeTurns: true)`로 불러온다.
     pub(crate) async fn hydrate_initial_thread_history(
         &mut self,
         thread: &mut Thread,
@@ -863,9 +863,7 @@ impl AppServerSession {
     ) -> Result<()> {
         let thread_id = ThreadId::from_string(&thread.id)
             .wrap_err("invalid thread id in bounded history response")?;
-        if thread.history_mode == ThreadHistoryMode::Legacy
-            && (!self.supports_paginated_history() || !self.uses_embedded_app_server())
-        {
+        if thread.history_mode == ThreadHistoryMode::Legacy {
             if thread.turns.is_empty() {
                 thread.turns = Box::pin(self.thread_read(thread_id, /*include_turns*/ true))
                     .await?

@@ -413,3 +413,15 @@ Source update `5270c5df5701b71bc7ec9514a17838c8afcd22dc` (integration in progres
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap`
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap`
 - `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap`
+
+소스 갱신 `d686f8d2d2eec5d4f625a90709efec209a0adee7` (통합 진행 중):
+
+- `codex-rs/app-server-daemon/src/remote_control_client.rs`
+- `codex-rs/exec/src/lib.rs`
+- `codex-rs/tui/src/app_server_session/history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history.rs`
+- `codex-rs/tui/src/app_server_session/rollout_history_tests.rs`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap`
+- `codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap`
+- `docs/native-cli-r27.ko.md`
