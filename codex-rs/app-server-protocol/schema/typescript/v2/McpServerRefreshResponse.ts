@@ -8,4 +8,4 @@ export type McpServerRefreshResponse = {
  * This does not acknowledge current registry membership, runtime readiness,
  * or cleanup of previous clients.
  */
-reconnectQueuedForThreadId?: string | null, };
+reconnectQueuedForThreadId?: string, };
