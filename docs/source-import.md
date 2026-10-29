@@ -1,16 +1,16 @@
 # Official 0.165.0 source snapshot
 
-The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `9766a8b7b8c4d56d7076367ddc12f2917a3df197`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `004c9113ff02c292998f1fa03355afe3dfe6d404`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
 
 이번 고정 소스에는 [자연어 예약 도구 연결과 사용 안내](native-cli-cron.ko.md)가 포함됩니다. 이 변경은 기존 R28 실행 파일에 설치되지 않았고 검증 중입니다. 실제 모델의 자연어 일정 해석과 도구 선택 평가는 실행하지 않았습니다. 아래 R28 빌드·시험 기록은 이전 소스의 결과이며 이 후속 후보의 통과 근거가 아닙니다.
 
-이번 후보에는 로드된 미저장 로컬 대화의 `excludeTurns` 재접속과 기본 `app-server proxy`의 Windows 비공개 경로·연결 상대 검사도 포함된다. 프록시 회귀 3개 함수의 3사례와 재개 회귀 4개 함수의 10사례를 포함해 표적 107개 시험이 통과했다. 별도의 전체 TUI 시험은 5,849개 통과·0개 실패·4개 무시였다. 고정 원본 소스의 표적 시험·전체 TUI 시험과 일반 개발 실행 파일의 제한된 격리 시험을 완료했다. 독립감사 07의 통과는 캐시 복구와 해당 개발 실행 파일의 격리 실행 범위에 한정되며, 전체 제품 완료·설치 가능 상태는 `BLOCKED`다. [변경 고지](../MODIFICATIONS.md)와 [실행한 시험 범위](TESTING.md#공유-로컬-서버-후속-회귀시험검증-범위)를 참고한다.
+새 고정 소스 `004c9113ff02c292998f1fa03355afe3dfe6d404`는 이전 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 이후 제품 6파일·시험 4파일의 후속 변경이다. 표적 컴파일·실행시험·전체 TUI 시험·일반 개발 실행 파일 검증은 진행 중이며, 이번 후보의 실행 통과나 독립감사 08 승인은 아직 확인하지 않았다. 이전 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다. [후속 시험 방법과 범위](TESTING.md#빈-미저장-대화-이력-복원-후속-후보)를 참고한다.
 
 이전 자연어 예약 후보 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 건너뜀으로 종료 코드 101이었다. 실패 중 2개는 MCP 요청의 필수 메타데이터 누락으로 `a3edca405d1eddf138f549764459394603576804`에서 보강했다. 나머지 2개는 새 `cron` 노출을 빠뜨린 도구 목록·`deferLoading` 기대값으로 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`에서 보강했다.
 
-직전 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609` 후보의 표적 실행은 100개 통과·7개 실패였고, 8개 실행 그룹 중 3개 통과·5개 실패였다. 이번 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 후보에서는 표적 107개 통과·0개 실패와 전체 TUI 5,849개 통과·0개 실패·4개 무시를 확인했다. 앞선 후보의 실패 기록도 보존하며 현재 결과와 구분한다.
+직전 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609` 후보의 표적 실행은 100개 통과·7개 실패였고, 8개 실행 그룹 중 3개 통과·5개 실패였다. 이전 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 후보에서는 표적 107개 통과·0개 실패와 전체 TUI 5,849개 통과·0개 실패·4개 무시를 확인했다. 이전 후보별 실패와 통과 기록은 새 후보의 진행 상황과 구분한다.
 
-이번 제품 변경과 시험 보강 범위는 [시험 안내](TESTING.md#공유-로컬-서버-후속-회귀시험검증-범위)에 정리했다.
+현재 후보의 제품 변경과 시험 보강 범위는 [시험 안내](TESTING.md#빈-미저장-대화-이력-복원-후속-후보)에 정리했다.
 
 The selected public Git paths are `codex-rs`, `third_party`, `patches`, `.cargo/config.toml` and `tools/windows-cli`, `docs/native-cli-r27.ko.md`, `docs/native-cli-cron.ko.md`, plus the root `.gitattributes`. Existing public attributes are preserved before a managed block containing the pinned source's generated-file and LF rules; `checks/.gitattributes` is excluded. The full Rust workspace and its local path dependencies are retained: exporting just CLI/app-server would omit shared build inputs. Compressed schema resources, Rust include files, source fixtures and vendored license files are build inputs, not installable binaries. Upstream automation within the selected source is not enabled. No local `checks`, logs, profiles, caches, target directories, credentials, receipts, private desktop assets or source-repository Git history are copied.
 

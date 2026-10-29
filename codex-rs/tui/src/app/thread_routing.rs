@@ -1659,10 +1659,10 @@ impl App {
 
         self.chat_widget
             .replay_thread_turns(turns, ReplayKind::ResumeInitialMessages);
-        if should_buffer_initial_replay {
-            self.app_event_tx
-                .send(AppEvent::EndInitialHistoryReplayBuffer);
-        }
+        // Empty replay still needs to publish its complete or unavailable history state.
+        // The event follows this attachment's replay events on the same app queue.
+        self.app_event_tx
+            .send(AppEvent::EndInitialHistoryReplayBuffer);
         self.restore_realtime_replay_state_after_replay(
             &replayed_final_items,
             retained_assistant_captions,

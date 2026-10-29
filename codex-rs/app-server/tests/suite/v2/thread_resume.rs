@@ -610,6 +610,92 @@ async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
         "rejoin must not materialize an empty rollout"
     );
 
+    let (method, params, expected_code, expected_message) = match history_mode {
+        ThreadHistoryMode::Legacy => (
+            "thread/read",
+            json!({ "threadId": started.thread.id, "includeTurns": true }),
+            -32600,
+            format!(
+                "thread {} is not materialized yet; includeTurns is unavailable before first user message",
+                started.thread.id
+            ),
+        ),
+        ThreadHistoryMode::Paginated => (
+            "thread/turns/list",
+            json!({ "threadId": started.thread.id, "limit": 20 }),
+            -32600,
+            format!(
+                "thread {} is not materialized yet; thread/turns/list is unavailable before first user message",
+                started.thread.id
+            ),
+        ),
+    };
+    websocket::send_request(&mut joining, method, 9, Some(params)).await?;
+    let error = websocket::read_error_for_id(&mut joining, 9).await?;
+    assert_eq!(error.error.code, expected_code);
+    assert_eq!(error.error.message, expected_message);
+    assert_eq!(
+        error.error.data,
+        Some(json!({
+            "kind": "historyProjectionUnavailable", "reason": "unmaterialized"
+        }))
+    );
+    assert!(
+        !path.exists(),
+        "unavailable history must not force persistence"
+    );
+    // Cursor and anchor failures must retain their original error contracts.
+    for (id, method, params) in [
+        (
+            10,
+            "thread/turns/list",
+            json!({ "threadId": started.thread.id, "cursor": "invalid-cursor" }),
+        ),
+        (
+            11,
+            "thread/items/list",
+            json!({ "threadId": started.thread.id, "cursor": { "type": "item", "itemId": "missing-item" } }),
+        ),
+        (
+            12,
+            "thread/items/list",
+            json!({ "threadId": started.thread.id, "turnId": "missing-turn" }),
+        ),
+        (
+            13,
+            "thread/read",
+            json!({ "threadId": Uuid::new_v4().to_string(), "includeTurns": true }),
+        ),
+    ] {
+        websocket::send_request(&mut joining, method, id, Some(params)).await?;
+        assert_eq!(
+            websocket::read_error_for_id(&mut joining, id)
+                .await?
+                .error
+                .data,
+            None
+        );
+    }
+    if history_mode == ThreadHistoryMode::Paginated {
+        websocket::send_request(
+            &mut joining,
+            "thread/items/list",
+            14,
+            Some(json!({ "threadId": started.thread.id })),
+        )
+        .await?;
+        let error = websocket::read_error_for_id(&mut joining, 14).await?;
+        assert_eq!(error.error.code, -32601);
+        assert_eq!(
+            error.error.message,
+            "thread/items/list is not supported yet"
+        );
+        assert_eq!(
+            error.error.data, None,
+            "unsupported item paging retains compatibility recovery"
+        );
+    }
+
     // A mismatched path must not switch this live thread to another source.
     websocket::send_request(
         &mut joining,
@@ -754,7 +840,23 @@ async fn thread_resume_metadata_preserves_deleted_rollout_contract(
             error.error.message,
             format!("no rollout found for thread id {}", started.thread.id)
         );
+        assert_eq!(error.error.data, None);
     }
+    let history_id = mcp
+        .send_thread_read_request(ThreadReadParams {
+            thread_id: started.thread.id.clone(),
+            include_turns: true,
+        })
+        .await?;
+    let error = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(history_id)),
+    )
+    .await??;
+    assert_eq!(
+        error.error.data, None,
+        "deleted stored history must not become deferred history"
+    );
     let read_id = mcp
         .send_thread_read_request(ThreadReadParams {
             thread_id: started.thread.id.clone(),

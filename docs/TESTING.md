@@ -106,9 +106,30 @@ cargo metadata --manifest-path codex-rs/Cargo.toml --no-deps --offline --locked 
 
 Historical r22 Windows testing passed a locked/offline CLI and App Server all-targets check and 18 targeted Cargo tests. A separate socket fixture checked IO, inheritance, cleanup and named pipes; its Mio artifact matched the App Server test artifact, not the entire Tokio/RMCP graph. Source-import checks separately verified provenance, local build inputs and Cargo metadata. Verifier self-tests had five passes and one real-symlink skip. Desktop typing/navigation traces and external memory/TCP/process observations at one-minute intervals were separate diagnostics. A fresh public-clone release build, full desktop reproduction and complete resolution of performance or connection issues are not claimed. Private UI assets and raw operational evidence are excluded.
 
+## 빈 미저장 대화 이력 복원 후속 후보
+
+새 고정 소스 `004c9113ff02c292998f1fa03355afe3dfe6d404`는 이전 `9766a8b7b8c4d56d7076367ddc12f2917a3df197` 이후 제품 6파일·시험 4파일의 후속 변경이다. 표적 컴파일·실행시험·전체 TUI 시험·일반 개발 실행 파일 검증은 진행 중이며, 이번 후보의 실행 통과나 독립감사 08 승인은 아직 확인하지 않았다. 이전 후보의 표적 107개·전체 TUI 5,849개 통과와 고정 개발 실행 파일·감사 07 결과는 이번 후보의 통과 근거가 아니다.
+
+서버는 같은 로컬 작성자가 실제로 로드돼 있고 영속 파일 생성을 미룬 상태인 초기 이력 조회의 `-32600` 오류에만 `kind=historyProjectionUnavailable`, `reason=unmaterialized` 표식을 더한다. 기존 코드·메시지는 유지하며 삭제된 저장 이력, 커서·고정점 요청과 다른 오류에 이 예외를 넓히지 않도록 작성했다.
+
+TUI는 성공한 재개와 원래 세션·연결을 유지하면서 이력 미조회 상태를 보존하고 입력·실시간 이벤트를 계속 처리하도록 변경했다. 오류를 한 번 표시하거나 새 이벤트를 받았다는 이유로 이력을 조회 완료로 바꾸지 않는다. 빈 재생에도 종료 이벤트를 보내 현재 표시 대화의 이력 상태를 반영하고, 이전 커서가 없는 `Home` 동작이 로딩 상태에 고정되지 않도록 했다. 명시적인 이력 조회 성공 뒤에만 해당 미조회 상태를 해제하도록 작성했다.
+
+작성한 회귀는 두 이력 형식의 실제 재개·첫 입력·원래 세션 식별자·실시간 이벤트와 이력 미조회 상태, 다른 대화로 전환한 뒤 지연된 빈 재생 종료 이벤트, 커서 없는 `Home`, 명시적 재조회 성공을 검사한다. 정확한 오류 코드·구조화 표식 없이 문구만 같은 오류와 전송 오류는 예외로 인정하지 않는 검사도 포함한다. 아래는 새 후보의 시험 방법이며 통과 기록이 아니다.
+
+```sh
+cd codex-rs
+cargo test --locked -p codex-tui --lib unmaterialized_history_recovery_requires_exact_structured_contract
+cargo test --locked -p codex-tui --lib live_unmaterialized_resume_keeps_session_input_and_incomplete_history
+cargo test --locked -p codex-tui --lib generic_projection_unavailable_survives_resume_and_error_display
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_rejoins_unmaterialized_thread_from_another_connection
+cargo test --locked -p codex-app-server --test all suite::v2::thread_resume::thread_resume_metadata_preserves_deleted_rollout_contract
+```
+
+아래 결과는 이전 `9766` 후보에 한정한다. 새 후보의 완료 여부와 실제 화면·자연어 도구 선택·모바일·장기 부하·최적화 빌드·설치에 대한 판단은 별도로 남아 있다.
+
 ## 공유 로컬 서버 후속 회귀시험—검증 범위
 
-고정 원본 소스 `9766a8b7b8c4d56d7076367ddc12f2917a3df197`에서 다음 시험과 빌드를 완료했다. 공개 사본에는 수정 고지가 추가되므로, 이 결과가 새 공개 사본 자체의 빌드·실행을 뜻하지는 않는다. 원시 로그·실행 파일·운영 경로·인증 자료는 게시하지 않는다.
+이전 고정 원본 소스 `9766a8b7b8c4d56d7076367ddc12f2917a3df197`에서 다음 시험과 빌드를 완료했다. 공개 사본에는 수정 고지가 추가되므로, 이 결과가 새 공개 사본 자체의 빌드·실행을 뜻하지는 않는다. 원시 로그·실행 파일·운영 경로·인증 자료는 게시하지 않는다.
 
 | 확인 범위 | 실제 결과 |
 | --- | --- |
@@ -127,7 +148,7 @@ Historical r22 Windows testing passed a locked/offline CLI and App Server all-ta
 
 독립감사 07은 소스 변경 없는 캐시 복구, 고정 개발 실행 파일의 소스·빌드 결속과 제한된 격리 실행, 기존 시험 근거 보존 범위에서 `PASS`였다. 전체 제품 완료·설치 가능 상태와 미래 작업의 캐시 혼입 차단 보장은 `BLOCKED`다. 실제 TUI의 빈 미저장 대화 이력 복원, 모델의 자연어 예약 도구 선택, 실제 모바일의 동일 서버 사용, 장시간 동시 부하, 최적화한 `release`, 설치·배포와 바탕화면·스케줄러 대상 정합성은 미검증이다.
 
-이전 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 무시, 종료 코드 101이었다. MCP 필수 메타데이터 누락 2건과 새 예약 도구의 목록·`deferLoading` 기대값 누락 2건을 보강했다. 이어진 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`의 표적 실행도 100개 통과·7개 실패였고 8개 그룹 중 3개만 통과했다. 현재 결과는 그 후 미저장 대화의 커서 저장소 조건, 실제 대화의 기록 준비, 직렬화 기본값, 도구 목록 스냅샷과 임시 접근 제어 목록 시험을 수정한 고정 소스에 대한 것이다. 이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 감사 05 실패를 취소하거나 전체 소스 감사 통과로 바꾸는 판정은 아니다.
+이전 `921d404013da2035f90e9ab055acadc957a88592`의 전체 TUI 시험은 5,845개 통과·4개 실패·4개 무시, 종료 코드 101이었다. MCP 필수 메타데이터 누락 2건과 새 예약 도구의 목록·`deferLoading` 기대값 누락 2건을 보강했다. 이어진 `b4a80da10d5c7ec6e6b5f2de3dda1789b6e79609`의 표적 실행도 100개 통과·7개 실패였고 8개 그룹 중 3개만 통과했다. `9766`의 결과는 그 후 미저장 대화의 커서 저장소 조건, 실제 대화의 기록 준비, 직렬화 기본값, 도구 목록 스냅샷과 임시 접근 제어 목록 시험을 수정한 고정 소스에 대한 것이다. 이전 후보 `eab9e295e54453bc30e00ae93c85d39ba738f596`의 감사 05 실패를 취소하거나 전체 소스 감사 통과로 바꾸는 판정은 아니다.
 
 아래 필터는 공개 소스에서 대응 시험을 실행하는 방법이다. 표적 시험 수와 전체 TUI 시험 수는 서로 겹치므로 합산하지 않는다.
 
