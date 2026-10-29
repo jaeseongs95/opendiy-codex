@@ -648,13 +648,21 @@ async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
     Ok(())
 }
 
+#[test_case(false; "without sqlite metadata")]
+#[test_case(true; "with sqlite metadata")]
 #[tokio::test]
-async fn thread_resume_metadata_does_not_hide_deleted_rollout() -> Result<()> {
+async fn thread_resume_metadata_preserves_deleted_rollout_contract(
+    sqlite_enabled: bool,
+) -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
-    mock_responses_config(&server.uri())
-        .disable_feature(Feature::Sqlite)
-        .write(codex_home.path())?;
+    let config = mock_responses_config(&server.uri());
+    let config = if sqlite_enabled {
+        config.enable_feature(Feature::Sqlite)
+    } else {
+        config.disable_feature(Feature::Sqlite)
+    };
+    config.write(codex_home.path())?;
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
         .build_initialized()
@@ -676,6 +684,31 @@ async fn thread_resume_metadata_does_not_hide_deleted_rollout() -> Result<()> {
     .await?;
     let path = started.thread.path.as_ref().expect("local rollout path");
     assert!(path.exists());
+    if sqlite_enabled {
+        let state_db = StateRuntime::init(
+            codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
+            "mock_provider".into(),
+        )
+        .await?;
+        let thread_id = ThreadId::from_string(&started.thread.id)?;
+        // Wait for the real backing record before deleting JSONL. A live thread/read
+        // snapshot alone cannot prove that the metadata-only stored source exists.
+        let metadata = timeout(DEFAULT_READ_TIMEOUT, async {
+            loop {
+                if let Some(metadata) = state_db.get_thread(thread_id).await? {
+                    break Ok::<_, anyhow::Error>(metadata);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        assert_eq!(metadata.id, thread_id);
+        assert_eq!(&metadata.rollout_path, path);
+        assert_eq!(
+            metadata.history_mode,
+            codex_protocol::protocol::ThreadHistoryMode::Legacy
+        );
+    }
     std::fs::remove_file(path)?;
     let request = mcp
         .send_thread_resume_request(ThreadResumeParams {
@@ -684,16 +717,49 @@ async fn thread_resume_metadata_does_not_hide_deleted_rollout() -> Result<()> {
             ..Default::default()
         })
         .await?;
-    let error = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_error_message(RequestId::Integer(request)),
-    )
-    .await??;
-    assert_eq!(error.error.code, -32600);
-    assert_eq!(
-        error.error.message,
-        format!("no rollout found for thread id {}", started.thread.id)
-    );
+    if sqlite_enabled {
+        let resumed: ThreadResumeResponse =
+            timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request)).await??;
+        assert_eq!(resumed.thread.id, started.thread.id);
+        assert_eq!(resumed.thread.session_id, started.thread.session_id);
+        assert_eq!(resumed.thread.history_mode, started.thread.history_mode);
+        assert_eq!(resumed.thread.path, started.thread.path);
+        assert!(resumed.thread.turns.is_empty());
+        assert_eq!(resumed.model, started.model);
+        assert_eq!(resumed.approval_policy, started.approval_policy);
+        assert_eq!(resumed.approvals_reviewer, started.approvals_reviewer);
+        assert_eq!(resumed.sandbox, started.sandbox);
+        assert_eq!(
+            resumed.active_permission_profile,
+            started.active_permission_profile
+        );
+    } else {
+        let error = timeout(
+            DEFAULT_READ_TIMEOUT,
+            mcp.read_stream_until_error_message(RequestId::Integer(request)),
+        )
+        .await??;
+        assert_eq!(error.error.code, -32600);
+        assert_eq!(
+            error.error.message,
+            format!("no rollout found for thread id {}", started.thread.id)
+        );
+    }
+    let read_id = mcp
+        .send_thread_read_request(ThreadReadParams {
+            thread_id: started.thread.id.clone(),
+            include_turns: false,
+        })
+        .await?;
+    let read: ThreadReadResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(read_id)).await??;
+    assert_eq!(read.thread.session_id, started.thread.session_id);
+    let loaded_id = mcp
+        .send_thread_loaded_list_request(ThreadLoadedListParams::default())
+        .await?;
+    let loaded: ThreadLoadedListResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(loaded_id)).await??;
+    assert_eq!(loaded.data, vec![started.thread.id]);
     assert!(!path.exists());
     Ok(())
 }

@@ -71,7 +71,9 @@ async fn reconnect_keeps_other_backend_mcp_cron_on_the_new_app_queue() -> Result
             .header("MCP-Name", "cron")
             .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params": {
                 "name":"cron", "arguments":arguments, "_meta": {
-                    "threadId":caller_b, "turnId":"caller-turn", "callId":format!("after-reconnect-{id}")
+                    "threadId":caller_b, "turnId":"caller-turn", "callId":format!("after-reconnect-{id}"),
+                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities":{}
                 }
             }}))
     };

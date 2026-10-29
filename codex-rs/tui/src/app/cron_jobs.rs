@@ -1667,7 +1667,16 @@ mod tests {
         transport.configure_mcp(&mut overrides);
         let config = overrides.unwrap().remove("mcp_servers.codex_tui").unwrap();
         let client = codex_http_client::HttpClientBuilder::new().build_direct()?;
-        let call = |id, metadata| {
+        let call = |id, mut metadata: serde_json::Value| {
+            let metadata = metadata.as_object_mut().unwrap();
+            metadata.insert(
+                "io.modelcontextprotocol/protocolVersion".into(),
+                json!("2026-07-28"),
+            );
+            metadata.insert(
+                "io.modelcontextprotocol/clientCapabilities".into(),
+                json!({}),
+            );
             client.post(config["url"].as_str().unwrap())
             .header("Authorization", config["http_headers"]["Authorization"].as_str().unwrap())
             .header("Accept", "application/json, text/event-stream")
@@ -1676,30 +1685,43 @@ mod tests {
             .header("MCP-Name", crate::cron_tools::NAME)
             .json(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"cron","arguments":{"action":"add","every":"1m","prompt":"MCP 확인"},"_meta":metadata}}))
         };
-        for (id, metadata) in [
-            (1, json!({"threadId":caller,"turnId":"caller-turn"})),
+        for (id, metadata, expected_error) in [
+            (
+                1,
+                json!({"threadId":caller,"turnId":"caller-turn"}),
+                "예약에는 실제 turn·call 메타데이터가 필요합니다.",
+            ),
             (
                 2,
                 json!({"threadId":caller,"turnId":"caller-turn","callId":"conflict","x-codex-turn-metadata":{"thread_id":ThreadId::new().to_string(),"turn_id":"caller-turn"}}),
+                "호출 메타데이터가 서로 다릅니다.",
             ),
         ] {
             let body = call(id, metadata).send().await?.text().await?;
-            assert!(body.contains("error"), "{body}");
+            let payload: serde_json::Value = serde_json::from_str(
+                body.lines()
+                    .find_map(|line| line.strip_prefix("data: "))
+                    .unwrap_or(&body),
+            )?;
+            assert_eq!(payload["error"]["code"], json!(-32602), "{body}");
+            assert_eq!(payload["error"]["message"], json!(expected_error), "{body}");
             assert!(app.cron.scheduler.jobs.is_empty());
         }
         let request = call(
             3,
             json!({"threadId":caller,"turnId":"caller-turn","callId":"cancelled-mcp"}),
         );
-        let response = tokio::spawn(async move { request.send().await?.text().await });
-        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut response = tokio::spawn(async move { request.send().await?.text().await });
+        let queued = tokio::select! {
+            queued = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
                     break request;
                 }
             }
-        })
-        .await?;
+            }) => queued?,
+            early = &mut response => panic!("예약이 앱 대기열에 도달하기 전에 응답됨: {early:?}"),
+        };
         // This is the actual RequestContext.ct clone held by the HTTP handler.
         // Do not yield to that handler after cancelling it and before actor admission.
         queued.cancellation.cancel();
@@ -1715,15 +1737,17 @@ mod tests {
             4,
             json!({"threadId":caller,"turnId":"caller-turn","callId":"old-connection"}),
         );
-        let response = tokio::spawn(async move { request.send().await?.text().await });
-        let queued = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut response = tokio::spawn(async move { request.send().await?.text().await });
+        let queued = tokio::select! {
+            queued = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 if let Some(AppEvent::CronToolCall(request)) = events.recv().await {
                     break request;
                 }
             }
-        })
-        .await?;
+            }) => queued?,
+            early = &mut response => panic!("예약이 앱 대기열에 도달하기 전에 응답됨: {early:?}"),
+        };
         server.suspend();
         app.handle_cron_tool_call(&session, *queued).await;
         let body = response.await??;
