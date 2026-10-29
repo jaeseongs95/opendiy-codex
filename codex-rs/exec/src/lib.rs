@@ -689,10 +689,10 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     let batch_layer = batch_layer.map(|layer| layer.with_filter(
         tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
     let _ = tracing_subscriber::registry()
-        .with(batch_layer)
         .with(fmt_layer)
         .with(otel_tracing_layer)
         .with(otel_logger_layer)
+        .with(batch_layer)
         .try_init();
 
     let exec_span = exec_root_span();
