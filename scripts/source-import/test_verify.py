@@ -75,7 +75,17 @@ class VerifierChecks(unittest.TestCase):
         root=SCRIPT.resolve().parents[2]
         inventory=__import__('json').loads((root/'upstream/source-inventory.json').read_bytes())
         fixtures=[item for item in inventory['files'] if item['modified'] and item['path'].startswith('codex-rs/app-server-protocol/schema/typescript/') and item['path'].endswith('.ts')]
-        self.assertEqual(len(fixtures),8)
+        self.assertEqual({item["path"] for item in fixtures}, {
+            'codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/index.ts',
+        })
         header=VERIFY.generated_ts_header(root)
         for item in fixtures:
             with self.subTest(path=item['path']):
@@ -92,6 +102,12 @@ class VerifierChecks(unittest.TestCase):
         self.assertEqual(EXPORT.notice('codex-rs/schema.json'),b'')
         self.assertEqual(EXPORT.notice('codex-rs/schema.json.zst'),b'')
         self.assertEqual(EXPORT.notice('codex-rs/expected.snap'),b'')
+    def test_runtime_markdown_prompts_do_not_receive_local_notices(self):
+        for path in EXPORT.WINDOWS_INPUTS:
+            with self.subTest(path=path):
+                if path.endswith(".md"):
+                    self.assertEqual(EXPORT.notice(path), b"")
+        self.assertTrue(EXPORT.notice("docs/native-cli-r27.ko.md").startswith(b"<!--"))
     def test_python_optimized_mode_rejected(self):
         process=subprocess.run([sys.executable,'-B','-O',str(SCRIPT)],capture_output=True,text=True)
         self.assertNotEqual(process.returncode,0)
