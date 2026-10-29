@@ -3011,7 +3011,7 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
 }
 
 #[test]
-fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads() -> Result<()> {
+fn attach_live_thread_for_selection_attaches_empty_live_non_ephemeral_threads() -> Result<()> {
     const WORKER_THREADS: usize = 1;
     const TEST_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -3037,18 +3037,140 @@ fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads
             /*is_closed*/ false,
         );
 
+        let backend_id = app_server.backend_id();
+        let original = app_server.thread_read(thread_id, false).await?;
+        assert!(!original.ephemeral);
+        assert!(original.turns.is_empty());
+        assert!(
+            app.attach_live_thread_for_selection(&mut app_server, thread_id)
+                .await?
+        );
+        let channel = &app.thread_event_channels[&thread_id];
+        assert_eq!(channel.attachment(), ThreadEventAttachment::Live);
+        let session = channel
+            .store
+            .lock()
+            .await
+            .session
+            .clone()
+            .expect("attached session");
+        assert_eq!(session.thread_id, started.session.thread_id);
+        assert_eq!(session.approval_policy, started.session.approval_policy);
+        assert_eq!(
+            session.permission_profile,
+            started.session.permission_profile
+        );
+        assert_eq!(
+            session.active_permission_profile,
+            started.session.active_permission_profile
+        );
+        assert_eq!(
+            session.approvals_reviewer,
+            started.session.approvals_reviewer
+        );
+        assert_eq!(session.rollout_path, started.session.rollout_path);
+        assert!(app_server.has_incomplete_history(thread_id));
+        assert!(
+            app_server
+                .thread_settings_update(codex_app_server_protocol::ThreadSettingsUpdateParams {
+                    thread_id: thread_id.to_string(),
+                    model: Some(started.session.model.clone()),
+                    ..Default::default()
+                })
+                .await?
+        );
+        let updated = next_thread_settings_updated(&mut app_server, thread_id).await;
+        assert_eq!(updated.thread_id, thread_id.to_string());
+        assert_eq!(updated.thread_settings.model, started.session.model);
+        assert_eq!(app_server.backend_id(), backend_id);
+        let after = app_server.thread_read(thread_id, false).await?;
+        assert_eq!(after.id, original.id);
+        assert_eq!(after.session_id, original.session_id);
+        assert_eq!(after.path, original.path);
+        app_server.shutdown().await?;
+        Ok(())
+    })
+}
+
+#[test]
+fn attach_live_thread_for_selection_rejects_empty_non_ephemeral_fallback_threads() -> Result<()> {
+    use self::session_lifecycle_requests::HistoryCapabilities;
+    use self::session_lifecycle_requests::recorded_params;
+    use self::session_lifecycle_requests::start_recording_app_server_with_history;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_stack_size(8 * 1024 * 1024)
+        .enable_all()
+        .build()?;
+    runtime.block_on(Box::pin(async {
+        let mut app = make_test_app().await;
+        let filename_timestamp = "2026-01-01T00-00-00";
+        let id = app_test_support::create_fake_rollout(
+            app.config.codex_home.as_path(),
+            filename_timestamp,
+            "2026-01-01T00:00:00Z",
+            "unused preview",
+            Some(&app.config.model_provider_id),
+            None,
+        )?;
+        let path = app_test_support::rollout_path(
+            app.config.codex_home.as_path(),
+            filename_timestamp,
+            &id,
+        );
+        // This fixture is materialized before any backend or recorder exists.
+        // Retain only the official helper's session metadata, with no stored turn.
+        let rollout = std::fs::read_to_string(&path)?;
+        let metadata = rollout.lines().next().expect("session metadata");
+        std::fs::write(&path, format!("{metadata}\n"))?;
+        let thread_id = ThreadId::from_string(&id)?;
+        let (mut app_server, requests, proxy) = start_recording_app_server_with_history(
+            &app.config,
+            HistoryCapabilities::ResumeFails,
+            None,
+            None,
+            crate::app_server_session::ThreadParamsMode::Embedded,
+            LoaderOverrides::without_managed_config_for_tests(),
+        )
+        .await?;
+        let metadata = app_server.thread_read(thread_id, false).await?;
+        assert_eq!(metadata.id, id);
+        assert!(!metadata.ephemeral);
+        assert!(
+            app_server
+                .thread_read(thread_id, true)
+                .await?
+                .turns
+                .is_empty()
+        );
+        app.agent_navigation.upsert(
+            thread_id,
+            Some("Scout".to_string()),
+            Some("worker".to_string()),
+            false,
+        );
         let err = app
             .attach_live_thread_for_selection(&mut app_server, thread_id)
             .await
             .expect_err("empty fallback should not attach as a blank replay-only thread");
-
         assert_eq!(
             err.to_string(),
             format!("Agent thread {thread_id} is not yet available for replay or live attach.")
         );
         assert!(!app.thread_event_channels.contains_key(&thread_id));
+        assert_eq!(recorded_params(&requests, "thread/resume").len(), 1);
+        let reads = recorded_params(&requests, "thread/read");
+        assert_eq!(
+            reads.len(),
+            4,
+            "both explicit checks and fallback reads must run"
+        );
+        assert_eq!(reads[2]["includeTurns"], false);
+        assert_eq!(reads[3]["includeTurns"], true);
+        app_server.shutdown().await?;
+        proxy.await??;
         Ok(())
-    })
+    }))
 }
 
 #[test]

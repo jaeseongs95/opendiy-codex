@@ -3,9 +3,9 @@
   "upstream": "https://github.com/openai/codex",
   "officialVersion": "0.165.0",
   "officialCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
-  "patchedCommit": "4f285d188bd7e561b3f2a66bc64fb0b8bcc5e69b",
+  "patchedCommit": "92d508e48a67633c71be4924e555696258a8880d",
   "officialTree": "307e4fa207fe563a11f3f7af09cee6fccd2d8376",
-  "patchedTree": "1b4c3a79a609c523fd14810302810b92711982f8",
+  "patchedTree": "bbb70f303ab6eb784197bb7171ef4f89137569f4",
   "selectedPrefixes": [
     "codex-rs",
     "third_party",
@@ -17,12 +17,12 @@
     "docs/native-cli-cron.ko.md"
   ],
   "patchPath": "upstream/official-0.165.0.patch",
-  "patchSha256": "fd5ad3e034c99c14c9d69597f4fd78f917b195dcd424cc067163922558ddf700",
-  "sourceInventorySha256": "f8fef9fd0397ac54b5f97ed074551c60a44fe0aabb38dce5ca87dd2e85602a93",
+  "patchSha256": "99176a2ee94337dabeed3b878439cf04944f55412ae1d1759305c5df0f21feb5",
+  "sourceInventorySha256": "f25f30528f24132324fcf2d8862ecb86c47c0da4a58c7213624a6f4119dd7917",
   "windowsPromptInputsPath": "upstream/windows-prompt-inputs.json",
-  "windowsPromptInputsSha256": "ce32bb905ef3fbca20cb329320c64b0101c7d342f0c5ab64c4727fd1a1d0892d",
+  "windowsPromptInputsSha256": "c0eaae2241bac374f7f62f7817f06fa870539da28c64a31f3514d2a6b2edbcd4",
   "sourceFileCount": 9128,
-  "publishedBytes": 89674740,
+  "publishedBytes": 89680246,
   "modifiedNoticeDate": "2026-10-29",
   "modifiedNoticeLabel": "R28",
   "modifiedFiles": [
@@ -2172,10 +2172,10 @@
     {
       "path": "codex-rs/tui/src/app/tests.rs",
       "gitMode": "100644",
-      "gitBlob": "e64defe35d724bc83316fc82fe354630ff857025",
-      "sourceSha256": "9fa98fd36eb1d2053bfc30e84b07c4041de66913b6edddcdda1adba5e4492d5e",
-      "publishedSha256": "5c3ae37ac515ba3dcc6eb403630d928f9885543e293913dcab3e044368972461",
-      "bytes": 381781,
+      "gitBlob": "e837f343cddac3361f03a7905cc7301ab97e7cbc",
+      "sourceSha256": "57278aff90853f0969b13a43febcef908a40584ed4b06a73066db258dace9809",
+      "publishedSha256": "d8cf3adcf412019129dce35df6c366f45afbf31a364d66ebcfd1deb323abf4c7",
+      "bytes": 386712,
       "modified": true,
       "noticeOnly": true
     },
@@ -2262,10 +2262,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/session_lifecycle_requests.rs",
       "gitMode": "100644",
-      "gitBlob": "5278a820607b4d209698bc0943e1419778535ae3",
-      "sourceSha256": "f84e335d33887830bc2a07d3ab9519629108e6627c12524e8836b2fc56305729",
-      "publishedSha256": "80536a8b19760a097102e01780cd23f159e99ebf7a0087d72ab81e4b4ddb461e",
-      "bytes": 227600,
+      "gitBlob": "10924475bf3132b4cb81a59b5f65bf4bb978fb00",
+      "sourceSha256": "89735fe499d941d15f2152e2077e19732caa04bbebc257dda0fedf7cf734be29",
+      "publishedSha256": "4aba07d243e2a25cc9d5d77950d11b236442b8f8c23039258b315082b4d1d6a8",
+      "bytes": 228175,
       "modified": true,
       "noticeOnly": true
     },
