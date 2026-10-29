@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
 //! Owns backend sessions independently of the displayed conversation's UI state.
 //! Polling is fair and cancellation-safe; closing one stream never closes another.
 
@@ -96,6 +97,19 @@ impl BackendSessions {
 
     pub(super) fn session_at_mut(&mut self, slot: SessionSlot) -> &mut AppServerSession {
         &mut self.entries[slot.0].session
+    }
+
+    pub(super) fn update_tool_event_senders(
+        &self,
+        events: &crate::app_event_sender::AppEventSender,
+    ) {
+        for entry in &self.entries {
+            if let crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(server) =
+                entry.session.thread_tool_transport()
+            {
+                server.update_event_sender(events.clone());
+            }
+        }
     }
 
     pub(super) fn is_listening(&self, owner: BackendId) -> bool {

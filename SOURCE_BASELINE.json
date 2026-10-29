@@ -3,9 +3,9 @@
   "upstream": "https://github.com/openai/codex",
   "officialVersion": "0.165.0",
   "officialCommit": "360319d8dee62d87e2d59fc0c21805d79519cfed",
-  "patchedCommit": "d811aec5a3b7f1a3d35a4c5f1fa38beba1ee0951",
+  "patchedCommit": "29865e660e823e9f03fd52926c99f46cce849c47",
   "officialTree": "307e4fa207fe563a11f3f7af09cee6fccd2d8376",
-  "patchedTree": "513072550d65ba707645a0f86bc55f13ec7f0ad0",
+  "patchedTree": "ba7499d7041f602b7d6b0dd9b561247bbd46a58d",
   "selectedPrefixes": [
     "codex-rs",
     "third_party",
@@ -17,12 +17,12 @@
     "docs/native-cli-cron.ko.md"
   ],
   "patchPath": "upstream/official-0.165.0.patch",
-  "patchSha256": "23644ecf09f4912464c096b2ff31ad4a15b218d5837cba8f5055f0d0baabe6ee",
-  "sourceInventorySha256": "ce082bd8676d3da795e11ca73c451bd1c0a4864e21c5c8c4300843608510b437",
+  "patchSha256": "441a2eb72439f5429109cdbbe947ce8b1c5803ae1a9dfe33098a3b094227ef3d",
+  "sourceInventorySha256": "b3b81619fc148ccddec5ef054726ada39588384010deb7da7e5a45f83b81fd77",
   "windowsPromptInputsPath": "upstream/windows-prompt-inputs.json",
-  "windowsPromptInputsSha256": "dfa11c5f9ea0b076b18747fe6bb9be5c59a020b6976131a90bc792df8b65feac",
+  "windowsPromptInputsSha256": "1725aaae01c420335cc3ac695847f23a51fdfd2d29822e7889aa23a65a0f2afa",
   "sourceFileCount": 9127,
-  "publishedBytes": 89590868,
+  "publishedBytes": 89606659,
   "modifiedNoticeDate": "2026-10-29",
   "modifiedNoticeLabel": "R28",
   "modifiedFiles": [
@@ -1910,6 +1910,16 @@
       "noticeOnly": true
     },
     {
+      "path": "codex-rs/tui/src/app/backend_sessions.rs",
+      "gitMode": "100644",
+      "gitBlob": "45ce03bacf4b799b8b098859b4f1e5c8d3604c8e",
+      "sourceSha256": "4547a619a6f72f8cecaa1e68f17cd6e4a7a54eddceff144a816d354b36214d03",
+      "publishedSha256": "e9df6d58640e9756701de24141b43edafee26cc8da13ba0dfd34aa3ba1254f24",
+      "bytes": 5314,
+      "modified": true,
+      "noticeOnly": true
+    },
+    {
       "path": "codex-rs/tui/src/app/config_persistence.rs",
       "gitMode": "100644",
       "gitBlob": "16f0b825d415c8e91a06e08c577919fc586c51db",
@@ -1922,10 +1932,10 @@
     {
       "path": "codex-rs/tui/src/app/cron_jobs.rs",
       "gitMode": "100644",
-      "gitBlob": "3dcc0ca382a68dca37133f1811cae1ed6861b4bc",
-      "sourceSha256": "9133b32242b2080b9af91da9cd8ae1496443ed6994bb389290601526070b4e46",
-      "publishedSha256": "1c3e012af825246d51738ce1011ff8caa473928edefeed1053f8a3c956d4fc82",
-      "bytes": 80146,
+      "gitBlob": "78db404442a68061b100770a02bb4bd082b381dd",
+      "sourceSha256": "cc7ca1f807c86c41236975c5e2ce870331aacc82275e63edb2a142aa5019c076",
+      "publishedSha256": "2b16e270fdacaee1cf444df1d88da053bb25983e080890dd6774a295427f10de",
+      "bytes": 83615,
       "modified": true,
       "noticeOnly": true
     },
@@ -2092,10 +2102,10 @@
     {
       "path": "codex-rs/tui/src/app/startup.rs",
       "gitMode": "100644",
-      "gitBlob": "f101ff47fc3b741a6a27ec13b8b4746bebca45b8",
-      "sourceSha256": "8c91e72de164672e74fed36ac65b9a895fc0bcd706148bcdb8649fb80a9f9d0b",
-      "publishedSha256": "194f59ac842916642a5f82202050b0e64fd101445495c291f3589372074a38eb",
-      "bytes": 80882,
+      "gitBlob": "d9d4180a277799e0f5fa935cb9fd91df5de23c56",
+      "sourceSha256": "74379f34658108824e48487216c83dbb20ef9bb71ba49715f8e2f0794fa508b5",
+      "publishedSha256": "e8a20d90c9768b06520cbd672092aa9a40eadbe75088d1a98726ef035e7f26a1",
+      "bytes": 81062,
       "modified": true,
       "noticeOnly": true
     },
@@ -2132,10 +2142,10 @@
     {
       "path": "codex-rs/tui/src/app/tests/active_reconnect_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "2002bdf00aa07ebb1bdfd266d87de761988fd04b",
-      "sourceSha256": "9d12e89c21f71d46611bb393c1ec67a9110b16e4baeb73ba55eb70724bd55185",
-      "publishedSha256": "076ba94d4d4254ff876f173367eb6ca0cc642167c8512af5101729883e119c19",
-      "bytes": 35570,
+      "gitBlob": "0a2291a3493d4f304ae6a3c5f8f57676b6a52c41",
+      "sourceSha256": "db6f28b6f84e71b210759b8544e1fbf676f7f6194631abe1c2ef89c2f4de7812",
+      "publishedSha256": "cca97f4fcec6e16787206761576989819d93382894dbf2269fdcbf775310c9ae",
+      "bytes": 46852,
       "modified": true,
       "noticeOnly": true
     },
@@ -2822,10 +2832,10 @@
     {
       "path": "codex-rs/tui/src/dynamic_tools_mcp.rs",
       "gitMode": "100644",
-      "gitBlob": "c50e6c3357cf358df369abc0bd48da5881ba2505",
-      "sourceSha256": "2a39945f887d6e3de48fea0cc7f5732637c61babab8eba4259cb5c2b4201e173",
-      "publishedSha256": "ae52109aef858387f691150daa9db6b677e6706f073d35f7a6b890930fc1c6b5",
-      "bytes": 17145,
+      "gitBlob": "5b7b4fdcb6b8dc8524529a044270d257d524f75c",
+      "sourceSha256": "cd3ffa3b7f4974bf008c66da5f0a2460e7dcecb178e47b3c6f22fe08d2b0fcb4",
+      "publishedSha256": "d2d9f29e94429464afef4ff6cd32dde70fa19e3facf97c211a939c0eca163771",
+      "bytes": 17533,
       "modified": true,
       "noticeOnly": true
     },
