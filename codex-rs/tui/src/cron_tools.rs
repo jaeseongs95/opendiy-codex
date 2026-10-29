@@ -14,6 +14,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
 };
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 pub(crate) const NAME: &str = "cron";
 
@@ -30,6 +31,7 @@ pub(crate) struct Request {
     pub(crate) params: DynamicToolCallParams,
     pub(crate) command: String,
     pub(crate) claim: Arc<AtomicU8>,
+    pub(crate) cancellation: CancellationToken,
     pub(crate) reply: oneshot::Sender<DynamicToolCallResponse>,
 }
 
@@ -102,6 +104,7 @@ pub(crate) async fn execute(
     handle: codex_app_server_client::AppServerRequestHandle,
     params: DynamicToolCallParams,
     events: &AppEventSender,
+    cancellation: CancellationToken,
 ) -> DynamicToolCallResponse {
     let command = match command(params.arguments.clone()) {
         Ok(command) => command,
@@ -153,6 +156,7 @@ pub(crate) async fn execute(
         params,
         command,
         claim: Arc::clone(&pending.0),
+        cancellation,
         reply,
     })));
     match tokio::time::timeout(std::time::Duration::from_secs(30), result).await {

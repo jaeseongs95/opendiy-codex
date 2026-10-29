@@ -408,7 +408,7 @@ impl ServerHandler for DynamicToolMcpHandler {
                 McpError::invalid_params("예약 도구가 이 연결에서 제공되지 않습니다.", None)
             })?;
             tokio::select! {
-                response = crate::cron_tools::execute(connection, request_handle, params, &app_event_tx) => response,
+                response = crate::cron_tools::execute(connection, request_handle, params, &app_event_tx, context.ct.clone()) => response,
                 _ = context.ct.cancelled() => dynamic_tools::failure_response("예약 요청이 중단되었습니다. 결과가 불명확하면 list로 확인하세요."),
             }
         } else if matches!(

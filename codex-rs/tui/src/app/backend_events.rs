@@ -15,10 +15,18 @@ impl App {
         displayed_owner: BackendId,
         event: AppServerSessionEvent,
     ) {
+        if event.backend_id != app_server.backend_id() {
+            tracing::warn!("ignoring server event from a different backend");
+            return;
+        }
         if matches!(
             &event.event,
             AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. }
         ) {
+            app_server
+                .cron_tool_connection()
+                .live
+                .store(false, std::sync::atomic::Ordering::Release);
             self.cron.invalidate_backend(
                 event.backend_id,
                 "backend 연결 또는 이벤트 수신 유실: 예약 실행 중지",

@@ -308,10 +308,11 @@ impl App {
         }
         match &notification {
             ServerNotification::ServerRequestResolved(notification) => {
-                if let Some((_, task)) = self.cron.tool_tasks.remove(&(
+                if let Some((_, cancellation, task)) = self.cron.tool_tasks.remove(&(
                     app_server_client.backend_id(),
                     notification.request_id.clone(),
                 )) {
+                    cancellation.cancel();
                     task.abort();
                 }
                 if let Some((_, task)) = self.dynamic_tool_tasks.remove(&notification.request_id) {
@@ -647,7 +648,7 @@ impl App {
                 let key = (app_server_client.backend_id(), request_id.clone());
                 self.cron
                     .tool_tasks
-                    .retain(|_, (_, task)| !task.is_finished());
+                    .retain(|_, (_, _, task)| !task.is_finished());
                 if self.cron.tool_tasks.contains_key(&key) {
                     return;
                 }
@@ -670,9 +671,17 @@ impl App {
                 let events = self.app_event_tx.clone();
                 let params = params.clone();
                 let reply = buffered_request.reply.clone();
+                let cancellation = tokio_util::sync::CancellationToken::new();
+                let task_cancellation = cancellation.clone();
                 let task = tokio::spawn(async move {
-                    let response =
-                        crate::cron_tools::execute(connection, handle, params, &events).await;
+                    let response = crate::cron_tools::execute(
+                        connection,
+                        handle,
+                        params,
+                        &events,
+                        task_cancellation,
+                    )
+                    .await;
                     match serde_json::to_value(response) {
                         Ok(result) => {
                             if let Err(error) = reply.resolve(result).await {
@@ -682,7 +691,9 @@ impl App {
                         Err(error) => tracing::warn!(%error, "예약 도구 응답 직렬화 실패"),
                     }
                 });
-                self.cron.tool_tasks.insert(key, (source, task));
+                self.cron
+                    .tool_tasks
+                    .insert(key, (source, cancellation, task));
                 return;
             }
             if self.dynamic_tool_tasks.contains_key(request_id)
