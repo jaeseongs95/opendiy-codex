@@ -2,24 +2,19 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-현재 소스: [공식 0.165.0 기반 CLI 패치](docs/source-import.md) · [시험 범위와 남은 한계](docs/TESTING.md). 아래 r22 설명은 프로젝트 이력으로 보존합니다.
+> Because "fuck it" wasn't enough. I fixed it.
 
-Windows에서 Codex를 사용할 때 생기는 요청 정체와 하위 프로세스 정리 문제를 수정하는 Codex CLI·Rust App Server 포크입니다.
+Windows용 Codex CLI·Rust App Server의 요청 취소, 하위 프로세스 정리, 화면 이력 보유와 오류 종료 시 로그 유실을 개선합니다.
 
-현재 공개된 r22 패치는 MCP 요청 취소, 서버 종료와 대기, 설정 읽기 경로를 다룹니다.
+현재 소스는 **공식 0.165.0 기반 R28**입니다.
 
-## 바뀌는 점
+- **작업 정체 개선:** 한도가 있는 용량 부족 재시도, 취소 전달, 직접 소유한 프로세스 정리.
+- **대화별 제어:** 컨텍스트 창 크기, 범위가 분리된 메모리, 하단 서브에이전트 상태 표시.
+- **화면 부담 완화:** 공식 이력 조회 기능을 재사용하고, 모델에 전달할 원본 대화를 자르지 않으면서 화면 보유 구간을 제한.
+- **장애 원인 추적:** 선택형 버퍼 로그, 완결 파일 단위 저장, 실패 후 재시도하는 비동기 내보내기. 주요 화면 한국어 지원.
 
-- MCP 읽기 요청을 취소하면 그 요청이 직접 소유한 작업과 전용 연결·프로세스를 정리한 뒤 응답하도록 했습니다.
-- 직접 소유한 MCP 프로세스가 실제로 종료될 때까지 정리를 이어가고, 이전 프로세스 정리가 끝난 뒤 재시도하도록 했습니다.
-- 출력이 없는 MCP 서버를 기다릴 때 불필요하게 파일 I/O 스레드를 점유하지 않도록 했습니다.
-- 불필요한 설정 재조회를 없애고, 설정 응답과 기능 설정이 같은 시점의 값을 사용하도록 했습니다.
+[소스 빌드](docs/source-import.md) · [CLI 설정](docs/native-cli-r27.ko.md) · [R28 검증과 한계](docs/cli-r28-validation.md) · [변경 내역](MODIFICATIONS.md)
 
-## 소스와 문서
+데스크톱 화면은 [Agent Grid](https://github.com/jaeseongs95/agent-grid), CLI·App Server는 이 저장소에서 관리합니다. 실제 인증된 모바일 앱과 같은 백엔드에 연결하는 검증은 남아 있습니다. 프롬프트 캐시 적중률 향상이나 메모리·연결 누적·화면 지연의 완전한 해결을 주장하지 않습니다.
 
-- [CLI 소스](codex-rs/cli) · [App Server 소스](codex-rs/app-server) · [소스 구조와 빌드 안내](docs/source-import.md)
-- [수정 내역](MODIFICATIONS.md) · [테스트 방법과 한계](docs/TESTING.md)
-
-[OpenAI Codex](https://github.com/openai/codex)를 기반으로 한 비공식 독립 프로젝트입니다. [Apache-2.0](LICENSE)과 구성요소별 [제3자 고지](NOTICE)를 따릅니다.
-
-현재는 r22 소스만 제공하며, 설치 가능한 패치 바이너리와 비공개 데스크톱 UI 자산은 제공하지 않습니다. 데스크톱 앱 전체 검증과 메모리 누수·UI 지연의 완전한 해결은 확인하지 않았습니다.
+**소스와 빌드 도구만 공개합니다.** 설치용 실행 파일, 비공개 데스크톱 자산, 인증 정보와 운영 로그는 포함하지 않습니다. [OpenAI Codex](https://github.com/openai/codex) 기반 비공식 독립 프로젝트이며 [Apache-2.0](LICENSE)과 구성요소별 [제3자 고지](NOTICE)를 따릅니다.
