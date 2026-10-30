@@ -1879,6 +1879,31 @@
           "type": "object"
         },
         {
+          "description": "Observe only an already loaded runtime with an existing listener. Does not resume work.",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subscribePassive"
+              ],
+              "title": "Thread/subscribePassiveRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadSubscribePassiveParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subscribePassiveRequest",
+          "type": "object"
+        },
+        {
           "properties": {
             "id": {
               "$ref": "#/definitions/RequestId"
@@ -3414,6 +3439,31 @@
             "params"
           ],
           "title": "Turn/startIfIdleRequest",
+          "type": "object"
+        },
+        {
+          "description": "Accept explicit user input only when idle. Never steers or wakes pending work on refusal. A lost response leaves the outcome unknown; clientUserMessageId is not a deduplication key.",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "turn/startUserIfIdle"
+              ],
+              "title": "Turn/startUserIfIdleRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TurnStartParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Turn/startUserIfIdleRequest",
           "type": "object"
         },
         {
@@ -23426,6 +23476,21 @@
         "threadId"
       ],
       "title": "ThreadStatusChangedNotification",
+      "type": "object"
+    },
+    "ThreadSubscribePassiveParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "Observe an already loaded thread with an existing listener, without resuming work.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadSubscribePassiveParams",
       "type": "object"
     },
     "ThreadTimelineEntry": {
