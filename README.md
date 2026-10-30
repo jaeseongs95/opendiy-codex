@@ -2,8 +2,6 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-> Because "fuck it" wasn't enough. I fixed it.
-
 Codex CLI and Rust App Server patches for Windows: request cancellation, process cleanup, bounded chat display, and diagnostics that survive ordinary error exits.
 
 현재 소스는 **공식 0.165.0 기반 R30 후보**이며 검증 중입니다.

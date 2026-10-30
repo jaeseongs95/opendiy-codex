@@ -2,8 +2,6 @@
 
 [English](README.md) · [한국어](README.ko.md)
 
-> Because "fuck it" wasn't enough. I fixed it.
-
 Windows용 Codex CLI·Rust App Server의 요청 취소, 하위 프로세스 정리, 화면 이력 보유와 오류 종료 시 로그 유실을 개선합니다.
 
 현재 소스는 **공식 0.165.0 기반 R30 후보**이며 검증 중입니다.
