@@ -20280,6 +20280,40 @@ index df807ba4b..2b932b331 100644
                  layers
                      .all_layers_high_to_low()
                      .filter(|layer| {
+diff --git a/codex-rs/app-server/src/error_code.rs b/codex-rs/app-server/src/error_code.rs
+index ce5e1947d..4dae9812e 100644
+--- a/codex-rs/app-server/src/error_code.rs
++++ b/codex-rs/app-server/src/error_code.rs
+@@ -17,6 +17,29 @@ pub(crate) fn invalid_request(message: impl Into<String>) -> JSONRPCErrorError {
+     error(INVALID_REQUEST_ERROR_CODE, message)
+ }
+ 
++/// Only notLoaded/listenerNotReady allow a bounded retry of subscribePassive.
++/// Closing or a changed runtime must never trigger an implicit resume.
++pub(crate) fn passive_subscription_unavailable(reason: &'static str) -> JSONRPCErrorError {
++    let mut error = invalid_request(format!("passive thread subscription unavailable: {reason}"));
++    error.data = Some(serde_json::json!({
++        "kind": "threadSubscriptionUnavailable",
++        "reason": reason,
++    }));
++    error
++}
++
++pub(crate) fn passive_runtime_unavailable(
++    reason: codex_core::LoadedThreadUnavailable,
++) -> JSONRPCErrorError {
++    use codex_core::LoadedThreadUnavailable;
++    passive_subscription_unavailable(match reason {
++        LoadedThreadUnavailable::NotLoaded => "notLoaded",
++        LoadedThreadUnavailable::Replaced => "runtimeChanged",
++        LoadedThreadUnavailable::Closing => "closing",
++        LoadedThreadUnavailable::Unsupported => "unsupportedRuntime",
++    })
++}
++
+ pub(crate) fn method_not_found(message: impl Into<String>) -> JSONRPCErrorError {
+     error(METHOD_NOT_FOUND_ERROR_CODE, message)
+ }
 diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
 index ae5941119..4a57eceaa 100644
 --- a/codex-rs/app-server/src/lib.rs
@@ -20739,10 +20773,10 @@ index a1b113311..de3d51f7b 100644
 +mod passive_tests;
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..a274f4f34
+index 000000000..5362b729d
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
-@@ -0,0 +1,960 @@
+@@ -0,0 +1,997 @@
 +//! New method contracts through the real initialized JSON-RPC dispatcher and listener.
 +use super::message_processor_tracing_tests::{build_test_processor, read_response_from};
 +use super::*;
@@ -20837,6 +20871,14 @@ index 000000000..a274f4f34
 +}
 +
 +async fn error(rx: &mut Receiver, id: ConnectionId, request_id: i64) -> String {
++    error_details(rx, id, request_id).await.message
++}
++
++async fn error_details(
++    rx: &mut Receiver,
++    id: ConnectionId,
++    request_id: i64,
++) -> codex_app_server_protocol::JSONRPCErrorError {
 +    loop {
 +        if let Some(OutgoingEnvelope::ToConnection {
 +            connection_id,
@@ -20845,10 +20887,20 @@ index 000000000..a274f4f34
 +        }) = timeout(DEADLINE, rx.recv()).await.unwrap()
 +        {
 +            if connection_id == id && error.id == RequestId::Integer(request_id) {
-+                return error.error.message;
++                return error.error;
 +            }
 +        }
 +    }
++}
++
++fn assert_passive_unavailable(error: codex_app_server_protocol::JSONRPCErrorError, reason: &str) {
++    assert_eq!(error.code, crate::error_code::INVALID_REQUEST_ERROR_CODE);
++    assert_eq!(
++        error.data,
++        Some(json!({
++            "kind": "threadSubscriptionUnavailable", "reason": reason,
++        }))
++    );
 +}
 +
 +async fn finish(processor: &Arc<MessageProcessor>, rx: Receiver) {
@@ -21047,7 +21099,7 @@ index 000000000..a274f4f34
 +    assert_eq!(states.subscribed_connection_ids(id).await, vec![owner]);
 +    let missing = ThreadId::new();
 +    send(&processor,owner,&sa,json!({"id":24,"method":"thread/subscribePassive","params":{"threadId":missing.to_string()}})).await;
-+    assert!(error(&mut rx, owner, 24).await.contains("not found"));
++    assert_passive_unavailable(error_details(&mut rx, owner, 24).await, "notLoaded");
 +    assert!(
 +        processor
 +            .thread_processor
@@ -21426,7 +21478,7 @@ index 000000000..a274f4f34
 +        json!({"id":69,"method":"thread/subscribePassive","params":{"threadId":thread.id}}),
 +    )
 +    .await;
-+    assert!(error(&mut rx, observer, 69).await.contains("closing"));
++    assert_passive_unavailable(error_details(&mut rx, observer, 69).await, "closing");
 +    assert!(
 +        !states
 +            .subscribed_connection_ids(id)
@@ -21439,11 +21491,7 @@ index 000000000..a274f4f34
 +        .lock()
 +        .await
 +        .remove(&id);
-+    let pending = processor
-+        .thread_processor
-+        .pending_thread_unloads
-+        .lock()
-+        .await;
++    let (snapshot_entered, release_snapshot) = states.pause_passive_snapshot_for_test(id).await;
 +    send(
 +        &processor,
 +        observer,
@@ -21451,17 +21499,17 @@ index 000000000..a274f4f34
 +        json!({"id":70,"method":"thread/subscribePassive","params":{"threadId":thread.id}}),
 +    )
 +    .await;
-+    // A command queued behind the held unload lock has not committed membership.
-+    // Remove the actual registered runtime while the listener's command is blocked.
++    // The real listener has taken its snapshot but has not committed membership.
++    timeout(DEADLINE, snapshot_entered).await??;
++    // Remove the actual registered runtime at that exact boundary.
 +    let old = processor
 +        .thread_processor
 +        .thread_manager
 +        .remove_thread(&id)
 +        .await
 +        .expect("old runtime");
-+    drop(pending);
-+    let refusal = error(&mut rx, observer, 70).await;
-+    assert!(refusal.contains("not ready") || refusal.contains("not found"));
++    release_snapshot.send(()).unwrap();
++    assert_passive_unavailable(error_details(&mut rx, observer, 70).await, "notLoaded");
 +    assert!(
 +        !states
 +            .subscribed_connection_ids(id)
@@ -21475,10 +21523,9 @@ index 000000000..a274f4f34
 +        .start_thread(codex_core::StartThreadOptions::new((*config).clone()))
 +        .await?;
 +    send(&processor,observer,&sb,json!({"id":71,"method":"thread/subscribePassive","params":{"threadId":created.thread_id.to_string()}})).await;
-+    assert!(
-+        error(&mut rx, observer, 71)
-+            .await
-+            .contains("listener is not ready")
++    assert_passive_unavailable(
++        error_details(&mut rx, observer, 71).await,
++        "listenerNotReady",
 +    );
 +    assert!(
 +        states
@@ -21486,6 +21533,30 @@ index 000000000..a274f4f34
 +            .await
 +            .is_none()
 +    );
++    created.thread.shutdown_and_wait().await?;
++    send(&processor,observer,&sb,json!({"id":72,"method":"thread/subscribePassive","params":{"threadId":created.thread_id.to_string()}})).await;
++    assert_passive_unavailable(error_details(&mut rx, observer, 72).await, "closing");
++    send(
++        &processor,
++        observer,
++        &sb,
++        json!({"id":73,"method":"thread/subscribePassive","params":{"threadId":"invalid"}}),
++    )
++    .await;
++    let invalid = error_details(&mut rx, observer, 73).await;
++    assert_eq!(
++        invalid.data, None,
++        "invalid identifiers are not retryable availability failures"
++    );
++    send(&processor,observer,&sb,json!({"id":74,"method":"thread/subscribePassiveUnsupported","params":{"threadId":thread.id}})).await;
++    let unsupported = error_details(&mut rx, observer, 74).await;
++    // Older servers decode an unknown method as InvalidRequest, not necessarily
++    // MethodNotFound. Neither a missing kind/reason nor its message is retryable.
++    assert_eq!(
++        unsupported.code,
++        crate::error_code::INVALID_REQUEST_ERROR_CODE
++    );
++    assert_eq!(unsupported.data, None);
 +    finish(&processor, rx).await;
 +    Ok(())
 +}
@@ -21809,7 +21880,7 @@ index 2bb77bf6f..00f845e27 100644
 +    })
 +}
 diff --git a/codex-rs/app-server/src/outgoing_message.rs b/codex-rs/app-server/src/outgoing_message.rs
-index f893d3d20..a1174d769 100644
+index f893d3d20..2cb40ab6d 100644
 --- a/codex-rs/app-server/src/outgoing_message.rs
 +++ b/codex-rs/app-server/src/outgoing_message.rs
 @@ -75,6 +75,7 @@ pub(crate) struct RequestContext {
@@ -21956,6 +22027,75 @@ index f893d3d20..a1174d769 100644
      #[tokio::test]
      async fn send_error_routes_to_target_connection() {
          let (tx, mut rx) = mpsc::channel::<OutgoingEnvelope>(4);
+@@ -1614,6 +1716,68 @@ mod tests {
+         );
+     }
+ 
++    #[tokio::test]
++    async fn ordinary_pending_survives_disconnect_and_first_response_consumes_callback() {
++        let (tx, mut rx) = mpsc::channel::<OutgoingEnvelope>(8);
++        let outgoing = Arc::new(OutgoingMessageSender::new(
++            tx,
++            codex_analytics::AnalyticsEventsClient::disabled(),
++        ));
++        let thread_id = ThreadId::new();
++        let gui = ConnectionId(1);
++        let tui = ConnectionId(2);
++        let scoped = ThreadScopedOutgoingMessageSender::new(outgoing.clone(), vec![gui], thread_id);
++        let (id, waiter) = scoped
++            .send_request(ServerRequestPayload::DynamicToolCall(
++                DynamicToolCallParams {
++                    thread_id: thread_id.to_string(),
++                    turn_id: "turn-1".to_string(),
++                    call_id: "call-1".to_string(),
++                    namespace: None,
++                    tool: "tool".to_string(),
++                    arguments: json!({}),
++                },
++            ))
++            .await;
++        assert!(
++            matches!(rx.recv().await, Some(OutgoingEnvelope::ToConnection {
++            connection_id, message: OutgoingMessage::Request(_), ..
++        }) if connection_id == gui)
++        );
++        outgoing.connection_closed(gui).await;
++        assert_eq!(
++            outgoing.pending_requests_for_thread(thread_id).await.len(),
++            1
++        );
++        outgoing
++            .replay_requests_to_connection_for_thread(tui, thread_id)
++            .await;
++        assert!(
++            matches!(rx.recv().await, Some(OutgoingEnvelope::ToConnection {
++            connection_id, message: OutgoingMessage::Request(request), ..
++        }) if connection_id == tui && request.id() == &id)
++        );
++        let first = json!({"contentItems":[],"success":true});
++        outgoing
++            .notify_client_response(tui, id.clone(), first.clone())
++            .await;
++        // A stale response cannot resolve or restore a callback already consumed.
++        outgoing
++            .notify_client_response(gui, id, json!({"success":false}))
++            .await;
++        assert_eq!(waiter.await.unwrap(), Ok(first));
++        assert!(
++            outgoing
++                .pending_requests_for_thread(thread_id)
++                .await
++                .is_empty()
++        );
++        outgoing
++            .replay_requests_to_connection_for_thread(tui, thread_id)
++            .await;
++        assert!(rx.try_recv().is_err());
++    }
++
+     #[tokio::test]
+     async fn cancel_requests_for_thread_cancels_all_thread_requests() {
+         let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(8);
 diff --git a/codex-rs/app-server/src/request_processors/apps_processor/installed.rs b/codex-rs/app-server/src/request_processors/apps_processor/installed.rs
 index 7631f2426..b486fcb23 100644
 --- a/codex-rs/app-server/src/request_processors/apps_processor/installed.rs
@@ -23502,15 +23642,18 @@ index 13f7dbe72..bf4959af7 100644
 +    }
 +}
 diff --git a/codex-rs/app-server/src/request_processors/thread_lifecycle.rs b/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
-index f864f0f34..ceee2e871 100644
+index f864f0f34..75ef87c2c 100644
 --- a/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
-@@ -1,3 +1,4 @@
+@@ -1,4 +1,7 @@
 +use super::thread_input::can_accept_direct_input;
  use super::*;
++use crate::error_code::passive_runtime_unavailable;
++use crate::error_code::passive_subscription_unavailable;
  use crate::extensions::send_thread_warning;
  use codex_app_server_protocol::ThreadQueueChangedNotification;
-@@ -309,6 +310,7 @@ pub(super) async fn ensure_listener_task_running(
+ use codex_core::ThreadEvictionOutcome;
+@@ -309,6 +312,7 @@ pub(super) async fn ensure_listener_task_running(
                      handle_thread_listener_command(
                          conversation_id,
                          &conversation,
@@ -23518,7 +23661,7 @@ index f864f0f34..ceee2e871 100644
                          codex_home.as_path(),
                          &thread_state_manager,
                          &thread_state,
-@@ -627,6 +629,7 @@ pub(super) async fn unload_thread_without_subscribers(
+@@ -627,6 +631,7 @@ pub(super) async fn unload_thread_without_subscribers(
  pub(super) async fn handle_thread_listener_command(
      conversation_id: ThreadId,
      conversation: &Arc<CodexThread>,
@@ -23526,7 +23669,7 @@ index f864f0f34..ceee2e871 100644
      codex_home: &Path,
      thread_state_manager: &ThreadStateManager,
      thread_state: &Arc<Mutex<ThreadState>>,
-@@ -643,6 +646,7 @@ pub(super) async fn handle_thread_listener_command(
+@@ -643,6 +648,7 @@ pub(super) async fn handle_thread_listener_command(
              handle_pending_thread_resume_request(
                  conversation_id,
                  conversation,
@@ -23534,7 +23677,7 @@ index f864f0f34..ceee2e871 100644
                  codex_home,
                  thread_state_manager,
                  thread_state,
-@@ -721,6 +725,7 @@ pub(super) async fn handle_thread_listener_command(
+@@ -721,6 +727,7 @@ pub(super) async fn handle_thread_listener_command(
  pub(super) async fn handle_pending_thread_resume_request(
      conversation_id: ThreadId,
      conversation: &Arc<CodexThread>,
@@ -23542,7 +23685,7 @@ index f864f0f34..ceee2e871 100644
      _codex_home: &Path,
      thread_state_manager: &ThreadStateManager,
      thread_state: &Arc<Mutex<ThreadState>>,
-@@ -729,6 +734,25 @@ pub(super) async fn handle_pending_thread_resume_request(
+@@ -729,6 +736,25 @@ pub(super) async fn handle_pending_thread_resume_request(
      pending_thread_unloads: &PendingThreadUnloads,
      mut pending: crate::thread_state::PendingThreadResumeRequest,
  ) {
@@ -23568,18 +23711,18 @@ index f864f0f34..ceee2e871 100644
      let (active_turn_metadata, active_turn) = {
          let state = thread_state.lock().await;
          let items_view = if pending.include_turns {
-@@ -850,17 +874,55 @@ pub(super) async fn handle_pending_thread_resume_request(
+@@ -850,17 +876,58 @@ pub(super) async fn handle_pending_thread_resume_request(
              outgoing
                  .send_error(
                      request_id,
 -                    invalid_request(format!(
 -                        "thread {conversation_id} is closing; retry thread/resume after the thread is closed"
 -                    )),
-+                    invalid_request(if pending.passive {
-+                        format!("thread {conversation_id} is not ready: closing")
++                    if pending.passive {
++                        passive_subscription_unavailable("closing")
 +                    } else {
-+                        format!("thread {conversation_id} is closing; retry thread/resume after the thread is closed")
-+                    }),
++                        invalid_request(format!("thread {conversation_id} is closing; retry thread/resume after the thread is closed"))
++                    },
                  )
                  .await;
              return;
@@ -23592,10 +23735,10 @@ index f864f0f34..ceee2e871 100644
 +                .await
 +            {
 +                Ok(guard) => Some(guard),
-+                Err(_) => {
++                Err(reason) => {
 +                    drop(pending_thread_unloads);
 +                    outgoing
-+                        .send_error(request_id, invalid_request("thread runtime is not ready"))
++                        .send_error(request_id, passive_runtime_unavailable(reason))
 +                        .await;
 +                    return;
 +                }
@@ -23610,7 +23753,10 @@ index f864f0f34..ceee2e871 100644
 +                drop(runtime_guard);
 +                drop(pending_thread_unloads);
 +                outgoing
-+                    .send_error(request_id, invalid_request("thread listener is not ready"))
++                    .send_error(
++                        request_id,
++                        passive_subscription_unavailable("listenerNotReady"),
++                    )
 +                    .await;
 +                return;
 +            }
@@ -23627,7 +23773,7 @@ index f864f0f34..ceee2e871 100644
              tracing::debug!(
                  thread_id = %conversation_id,
                  connection_id = ?connection_id,
-@@ -932,6 +994,11 @@ pub(super) async fn handle_pending_thread_resume_request(
+@@ -932,6 +999,11 @@ pub(super) async fn handle_pending_thread_resume_request(
          turns_backwards_cursor,
          items_backwards_cursor,
      };
@@ -23639,7 +23785,7 @@ index f864f0f34..ceee2e871 100644
      outgoing
          .send_response_with_thread_originator(request_id, response, originator)
          .await;
-@@ -949,7 +1016,7 @@ pub(super) async fn handle_pending_thread_resume_request(
+@@ -949,7 +1021,7 @@ pub(super) async fn handle_pending_thread_resume_request(
          )
          .await;
      }
@@ -23648,7 +23794,7 @@ index f864f0f34..ceee2e871 100644
          if let Some(state_db) = pending.thread_goal_state_db {
              send_thread_goal_snapshot_notification(outgoing, conversation_id, &state_db).await;
          } else {
-@@ -964,9 +1031,11 @@ pub(super) async fn handle_pending_thread_resume_request(
+@@ -964,9 +1036,11 @@ pub(super) async fn handle_pending_thread_resume_request(
          .await;
      // App-server owns resume response and snapshot ordering, so wait until
      // replay completes before letting extensions react to the idle thread.
@@ -23808,10 +23954,19 @@ index b58ea6e8b..7c2f9a597 100644
      }
  }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 941e32e5c..9d566d3bc 100644
+index 941e32e5c..ef44724eb 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
-@@ -469,6 +469,7 @@ pub(crate) struct ThreadRequestProcessor {
+@@ -14,6 +14,8 @@ use super::thread_input::ensure_direct_input_allowed;
+ use super::*;
+ use crate::connection_rpc_gate::ConnectionRpcGate;
+ use crate::error_code::method_not_found;
++use crate::error_code::passive_runtime_unavailable;
++use crate::error_code::passive_subscription_unavailable;
+ use crate::thread_sample::SampleTask;
+ use crate::thread_sample::SampleThread;
+ use crate::thread_sample::generate_sample;
+@@ -469,6 +471,7 @@ pub(crate) struct ThreadRequestProcessor {
      pub(super) thread_watch_manager: ThreadWatchManager,
      pub(super) thread_list_state_permit: Arc<Semaphore>,
      pub(super) thread_goal_processor: ThreadGoalRequestProcessor,
@@ -23819,7 +23974,7 @@ index 941e32e5c..9d566d3bc 100644
      pub(super) state_db: Option<StateDbHandle>,
      pub(super) log_db: Option<LogDbLayer>,
      pub(super) background_tasks: TaskTracker,
-@@ -510,6 +511,7 @@ impl ThreadRequestProcessor {
+@@ -510,6 +513,7 @@ impl ThreadRequestProcessor {
          thread_watch_manager: ThreadWatchManager,
          thread_list_state_permit: Arc<Semaphore>,
          thread_goal_processor: ThreadGoalRequestProcessor,
@@ -23827,7 +23982,7 @@ index 941e32e5c..9d566d3bc 100644
          state_db: Option<StateDbHandle>,
          log_db: Option<LogDbLayer>,
          skills_watcher: Arc<SkillsWatcher>,
-@@ -530,6 +532,7 @@ impl ThreadRequestProcessor {
+@@ -530,6 +534,7 @@ impl ThreadRequestProcessor {
              thread_watch_manager,
              thread_list_state_permit,
              thread_goal_processor,
@@ -23835,7 +23990,7 @@ index 941e32e5c..9d566d3bc 100644
              state_db,
              log_db,
              background_tasks: TaskTracker::new(),
-@@ -571,6 +574,76 @@ impl ThreadRequestProcessor {
+@@ -571,6 +576,90 @@ impl ThreadRequestProcessor {
              .map(|response| Some(response.into()))
      }
  
@@ -23849,24 +24004,38 @@ index 941e32e5c..9d566d3bc 100644
 +        request_id: ConnectionRequestId,
 +        params: codex_app_server_protocol::ThreadSubscribePassiveParams,
 +    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-+        let (thread_id, thread) = self.load_thread(&params.thread_id).await?;
++        let thread_id = ThreadId::from_string(&params.thread_id)
++            .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
++        let thread = self
++            .thread_manager
++            .get_thread(thread_id)
++            .await
++            .map_err(|_| passive_subscription_unavailable("notLoaded"))?;
 +        let activity_guard = self
 +            .thread_manager
 +            .admit_thread_activity(thread_id)
-+            .map_err(|error| invalid_request(format!("thread is not ready: {error}")))?;
++            .map_err(|_| passive_subscription_unavailable("closing"))?;
++        // Inspect closing under the existing identity boundary before reporting a
++        // missing listener. The final membership commit revalidates this Arc.
++        drop(
++            self.thread_manager
++                .lock_loaded_thread(thread_id, &thread)
++                .await
++                .map_err(passive_runtime_unavailable)?,
++        );
 +        let state = self
 +            .thread_state_manager
 +            .existing_thread_state(thread_id)
 +            .await
-+            .ok_or_else(|| invalid_request("thread listener is not ready"))?;
++            .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?;
 +        let tx = {
 +            let state = state.lock().await;
 +            if !state.listener_matches(&thread) {
-+                return Err(invalid_request("thread listener is not ready"));
++                return Err(passive_subscription_unavailable("listenerNotReady"));
 +            }
 +            state
 +                .listener_command_tx()
-+                .ok_or_else(|| invalid_request("thread listener is not ready"))?
++                .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?
 +        };
 +        let (config_snapshot, _) = thread.resume_config_snapshot().await;
 +        let mut thread_summary =
@@ -23902,17 +24071,17 @@ index 941e32e5c..9d566d3bc 100644
 +                completion_tx,
 +            },
 +        )
-+        .map_err(|_| invalid_request("thread listener is not ready"))?;
++        .map_err(|_| passive_subscription_unavailable("listenerNotReady"))?;
 +        completion_rx
 +            .await
-+            .map_err(|_| invalid_request("thread listener closed before subscription completed"))?;
++            .map_err(|_| passive_subscription_unavailable("closing"))?;
 +        Ok(None)
 +    }
 +
      pub(crate) async fn thread_resume(
          &self,
          target: ThreadResumeTarget,
-@@ -852,6 +925,24 @@ impl ThreadRequestProcessor {
+@@ -852,6 +941,24 @@ impl ThreadRequestProcessor {
              .map(|response| Some(response.into()))
      }
  
@@ -23937,7 +24106,7 @@ index 941e32e5c..9d566d3bc 100644
      pub(crate) async fn thread_background_terminals_terminate(
          &self,
          params: ThreadBackgroundTerminalsTerminateParams,
-@@ -909,13 +1000,80 @@ impl ThreadRequestProcessor {
+@@ -909,13 +1016,80 @@ impl ThreadRequestProcessor {
              .map(|response| Some(response.into()))
      }
  
@@ -24019,7 +24188,7 @@ index 941e32e5c..9d566d3bc 100644
          if include_turns
              && matches!(
                  response.thread.history_mode,
-@@ -935,18 +1093,34 @@ impl ThreadRequestProcessor {
+@@ -935,18 +1109,34 @@ impl ThreadRequestProcessor {
          &self,
          params: ThreadTurnsListParams,
      ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
@@ -24060,7 +24229,7 @@ index 941e32e5c..9d566d3bc 100644
      }
  
      pub(crate) async fn thread_items_read(
-@@ -3452,6 +3626,9 @@ impl ThreadRequestProcessor {
+@@ -3452,6 +3642,9 @@ impl ThreadRequestProcessor {
              })
              .await
              .map_err(|err| match err {
@@ -24070,7 +24239,7 @@ index 941e32e5c..9d566d3bc 100644
                  ThreadStoreError::InvalidRequest { message } => invalid_request(message),
                  ThreadStoreError::Unsupported { operation } => {
                      unsupported_thread_store_operation(operation)
-@@ -3459,7 +3636,12 @@ impl ThreadRequestProcessor {
+@@ -3459,7 +3652,12 @@ impl ThreadRequestProcessor {
                  ThreadStoreError::ThreadNotFound { thread_id } => {
                      invalid_request(format!("no rollout found for thread id {thread_id}"))
                  }
@@ -24084,7 +24253,7 @@ index 941e32e5c..9d566d3bc 100644
              })?;
          let mut turns = Vec::with_capacity(page.turns.len());
          for turn in page.turns {
-@@ -3682,6 +3864,9 @@ impl ThreadRequestProcessor {
+@@ -3682,6 +3880,9 @@ impl ThreadRequestProcessor {
              })
              .await
              .map_err(|err| match err {
@@ -24094,7 +24263,7 @@ index 941e32e5c..9d566d3bc 100644
                  ThreadStoreError::InvalidRequest { message } if has_anchor => {
                      invalid_params(message)
                  }
-@@ -3743,6 +3928,9 @@ impl ThreadRequestProcessor {
+@@ -3743,6 +3944,9 @@ impl ThreadRequestProcessor {
                  ThreadStoreError::Unsupported { .. } => {
                      method_not_found("thread/items/read is not supported yet")
                  }
@@ -24104,7 +24273,7 @@ index 941e32e5c..9d566d3bc 100644
                  ThreadStoreError::ThreadNotFound { thread_id } => {
                      invalid_request(format!("no rollout found for thread id {thread_id}"))
                  }
-@@ -4646,12 +4834,26 @@ impl ThreadRequestProcessor {
+@@ -4646,12 +4850,26 @@ impl ThreadRequestProcessor {
              && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
          {
              let source_thread = self
@@ -24137,7 +24306,7 @@ index 941e32e5c..9d566d3bc 100644
              Some((existing_thread_id, existing_thread, source_thread))
          } else {
              let source_thread = self
-@@ -4663,7 +4865,9 @@ impl ThreadRequestProcessor {
+@@ -4663,7 +4881,9 @@ impl ThreadRequestProcessor {
                  .await?;
              let existing_thread_id = source_thread.thread_id;
              match self.thread_manager.get_thread(existing_thread_id).await {
@@ -24148,7 +24317,7 @@ index 941e32e5c..9d566d3bc 100644
                  Err(_) => {
                      return Ok(RunningThreadResumeResult::NotRunning(Some(Box::new(
                          source_thread,
-@@ -4673,12 +4877,25 @@ impl ThreadRequestProcessor {
+@@ -4673,12 +4893,25 @@ impl ThreadRequestProcessor {
          };
  
          if let Some((existing_thread_id, existing_thread, mut source_thread)) = running_thread {
@@ -24179,7 +24348,7 @@ index 941e32e5c..9d566d3bc 100644
              if let (Some(requested_path), Some(active_path)) = (params.path.as_ref(), active_path)
                  && !path_utils::paths_match_after_normalization(requested_path, active_path)
              {
-@@ -4688,8 +4905,6 @@ impl ThreadRequestProcessor {
+@@ -4688,8 +4921,6 @@ impl ThreadRequestProcessor {
                      active_path.display()
                  )));
              }
@@ -24188,7 +24357,7 @@ index 941e32e5c..9d566d3bc 100644
              let mismatch_details = collect_resume_override_mismatches(
                  params,
                  &config_snapshot,
-@@ -4709,10 +4924,12 @@ impl ThreadRequestProcessor {
+@@ -4709,10 +4940,12 @@ impl ThreadRequestProcessor {
                      matches!(existing_thread.agent_status().await, AgentStatus::Running);
  
                  // Parent-owned V2 children must not be rebuilt from public resume overrides.
@@ -24205,7 +24374,7 @@ index 941e32e5c..9d566d3bc 100644
                      && matches!(loaded_status, ThreadStatus::Idle)
                      && !is_running
                  {
-@@ -4757,9 +4974,12 @@ impl ThreadRequestProcessor {
+@@ -4757,9 +4990,12 @@ impl ThreadRequestProcessor {
              let needs_history =
                  !paginated_resume && (include_turns || params.initial_turns_page.is_some());
              if needs_history {
@@ -24219,7 +24388,7 @@ index 941e32e5c..9d566d3bc 100644
                      .read_stored_thread_for_resume(
                          &source_thread_id,
                          source_rollout_path.as_ref(),
-@@ -4775,8 +4995,8 @@ impl ThreadRequestProcessor {
+@@ -4775,8 +5011,8 @@ impl ThreadRequestProcessor {
              }
              let history_items = if needs_history {
                  source_thread
@@ -24230,7 +24399,7 @@ index 941e32e5c..9d566d3bc 100644
                      .map(|history| history.items)
                      .ok_or_else(|| {
                          internal_error(format!(
-@@ -4804,11 +5024,21 @@ impl ThreadRequestProcessor {
+@@ -4804,11 +5040,21 @@ impl ThreadRequestProcessor {
              )
              .await?;
  
@@ -24257,7 +24426,7 @@ index 941e32e5c..9d566d3bc 100644
              thread_summary.session_id = existing_thread.startup_metadata().session_id.to_string();
              thread_summary.thread_source = config_snapshot.thread_source.clone().map(Into::into);
              apply_live_thread_settings(&mut thread_summary, &config_snapshot);
-@@ -4882,12 +5112,13 @@ impl ThreadRequestProcessor {
+@@ -4882,12 +5128,13 @@ impl ThreadRequestProcessor {
              } else {
                  None
              };
@@ -24272,7 +24441,7 @@ index 941e32e5c..9d566d3bc 100644
                      history_items,
                      cold_resume_token_usage_turn_id,
                      config_snapshot,
-@@ -6353,8 +6584,15 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
+@@ -6353,8 +6600,15 @@ pub(super) fn thread_read_view_error(err: ThreadReadViewError) -> JSONRPCErrorEr
      }
  }
  
@@ -24289,7 +24458,7 @@ index 941e32e5c..9d566d3bc 100644
          ThreadStoreError::InvalidRequest { message } => invalid_request(message),
          ThreadStoreError::Unsupported { operation } => {
              unsupported_thread_store_operation(operation)
-@@ -6362,7 +6600,12 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
+@@ -6362,7 +6616,12 @@ fn paginated_history_list_error(err: ThreadStoreError) -> JSONRPCErrorError {
          ThreadStoreError::ThreadNotFound { thread_id } => {
              invalid_request(format!("no rollout found for thread id {thread_id}"))
          }
@@ -24303,7 +24472,7 @@ index 941e32e5c..9d566d3bc 100644
      }
  }
  
-@@ -6867,7 +7110,7 @@ fn paginate_background_terminals(
+@@ -6867,7 +7126,7 @@ fn paginate_background_terminals(
      Ok((terminals[start..end].to_vec(), next_cursor))
  }
  
@@ -24867,6 +25036,19 @@ index a7c322292..44ebcfa96 100644
              last_token_usage: TokenUsage {
                  input_tokens: 70,
                  cached_input_tokens: 10,
+diff --git a/codex-rs/app-server/tests/common/test_app_server.rs b/codex-rs/app-server/tests/common/test_app_server.rs
+index 1e688ae71..29c7d60fd 100644
+--- a/codex-rs/app-server/tests/common/test_app_server.rs
++++ b/codex-rs/app-server/tests/common/test_app_server.rs
+@@ -260,6 +260,8 @@ impl TestAppServer {
+         args: &[&str],
+     ) -> anyhow::Result<Self> {
+         let mut cmd = Command::new(program);
++        #[cfg(windows)]
++        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+ 
+         cmd.stdin(Stdio::piped());
+         cmd.stdout(Stdio::piped());
 diff --git a/codex-rs/app-server/tests/suite/v2/memory_read.rs b/codex-rs/app-server/tests/suite/v2/memory_read.rs
 index 2cc136ff2..28825375a 100644
 --- a/codex-rs/app-server/tests/suite/v2/memory_read.rs
@@ -27574,10 +27756,10 @@ index 21cff3a7a..4644e0f31 100644
          assert_eq!(
 diff --git a/codex-rs/cli/tests/ui_language.rs b/codex-rs/cli/tests/ui_language.rs
 new file mode 100644
-index 000000000..53817b7b0
+index 000000000..e3bbe52ab
 --- /dev/null
 +++ b/codex-rs/cli/tests/ui_language.rs
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,91 @@
 +use std::path::Path;
 +
 +use anyhow::Result;
@@ -27587,12 +27769,17 @@ index 000000000..53817b7b0
 +use tempfile::TempDir;
 +
 +fn command(home: &Path, project: &Path) -> Result<assert_cmd::Command> {
-+    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
++    let mut cmd = std::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
++    #[cfg(windows)]
++    {
++        use std::os::windows::process::CommandExt;
++        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
++    }
 +    cmd.env("CODEX_HOME", home)
 +        .env_remove("CODEX_UI_LANGUAGE")
 +        .current_dir(project)
 +        .arg("--help");
-+    Ok(cmd)
++    Ok(assert_cmd::Command::from_std(cmd))
 +}
 +
 +#[test]
@@ -33617,14 +33804,15 @@ index 3dde6e1ae..bb9747feb 100644
      for hook_outcome in hooks
          .dispatch(codex_hooks::HookPayload {
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
-index 2c91c8e48..63706621c 100644
+index 2c91c8e48..78b7fec28 100644
 --- a/codex-rs/core/src/lib.rs
 +++ b/codex-rs/core/src/lib.rs
-@@ -161,12 +161,16 @@ pub use thread_manager::AgentTreeShutdownFailureReason;
+@@ -161,12 +161,17 @@ pub use thread_manager::AgentTreeShutdownFailureReason;
  pub use thread_manager::AgentTreeShutdownReport;
  pub use thread_manager::ForkSnapshot;
  pub use thread_manager::InternalSessionParent;
 +pub use thread_manager::LoadedThreadReadGuard;
++pub use thread_manager::LoadedThreadUnavailable;
  pub use thread_manager::NewThread;
  pub use thread_manager::PromptCacheKey;
  pub use thread_manager::StartThreadOptions;
@@ -36552,7 +36740,7 @@ index beeda1022..5adce3a5f 100644
                  .await
                  .expect("response usage should be recorded");
 diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
-index 76ffa26d7..991172cb3 100644
+index 76ffa26d7..37d238999 100644
 --- a/codex-rs/core/src/thread_manager.rs
 +++ b/codex-rs/core/src/thread_manager.rs
 @@ -1,3 +1,4 @@
@@ -36560,7 +36748,7 @@ index 76ffa26d7..991172cb3 100644
  mod managed;
  mod shared_instructions;
  mod shutdown;
-@@ -437,12 +438,19 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
+@@ -437,12 +438,28 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
      pub(crate) client_mcp_extensions: Option<ClientMcpExtensions>,
  }
  
@@ -36568,6 +36756,15 @@ index 76ffa26d7..991172cb3 100644
 +/// Do not hold this guard over response delivery or other I/O.
 +pub struct LoadedThreadReadGuard {
 +    _registry: tokio::sync::OwnedRwLockReadGuard<HashMap<ThreadId, Arc<CodexThread>>>,
++}
++
++/// Failure observed under the registry lock, without parsing diagnostic strings.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum LoadedThreadUnavailable {
++    NotLoaded,
++    Replaced,
++    Closing,
++    Unsupported,
 +}
 +
  /// Shared, `Arc`-owned state for [`ThreadManager`]. This `Arc` is required to have a single
@@ -36580,7 +36777,7 @@ index 76ffa26d7..991172cb3 100644
      shared_thread_instructions: shared_instructions::SharedThreadInstructionsProviders,
      thread_created_tx: broadcast::Sender<ThreadId>,
      thread_id_generator: ThreadIdGenerator,
-@@ -615,6 +623,7 @@ impl ThreadManager {
+@@ -615,6 +632,7 @@ impl ThreadManager {
          Self {
              state: Arc::new(ThreadManagerState {
                  threads: Arc::new(RwLock::new(HashMap::new())),
@@ -36588,7 +36785,7 @@ index 76ffa26d7..991172cb3 100644
                  shared_thread_instructions: Default::default(),
                  thread_created_tx,
                  thread_id_generator: default_thread_id_generator(),
-@@ -803,6 +812,7 @@ impl ThreadManager {
+@@ -803,6 +821,7 @@ impl ThreadManager {
          Self {
              state: Arc::new(ThreadManagerState {
                  threads: Arc::new(RwLock::new(HashMap::new())),
@@ -36596,7 +36793,7 @@ index 76ffa26d7..991172cb3 100644
                  shared_thread_instructions: Default::default(),
                  thread_created_tx,
                  thread_id_generator: default_thread_id_generator(),
-@@ -979,6 +989,28 @@ impl ThreadManager {
+@@ -979,6 +998,30 @@ impl ThreadManager {
          self.state.get_thread(thread_id).await
      }
  
@@ -36605,17 +36802,19 @@ index 76ffa26d7..991172cb3 100644
 +        &self,
 +        thread_id: ThreadId,
 +        expected: &Arc<CodexThread>,
-+    ) -> CodexResult<LoadedThreadReadGuard> {
++    ) -> Result<LoadedThreadReadGuard, LoadedThreadUnavailable> {
 +        let registry = Arc::clone(&self.state.threads).read_owned().await;
-+        if !registry.get(&thread_id).is_some_and(|thread| {
-+            Arc::ptr_eq(thread, expected)
-+                && !thread.session_source.is_internal()
-+                && thread.is_running()
-+                && !thread.io.admission.is_closing()
-+        }) {
-+            return Err(CodexErr::InvalidRequest(
-+                "thread runtime is not ready".into(),
-+            ));
++        let thread = registry
++            .get(&thread_id)
++            .ok_or(LoadedThreadUnavailable::NotLoaded)?;
++        if !Arc::ptr_eq(thread, expected) {
++            return Err(LoadedThreadUnavailable::Replaced);
++        }
++        if thread.session_source.is_internal() {
++            return Err(LoadedThreadUnavailable::Unsupported);
++        }
++        if !thread.is_running() || thread.io.admission.is_closing() {
++            return Err(LoadedThreadUnavailable::Closing);
 +        }
 +        Ok(LoadedThreadReadGuard {
 +            _registry: registry,
@@ -36625,7 +36824,7 @@ index 76ffa26d7..991172cb3 100644
      /// Board hosts may reach internal runtimes only through a matching explicit connection.
      pub(crate) async fn get_thread_for_board(
          &self,
-@@ -2116,6 +2148,19 @@ impl ThreadManagerState {
+@@ -2116,6 +2159,19 @@ impl ThreadManagerState {
  
      /// Spawn a new thread with optional history and register it with the manager.
      async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
@@ -36645,7 +36844,7 @@ index 76ffa26d7..991172cb3 100644
          let cancellation = request
              .options
              .config
-@@ -2136,6 +2181,7 @@ impl ThreadManagerState {
+@@ -2136,6 +2192,7 @@ impl ThreadManagerState {
                  .get_or_insert_with(|| Arc::new(SessionStartup::default())),
          );
          startup_state.hold_membership(membership);
@@ -37261,7 +37460,7 @@ index 000000000..41f8aad43
 +mod tests;
 diff --git a/codex-rs/core/src/thread_manager/cleanup_tests.rs b/codex-rs/core/src/thread_manager/cleanup_tests.rs
 new file mode 100644
-index 000000000..463f8f97a
+index 000000000..47da61544
 --- /dev/null
 +++ b/codex-rs/core/src/thread_manager/cleanup_tests.rs
 @@ -0,0 +1,1132 @@
@@ -38150,12 +38349,12 @@ index 000000000..463f8f97a
 +    assert!(!Arc::ptr_eq(&reopened.thread, &done.thread));
 +    // The passive subscription commit must reject an old Arc after a real
 +    // shutdown/reopen, even though the public thread ID is unchanged.
-+    assert!(
++    assert!(matches!(
 +        manager
 +            .lock_loaded_thread(done.thread_id, &done.thread)
-+            .await
-+            .is_err()
-+    );
++            .await,
++        Err(LoadedThreadUnavailable::Replaced)
++    ));
 +    drop(
 +        manager
 +            .lock_loaded_thread(reopened.thread_id, &reopened.thread)
@@ -38388,12 +38587,12 @@ index 000000000..463f8f97a
 +    drop(guard);
 +    let removed = removal.await.unwrap();
 +    assert!(Arc::ptr_eq(&removed, &root.thread));
-+    assert!(
++    assert!(matches!(
 +        manager
 +            .lock_loaded_thread(root.thread_id, &root.thread)
-+            .await
-+            .is_err()
-+    );
++            .await,
++        Err(LoadedThreadUnavailable::NotLoaded)
++    ));
 +    assert_eq!(root.thread.io.admission.activity_revision(), revision);
 +    removed.shutdown_and_wait().await.unwrap();
 +}

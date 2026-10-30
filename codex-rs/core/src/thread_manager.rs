@@ -445,6 +445,15 @@ pub struct LoadedThreadReadGuard {
     _registry: tokio::sync::OwnedRwLockReadGuard<HashMap<ThreadId, Arc<CodexThread>>>,
 }
 
+/// Failure observed under the registry lock, without parsing diagnostic strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadedThreadUnavailable {
+    NotLoaded,
+    Replaced,
+    Closing,
+    Unsupported,
+}
+
 /// Shared, `Arc`-owned state for [`ThreadManager`]. This `Arc` is required to have a single
 /// `Arc` reference that can be downgraded to by `LocalAgentControl` while preventing every single
 /// function to require an `Arc<&Self>`.
@@ -995,17 +1004,19 @@ impl ThreadManager {
         &self,
         thread_id: ThreadId,
         expected: &Arc<CodexThread>,
-    ) -> CodexResult<LoadedThreadReadGuard> {
+    ) -> Result<LoadedThreadReadGuard, LoadedThreadUnavailable> {
         let registry = Arc::clone(&self.state.threads).read_owned().await;
-        if !registry.get(&thread_id).is_some_and(|thread| {
-            Arc::ptr_eq(thread, expected)
-                && !thread.session_source.is_internal()
-                && thread.is_running()
-                && !thread.io.admission.is_closing()
-        }) {
-            return Err(CodexErr::InvalidRequest(
-                "thread runtime is not ready".into(),
-            ));
+        let thread = registry
+            .get(&thread_id)
+            .ok_or(LoadedThreadUnavailable::NotLoaded)?;
+        if !Arc::ptr_eq(thread, expected) {
+            return Err(LoadedThreadUnavailable::Replaced);
+        }
+        if thread.session_source.is_internal() {
+            return Err(LoadedThreadUnavailable::Unsupported);
+        }
+        if !thread.is_running() || thread.io.admission.is_closing() {
+            return Err(LoadedThreadUnavailable::Closing);
         }
         Ok(LoadedThreadReadGuard {
             _registry: registry,

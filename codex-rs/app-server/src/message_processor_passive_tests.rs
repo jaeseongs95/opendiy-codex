@@ -93,6 +93,14 @@ async fn start(
 }
 
 async fn error(rx: &mut Receiver, id: ConnectionId, request_id: i64) -> String {
+    error_details(rx, id, request_id).await.message
+}
+
+async fn error_details(
+    rx: &mut Receiver,
+    id: ConnectionId,
+    request_id: i64,
+) -> codex_app_server_protocol::JSONRPCErrorError {
     loop {
         if let Some(OutgoingEnvelope::ToConnection {
             connection_id,
@@ -101,10 +109,20 @@ async fn error(rx: &mut Receiver, id: ConnectionId, request_id: i64) -> String {
         }) = timeout(DEADLINE, rx.recv()).await.unwrap()
         {
             if connection_id == id && error.id == RequestId::Integer(request_id) {
-                return error.error.message;
+                return error.error;
             }
         }
     }
+}
+
+fn assert_passive_unavailable(error: codex_app_server_protocol::JSONRPCErrorError, reason: &str) {
+    assert_eq!(error.code, crate::error_code::INVALID_REQUEST_ERROR_CODE);
+    assert_eq!(
+        error.data,
+        Some(json!({
+            "kind": "threadSubscriptionUnavailable", "reason": reason,
+        }))
+    );
 }
 
 async fn finish(processor: &Arc<MessageProcessor>, rx: Receiver) {
@@ -303,7 +321,7 @@ async fn passive_duplicate_unsubscribe_disconnect_and_missing_runtime_do_not_res
     assert_eq!(states.subscribed_connection_ids(id).await, vec![owner]);
     let missing = ThreadId::new();
     send(&processor,owner,&sa,json!({"id":24,"method":"thread/subscribePassive","params":{"threadId":missing.to_string()}})).await;
-    assert!(error(&mut rx, owner, 24).await.contains("not found"));
+    assert_passive_unavailable(error_details(&mut rx, owner, 24).await, "notLoaded");
     assert!(
         processor
             .thread_processor
@@ -682,7 +700,7 @@ async fn passive_refuses_removed_runtime_or_listener_absence() -> Result<()> {
         json!({"id":69,"method":"thread/subscribePassive","params":{"threadId":thread.id}}),
     )
     .await;
-    assert!(error(&mut rx, observer, 69).await.contains("closing"));
+    assert_passive_unavailable(error_details(&mut rx, observer, 69).await, "closing");
     assert!(
         !states
             .subscribed_connection_ids(id)
@@ -695,11 +713,7 @@ async fn passive_refuses_removed_runtime_or_listener_absence() -> Result<()> {
         .lock()
         .await
         .remove(&id);
-    let pending = processor
-        .thread_processor
-        .pending_thread_unloads
-        .lock()
-        .await;
+    let (snapshot_entered, release_snapshot) = states.pause_passive_snapshot_for_test(id).await;
     send(
         &processor,
         observer,
@@ -707,17 +721,17 @@ async fn passive_refuses_removed_runtime_or_listener_absence() -> Result<()> {
         json!({"id":70,"method":"thread/subscribePassive","params":{"threadId":thread.id}}),
     )
     .await;
-    // A command queued behind the held unload lock has not committed membership.
-    // Remove the actual registered runtime while the listener's command is blocked.
+    // The real listener has taken its snapshot but has not committed membership.
+    timeout(DEADLINE, snapshot_entered).await??;
+    // Remove the actual registered runtime at that exact boundary.
     let old = processor
         .thread_processor
         .thread_manager
         .remove_thread(&id)
         .await
         .expect("old runtime");
-    drop(pending);
-    let refusal = error(&mut rx, observer, 70).await;
-    assert!(refusal.contains("not ready") || refusal.contains("not found"));
+    release_snapshot.send(()).unwrap();
+    assert_passive_unavailable(error_details(&mut rx, observer, 70).await, "notLoaded");
     assert!(
         !states
             .subscribed_connection_ids(id)
@@ -731,10 +745,9 @@ async fn passive_refuses_removed_runtime_or_listener_absence() -> Result<()> {
         .start_thread(codex_core::StartThreadOptions::new((*config).clone()))
         .await?;
     send(&processor,observer,&sb,json!({"id":71,"method":"thread/subscribePassive","params":{"threadId":created.thread_id.to_string()}})).await;
-    assert!(
-        error(&mut rx, observer, 71)
-            .await
-            .contains("listener is not ready")
+    assert_passive_unavailable(
+        error_details(&mut rx, observer, 71).await,
+        "listenerNotReady",
     );
     assert!(
         states
@@ -742,6 +755,30 @@ async fn passive_refuses_removed_runtime_or_listener_absence() -> Result<()> {
             .await
             .is_none()
     );
+    created.thread.shutdown_and_wait().await?;
+    send(&processor,observer,&sb,json!({"id":72,"method":"thread/subscribePassive","params":{"threadId":created.thread_id.to_string()}})).await;
+    assert_passive_unavailable(error_details(&mut rx, observer, 72).await, "closing");
+    send(
+        &processor,
+        observer,
+        &sb,
+        json!({"id":73,"method":"thread/subscribePassive","params":{"threadId":"invalid"}}),
+    )
+    .await;
+    let invalid = error_details(&mut rx, observer, 73).await;
+    assert_eq!(
+        invalid.data, None,
+        "invalid identifiers are not retryable availability failures"
+    );
+    send(&processor,observer,&sb,json!({"id":74,"method":"thread/subscribePassiveUnsupported","params":{"threadId":thread.id}})).await;
+    let unsupported = error_details(&mut rx, observer, 74).await;
+    // Older servers decode an unknown method as InvalidRequest, not necessarily
+    // MethodNotFound. Neither a missing kind/reason nor its message is retryable.
+    assert_eq!(
+        unsupported.code,
+        crate::error_code::INVALID_REQUEST_ERROR_CODE
+    );
+    assert_eq!(unsupported.data, None);
     finish(&processor, rx).await;
     Ok(())
 }

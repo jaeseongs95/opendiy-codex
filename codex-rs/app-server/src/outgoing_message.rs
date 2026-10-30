@@ -1718,6 +1718,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ordinary_pending_survives_disconnect_and_first_response_consumes_callback() {
+        let (tx, mut rx) = mpsc::channel::<OutgoingEnvelope>(8);
+        let outgoing = Arc::new(OutgoingMessageSender::new(
+            tx,
+            codex_analytics::AnalyticsEventsClient::disabled(),
+        ));
+        let thread_id = ThreadId::new();
+        let gui = ConnectionId(1);
+        let tui = ConnectionId(2);
+        let scoped = ThreadScopedOutgoingMessageSender::new(outgoing.clone(), vec![gui], thread_id);
+        let (id, waiter) = scoped
+            .send_request(ServerRequestPayload::DynamicToolCall(
+                DynamicToolCallParams {
+                    thread_id: thread_id.to_string(),
+                    turn_id: "turn-1".to_string(),
+                    call_id: "call-1".to_string(),
+                    namespace: None,
+                    tool: "tool".to_string(),
+                    arguments: json!({}),
+                },
+            ))
+            .await;
+        assert!(
+            matches!(rx.recv().await, Some(OutgoingEnvelope::ToConnection {
+            connection_id, message: OutgoingMessage::Request(_), ..
+        }) if connection_id == gui)
+        );
+        outgoing.connection_closed(gui).await;
+        assert_eq!(
+            outgoing.pending_requests_for_thread(thread_id).await.len(),
+            1
+        );
+        outgoing
+            .replay_requests_to_connection_for_thread(tui, thread_id)
+            .await;
+        assert!(
+            matches!(rx.recv().await, Some(OutgoingEnvelope::ToConnection {
+            connection_id, message: OutgoingMessage::Request(request), ..
+        }) if connection_id == tui && request.id() == &id)
+        );
+        let first = json!({"contentItems":[],"success":true});
+        outgoing
+            .notify_client_response(tui, id.clone(), first.clone())
+            .await;
+        // A stale response cannot resolve or restore a callback already consumed.
+        outgoing
+            .notify_client_response(gui, id, json!({"success":false}))
+            .await;
+        assert_eq!(waiter.await.unwrap(), Ok(first));
+        assert!(
+            outgoing
+                .pending_requests_for_thread(thread_id)
+                .await
+                .is_empty()
+        );
+        outgoing
+            .replay_requests_to_connection_for_thread(tui, thread_id)
+            .await;
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn cancel_requests_for_thread_cancels_all_thread_requests() {
         let (tx, _rx) = mpsc::channel::<OutgoingEnvelope>(8);
         let outgoing = Arc::new(OutgoingMessageSender::new(

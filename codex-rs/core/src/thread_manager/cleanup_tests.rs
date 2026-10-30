@@ -884,12 +884,12 @@ async fn cleanup_rejects_previous_generation_after_real_writer_reopen() {
     assert!(!Arc::ptr_eq(&reopened.thread, &done.thread));
     // The passive subscription commit must reject an old Arc after a real
     // shutdown/reopen, even though the public thread ID is unchanged.
-    assert!(
+    assert!(matches!(
         manager
             .lock_loaded_thread(done.thread_id, &done.thread)
-            .await
-            .is_err()
-    );
+            .await,
+        Err(LoadedThreadUnavailable::Replaced)
+    ));
     drop(
         manager
             .lock_loaded_thread(reopened.thread_id, &reopened.thread)
@@ -1122,12 +1122,12 @@ async fn loaded_runtime_read_guard_linearizes_raw_removal_without_touching_activ
     drop(guard);
     let removed = removal.await.unwrap();
     assert!(Arc::ptr_eq(&removed, &root.thread));
-    assert!(
+    assert!(matches!(
         manager
             .lock_loaded_thread(root.thread_id, &root.thread)
-            .await
-            .is_err()
-    );
+            .await,
+        Err(LoadedThreadUnavailable::NotLoaded)
+    ));
     assert_eq!(root.thread.io.admission.activity_revision(), revision);
     removed.shutdown_and_wait().await.unwrap();
 }

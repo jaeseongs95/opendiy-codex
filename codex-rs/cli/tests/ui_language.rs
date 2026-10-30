@@ -8,12 +8,17 @@ use predicates::str::contains;
 use tempfile::TempDir;
 
 fn command(home: &Path, project: &Path) -> Result<assert_cmd::Command> {
-    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+    let mut cmd = std::process::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
     cmd.env("CODEX_HOME", home)
         .env_remove("CODEX_UI_LANGUAGE")
         .current_dir(project)
         .arg("--help");
-    Ok(cmd)
+    Ok(assert_cmd::Command::from_std(cmd))
 }
 
 #[test]

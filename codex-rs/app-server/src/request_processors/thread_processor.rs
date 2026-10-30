@@ -15,6 +15,8 @@ use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use crate::connection_rpc_gate::ConnectionRpcGate;
 use crate::error_code::method_not_found;
+use crate::error_code::passive_runtime_unavailable;
+use crate::error_code::passive_subscription_unavailable;
 use crate::thread_sample::SampleTask;
 use crate::thread_sample::SampleThread;
 use crate::thread_sample::generate_sample;
@@ -585,24 +587,38 @@ impl ThreadRequestProcessor {
         request_id: ConnectionRequestId,
         params: codex_app_server_protocol::ThreadSubscribePassiveParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        let (thread_id, thread) = self.load_thread(&params.thread_id).await?;
+        let thread_id = ThreadId::from_string(&params.thread_id)
+            .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
+        let thread = self
+            .thread_manager
+            .get_thread(thread_id)
+            .await
+            .map_err(|_| passive_subscription_unavailable("notLoaded"))?;
         let activity_guard = self
             .thread_manager
             .admit_thread_activity(thread_id)
-            .map_err(|error| invalid_request(format!("thread is not ready: {error}")))?;
+            .map_err(|_| passive_subscription_unavailable("closing"))?;
+        // Inspect closing under the existing identity boundary before reporting a
+        // missing listener. The final membership commit revalidates this Arc.
+        drop(
+            self.thread_manager
+                .lock_loaded_thread(thread_id, &thread)
+                .await
+                .map_err(passive_runtime_unavailable)?,
+        );
         let state = self
             .thread_state_manager
             .existing_thread_state(thread_id)
             .await
-            .ok_or_else(|| invalid_request("thread listener is not ready"))?;
+            .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?;
         let tx = {
             let state = state.lock().await;
             if !state.listener_matches(&thread) {
-                return Err(invalid_request("thread listener is not ready"));
+                return Err(passive_subscription_unavailable("listenerNotReady"));
             }
             state
                 .listener_command_tx()
-                .ok_or_else(|| invalid_request("thread listener is not ready"))?
+                .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?
         };
         let (config_snapshot, _) = thread.resume_config_snapshot().await;
         let mut thread_summary =
@@ -638,10 +654,10 @@ impl ThreadRequestProcessor {
                 completion_tx,
             },
         )
-        .map_err(|_| invalid_request("thread listener is not ready"))?;
+        .map_err(|_| passive_subscription_unavailable("listenerNotReady"))?;
         completion_rx
             .await
-            .map_err(|_| invalid_request("thread listener closed before subscription completed"))?;
+            .map_err(|_| passive_subscription_unavailable("closing"))?;
         Ok(None)
     }
 
