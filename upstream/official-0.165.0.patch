@@ -20773,7 +20773,7 @@ index a1b113311..de3d51f7b 100644
 +mod passive_tests;
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..a01efa2f8
+index 000000000..ab6396c2a
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
 @@ -0,0 +1,1018 @@
@@ -20813,7 +20813,7 @@ index 000000000..a01efa2f8
 +        .await?;
 +    config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
 +    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
-+    config.features.enable(codex_features::Feature::Sqlite);
++    config.features.enable(codex_features::Feature::Sqlite)?;
 +    let state_db = codex_core::init_state_db(&config)
 +        .await
 +        .expect("passive fixture must initialize its isolated state database");
