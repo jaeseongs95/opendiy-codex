@@ -4,6 +4,7 @@
 //! the runtime gate covers submitted input, including handles obtained before preview.
 
 use super::*;
+use codex_protocol::error::CodexErrorDetails;
 use codex_thread_store::DeleteThreadsParams;
 use codex_thread_store::ListTurnsParams;
 use codex_thread_store::SortDirection;
@@ -281,14 +282,23 @@ impl ThreadManager {
             if !seen.insert(id) {
                 return Ok(false);
             }
-            let stored = self
+            let stored = match self
                 .state
                 .read_stored_thread(ReadThreadParams {
                     thread_id: id,
                     include_archived: true,
                     include_history: false,
                 })
-                .await?;
+                .await
+            {
+                Ok(stored) => stored,
+                // An untouched live child may not have a saved record yet.
+                // Missing durable ancestry cannot authorize cleanup.
+                Err(error) if matches!(error.details(), CodexErrorDetails::ThreadNotFound(_)) => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
             let Some(recorded_parent) = stored.parent_thread_id else {
                 return Ok(false);
             };

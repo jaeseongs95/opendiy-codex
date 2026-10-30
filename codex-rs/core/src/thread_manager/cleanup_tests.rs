@@ -436,6 +436,46 @@ async fn cleanup_fixture_uses_real_paginated_history_for_terminal_verification()
 }
 
 #[tokio::test]
+async fn cleanup_preserves_loaded_unknown_child_without_saved_record() {
+    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+    let unknown = child(&manager, &config, &root).await;
+    assert_eq!(
+        unknown.thread.agent_status().await,
+        AgentStatus::PendingInit
+    );
+    let error = manager
+        .state
+        .read_stored_thread(ReadThreadParams {
+            thread_id: unknown.thread_id,
+            include_archived: true,
+            include_history: false,
+        })
+        .await
+        .expect_err("an untouched real local writer must not fabricate a saved record");
+    assert!(matches!(
+        error.details(),
+        CodexErrorDetails::ThreadNotFound(id) if *id == unknown.thread_id
+    ));
+    let revision = unknown.thread.io.admission.activity_revision();
+    let preview = manager
+        .preview_completed_children(root.thread_id, root.thread_id)
+        .await
+        .expect("a child without durable ancestry must be preserved, not abort preview");
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].thread_id, unknown.thread_id);
+    assert_eq!(preview[0].outcome, "preserved");
+    assert!(preview[0].snapshot.is_none());
+    assert!(Arc::ptr_eq(
+        &manager.get_thread(unknown.thread_id).await.unwrap(),
+        &unknown.thread
+    ));
+    assert!(!unknown.thread.io.admission.is_closing());
+    assert_eq!(unknown.thread.io.admission.activity_revision(), revision);
+    assert!(!stored(&manager, unknown.thread_id).await);
+    assert!(faults.deletes.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn cleanup_deletes_exact_terminal_leaf_and_preserves_root_and_unknown_sibling() {
     let (_home, manager, config, root) = fixture().await;
     let done = child(&manager, &config, &root).await;
@@ -445,6 +485,12 @@ async fn cleanup_deletes_exact_terminal_leaf_and_preserves_root_and_unknown_sibl
         .preview_completed_children(root.thread_id, root.thread_id)
         .await
         .unwrap();
+    let preserved = preview
+        .iter()
+        .find(|entry| entry.thread_id == unknown.thread_id)
+        .expect("the untouched sibling must stay visible in preview");
+    assert_eq!(preserved.outcome, "preserved");
+    assert!(preserved.snapshot.is_none());
     let selected = preview
         .into_iter()
         .filter_map(|entry| entry.snapshot)
@@ -908,10 +954,24 @@ async fn cleanup_rejects_previous_generation_after_real_writer_reopen() {
     manager
         .remove_thread_if_matches(&done.thread_id, &done.thread)
         .await;
-    let history = manager
-        .legacy_initial_history_from_rollout_path(path)
+    // This fixture uses paginated history; legacy rollout loading deliberately
+    // rejects it. Reopen from the same durable model-context API as V2 reload.
+    let context = manager
+        .state
+        .thread_store
+        .load_latest_model_context(store::LoadThreadHistoryParams {
+            thread_id: done.thread_id,
+            include_archived: true,
+        })
         .await
         .unwrap();
+    assert_eq!(context.thread_id, done.thread_id);
+    let history = InitialHistory::Resumed(codex_history::ResumedHistory {
+        history_revision: context.revision,
+        conversation_id: context.thread_id,
+        history: Arc::new(context.items),
+        rollout_path: Some(path),
+    });
     let reopened = manager
         .state
         .spawn_child_thread(

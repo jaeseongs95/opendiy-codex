@@ -1,5 +1,7 @@
 //! New method contracts through the real initialized JSON-RPC dispatcher and listener.
-use super::message_processor_tracing_tests::{build_test_processor, read_response_from};
+use super::message_processor_tracing_tests::{
+    build_test_processor_with_state_db, read_response_from,
+};
 use super::*;
 use crate::outgoing_message::{OutgoingEnvelope, OutgoingMessage};
 use crate::transport::{AppServerTransport, ConnectionOrigin};
@@ -31,9 +33,17 @@ async fn setup(uri: &str) -> Result<(TempDir, Arc<Config>, Arc<MessageProcessor>
         .build()
         .await?;
     config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
+    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
+    config
+        .features
+        .enable(codex_core::features::Feature::Sqlite)?;
+    let state_db = codex_core::init_state_db(&config)
+        .await
+        .expect("passive fixture must initialize its isolated state database");
     let config = Arc::new(config);
     let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
-    let (processor, rx) = build_test_processor(Arc::clone(&config), auth).await;
+    let (processor, rx) =
+        build_test_processor_with_state_db(Arc::clone(&config), auth, Some(state_db)).await;
     Ok((home, config, processor, rx))
 }
 
