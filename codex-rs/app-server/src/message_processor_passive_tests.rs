@@ -6,8 +6,8 @@ use crate::transport::{AppServerTransport, ConnectionOrigin};
 use anyhow::Result;
 use app_test_support::{MockResponsesConfig, create_mock_responses_server_sequence_unchecked};
 use codex_app_server_protocol::{
-    InitializeResponse, RequestId, ServerNotification, ThreadResumeResponse, ThreadStartResponse,
-    TurnStartIfIdleResponse,
+    InitializeResponse, RequestId, ServerNotification, ServerNotificationEnvelope,
+    ThreadResumeResponse, ThreadStartResponse, TurnStartIfIdleResponse,
 };
 use codex_core::config::ConfigBuilder;
 use core_test_support::responses;
@@ -32,7 +32,7 @@ async fn setup(uri: &str) -> Result<(TempDir, Arc<Config>, Arc<MessageProcessor>
         .await?;
     config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
     let config = Arc::new(config);
-    let auth = AuthManager::shared_from_config(&config, false).await?;
+    let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
     let (processor, rx) = build_test_processor(Arc::clone(&config), auth).await;
     Ok((home, config, processor, rx))
 }
@@ -248,7 +248,10 @@ async fn strict_user_idle_two_connections_admit_one_and_preserve_loser_settings(
             ..
         }) = timeout(DEADLINE, rx.recv()).await?
         {
-            if matches!(notification, ServerNotification::TurnCompleted(_)) {
+            if matches!(
+                notification.notification,
+                ServerNotification::TurnCompleted(_)
+            ) {
                 break;
             }
         }
@@ -435,7 +438,7 @@ async fn passive_listener_replays_general_pending_but_emits_no_idle_lifecycle() 
     let idle = Arc::new(AtomicUsize::new(0));
     let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
     extensions.thread_lifecycle_contributor(Arc::new(IdleRecorder(Arc::clone(&idle))));
-    let auth = AuthManager::shared_from_config(&config, false).await?;
+    let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
     // Only the manager's extension registry differs; the production listener,
     // membership, outgoing callbacks and passive handler remain real.
     let manager = Arc::new(codex_core::ThreadManager::new(
@@ -518,7 +521,8 @@ async fn passive_listener_replays_general_pending_but_emits_no_idle_lifecycle() 
             thread_id: created.thread_id.to_string(),
         },
     )
-    .await?;
+    .await
+    .expect("existing loaded runtime must accept passive subscription");
     let response: ThreadResumeResponse = read_response_from(&mut rx, observer, 50).await;
     assert!(response.thread.turns.is_empty());
     let replay = timeout(DEADLINE, rx.recv())
@@ -897,7 +901,10 @@ async fn strict_user_idle_lost_response_keeps_accepted_owner_and_never_resubmits
         }) = timeout(DEADLINE, rx.recv()).await?
         {
             if connection_id == observer
-                && matches!(notification, ServerNotification::TurnCompleted(_))
+                && matches!(
+                    notification.notification,
+                    ServerNotification::TurnCompleted(_)
+                )
             {
                 break;
             }
@@ -976,9 +983,10 @@ async fn passive_snapshot_gap_delivers_committed_model_and_effort_after_its_resp
                     assert_eq!(response.reasoning_effort, original.reasoning_effort);
                     response_seen = true;
                 }
-                OutgoingMessage::AppServerNotification(
-                    ServerNotification::ThreadSettingsUpdated(update),
-                ) if update.thread_id == thread.id => {
+                OutgoingMessage::AppServerNotification(ServerNotificationEnvelope {
+                    notification: ServerNotification::ThreadSettingsUpdated(update),
+                    ..
+                }) if update.thread_id == thread.id => {
                     assert!(
                         response_seen,
                         "same-thread settings must follow the passive snapshot response"
