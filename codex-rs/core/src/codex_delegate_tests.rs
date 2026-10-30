@@ -275,7 +275,7 @@ async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input
     })
     .await
     .expect("the real one-shot bridge must finish its owned shutdown");
-    assert!(io.admission.shutdown_confirmed());
+    assert_eq!(io.agent_status().await, AgentStatus::Shutdown);
     assert_eq!(server.requests().await.len(), 1);
     server.shutdown().await;
 }
