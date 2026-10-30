@@ -72,6 +72,11 @@ async fn initialize(
     )
     .await;
     let _: InitializeResponse = read_response_from(rx, id, 1).await;
+    assert!(session.initialized());
+    // 실제 WebSocket 전송 루프도 initialize 응답 뒤 이 등록을 완료한다.
+    processor
+        .connection_initialized(id, session.request_attestation())
+        .await;
     session
 }
 

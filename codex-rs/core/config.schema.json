@@ -8397,7 +8397,7 @@
           "$ref": "#/definitions/UiLanguage"
         }
       ],
-      "description": "Client display language. Only the base $CODEX_HOME/config.toml value is used;\nproject, profile, CLI and remote values shown by merged config inspection are ignored.\nDefaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process."
+      "description": "Client display language. Only the base $CODEX_HOME/config.toml value is used; project, profile, CLI and remote values shown by merged config inspection are ignored. Defaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process."
     },
     "web_search": {
       "allOf": [
