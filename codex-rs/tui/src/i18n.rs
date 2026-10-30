@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
 //! slash command tokens, paths, or text supplied by the user or a server.
 //!

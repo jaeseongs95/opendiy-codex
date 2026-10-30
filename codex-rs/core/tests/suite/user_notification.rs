@@ -1,6 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
-#![cfg(not(target_os = "windows"))]
-
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use codex_core::TurnInputRequest;
 
 use codex_protocol::models::ImageReference;
@@ -35,26 +33,51 @@ async fn notify_receives_user_text_while_the_model_receives_attachments() -> any
     let response = responses::mount_sse_once(&server, sse1).await;
 
     let notify_dir = TempDir::new()?;
-    // write a script to the notify that touches a file next to it
-    let notify_script = notify_dir.path().join("notify.sh");
-    codex_utils_cargo_bin::write_executable(
-        &notify_script,
-        r#"#!/bin/bash
+    let notify_file = notify_dir.path().join("notify.txt");
+    #[cfg(not(windows))]
+    let notify_command = {
+        let notify_script = notify_dir.path().join("notify.sh");
+        codex_utils_cargo_bin::write_executable(
+            &notify_script,
+            r#"#!/bin/bash
 set -e
 payload_path="$(dirname "${0}")/notify.txt"
 tmp_path="${payload_path}.tmp"
 echo -n "${@: -1}" > "${tmp_path}"
 mv "${tmp_path}" "${payload_path}""#,
-    )?;
+        )?;
 
-    let notify_file = notify_dir.path().join("notify.txt");
-    let notify_script_str = notify_script.to_str().unwrap().to_string();
+        vec![notify_script.to_str().unwrap().to_string()]
+    };
+    #[cfg(windows)]
+    let notify_command = {
+        let notify_script = notify_dir.path().join("notify.ps1");
+        std::fs::write(
+            &notify_script,
+            r#"param([Parameter(Mandatory=$true)][string]$Payload)
+$ErrorActionPreference = 'Stop'
+$path = Join-Path $PSScriptRoot 'notify.txt'
+$tmp = "$path.tmp"
+[IO.File]::WriteAllText($tmp, $Payload, [Text.UTF8Encoding]::new($false))
+Move-Item -LiteralPath $tmp -Destination $path -Force"#,
+        )?;
+        vec![
+            "pwsh".to_string(),
+            "-NoLogo".to_string(),
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-WindowStyle".to_string(),
+            "Hidden".to_string(),
+            "-File".to_string(),
+            notify_script.to_str().unwrap().to_string(),
+        ]
+    };
 
     let TestCodex { codex, .. } = test_codex()
         .with_model_info_override("gpt-5.5", |info| {
             info.input_modalities.push(InputModality::Audio);
         })
-        .with_config(move |cfg| cfg.notify = Some(vec![notify_script_str]))
+        .with_config(move |cfg| cfg.notify = Some(notify_command))
         .build(&server)
         .await?;
 

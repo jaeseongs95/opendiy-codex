@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Unloads locally controlled idle MAv2 children and exposes tracked agent-tree teardown.
 
 use super::ThreadManager;

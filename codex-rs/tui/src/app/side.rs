@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Transient side-conversation threads.
 //!
 //! A side conversation is an ephemeral fork used for a quick /side question while keeping the

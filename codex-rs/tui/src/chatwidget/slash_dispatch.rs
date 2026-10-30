@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Slash-command dispatch and local-recall handoff for `ChatWidget`.
 //!
 //! `ChatComposer` parses slash input and stages recognized command text for local

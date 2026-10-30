@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Orchestrates startup while the provisional composer owns terminal input.
 //!
 //! Lightweight validation runs before acquiring the terminal. Once the draft is visible, slow

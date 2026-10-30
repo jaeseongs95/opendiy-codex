@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! App-server event stream handling for the TUI app.
 //! Hidden structured threads reject requests instead of entering interactive routing.
 

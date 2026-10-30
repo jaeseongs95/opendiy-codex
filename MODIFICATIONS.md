@@ -1,10 +1,10 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `159017bd9b04533865ee9cb8173d7efe41cb414e`. The source version is `0.165.0+native-r28.20261029`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `af098cef617d62fdfce51d5e1fbd0afb4533f75d`. The source version is `0.165.0+native-r29.20261030`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
 ## R29 선별 이식 후보
 
-R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개와 표적 단위시험 컴파일은 종료 코드 0이었다. 같은 소스의 단위시험 11그룹은 802개 통과·0개 실패였고 컴파일 전후 원본 입력은 같았다. 현재 `core` 통합시험 컴파일이 진행 중이며 새 후보의 실행 파일·설치·독립감사는 미완료다. 실제 캐시율 개선을 측정한 결과는 아니다.
+R29 고정 소스 `af098cef617d62fdfce51d5e1fbd0afb4533f75d`는 공식 0.165.0 기반에 공식 0.166 변경 5개만 선별 이식한 후보다. 전체 0.166 기반으로 전환하지 않았으며 버전 표기는 `0.165.0+native-r29.20261030`이다. 이전 `67404f4` 이후 34파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 제품 로직의 마지막 변경은 `159017bd9`이며, 이후에는 `3fdd3c3`의 Windows 알림 시험과 `af098ce`의 버전 표기만 바뀌었다. `159017bd9`에서 단위시험 11그룹 802개 통과·0개 실패·프로토콜 무시 1개와 표적 통합시험 5개 통과·0개 실패를 확인했다. `3fdd3c3`에서 Windows 알림 경계 시험 1개 통과·0개 실패·무시 0개와 실행 전후 원본 입력 불변을 확인했다. 최종 `af098ce`에서는 버전 표기 168곳 치환과 오프라인 잠금 메타데이터 검사 종료 코드 0을 확인했다. 이 결과는 808개 시험을 최종 커밋에서 전량 재실행했다는 뜻이 아니다. 이번 소스 갱신 시점에는 최적화 빌드가 진행 중이며, 새 실행 파일의 검증·제품 독립감사·설치는 미완료다. 공개 사본의 새 빌드·실행 결과나 실제 캐시율·장기 부하 개선 측정 결과는 아니다.
 
 | 공식 변경 | 로컬 이식 | 범위 |
 | --- | --- | --- |

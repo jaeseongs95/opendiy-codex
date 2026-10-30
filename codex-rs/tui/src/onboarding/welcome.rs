@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Shared welcome header for the existing sign-in and Bedrock onboarding pickers.
 //! The logo occupies a fixed stage so its motion never shifts the choices below it.
 

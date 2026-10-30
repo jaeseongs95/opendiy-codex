@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Model-facing transport into the TUI-owned, CLI-lifetime scheduler.
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Handles reply-bearing turn-input operations.
 //!
 //! This is the one place Core decides whether submitted input starts a turn,

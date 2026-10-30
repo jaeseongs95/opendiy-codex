@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Process-local scheduling. The caller supplies monotonic time and an immutable target.
 //! No worker, persistence, or fallback submission path lives here.
 use std::collections::BTreeSet;

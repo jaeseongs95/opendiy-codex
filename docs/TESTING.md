@@ -2,7 +2,7 @@
 
 ## R29 선별 이식 후보의 검증 상태
 
-R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개와 표적 단위시험 컴파일은 종료 코드 0이었다. 같은 소스의 단위시험 11그룹은 802개 통과·0개 실패였고 컴파일 전후 원본 입력은 같았다. 현재 `core` 통합시험 컴파일이 진행 중이며 새 후보의 실행 파일·설치·독립감사는 미완료다. 실제 캐시율 개선을 측정한 결과는 아니다. 이전 후보의 아래 시험·설치·한정 감사 결과를 이번 후보의 통과 근거로 재사용하지 않는다.
+R29 고정 소스 `af098cef617d62fdfce51d5e1fbd0afb4533f75d`는 공식 0.165.0 기반에 공식 0.166 변경 5개만 선별 이식한 후보다. 전체 0.166 기반으로 전환하지 않았으며 버전 표기는 `0.165.0+native-r29.20261030`이다. 이전 `67404f4` 이후 34파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 제품 로직의 마지막 변경은 `159017bd9`이며, 이후에는 `3fdd3c3`의 Windows 알림 시험과 `af098ce`의 버전 표기만 바뀌었다. `159017bd9`에서 단위시험 11그룹 802개 통과·0개 실패·프로토콜 무시 1개와 표적 통합시험 5개 통과·0개 실패를 확인했다. `3fdd3c3`에서 Windows 알림 경계 시험 1개 통과·0개 실패·무시 0개와 실행 전후 원본 입력 불변을 확인했다. 최종 `af098ce`에서는 버전 표기 168곳 치환과 오프라인 잠금 메타데이터 검사 종료 코드 0을 확인했다. 이 결과는 808개 시험을 최종 커밋에서 전량 재실행했다는 뜻이 아니다. 이번 소스 갱신 시점에는 최적화 빌드가 진행 중이며, 새 실행 파일의 검증·제품 독립감사·설치는 미완료다. 공개 사본의 새 빌드·실행 결과나 실제 캐시율·장기 부하 개선 측정 결과는 아니다.
 
 단위시험 원본은 `159017bd9b04533865ee9cb8173d7efe41cb414e`로 고정했다. 표적 컴파일 명령은 다음과 같았고 종료 코드는 0이었다. 컴파일 전후 같은 커밋·빈 변경 목록과 현재 원본 작업 트리의 변경 없음을 확인했다. 공개 사본에서 다시 컴파일한 결과는 아니다.
 
@@ -27,11 +27,25 @@ cargo test --profile dev-small --offline --locked --target x86_64-pc-windows-msv
 | `codex-core` 기존 용량 재시도 | `capacity_` | 15·0 |
 | `codex-core` 기존 컨텍스트 설정 | `context_window_` | 16·0 |
 
-공식 `user_notification` 시험은 `cfg(not(target_os = "windows"))`로 이 환경에서 제외되므로 위 802개 통과에 세지 않았다. 같은 기대 동작을 확인하는 후속 보강은 아직 실행 결과가 없다. `core` 전체 통합시험·일반 실행 파일·설치·독립감사와 실제 캐시율·장기 부하 개선은 이 단위시험 통과 범위에 포함하지 않는다.
+공식 `user_notification` 시험은 당시 `cfg(not(target_os = "windows"))`로 제외됐으므로 위 802개 통과에 세지 않았다. 아래 후속 결과를 소스별로 구분한다. 각 실행의 종료 코드는 0이었다.
 
-자연어 예약 도구 연결은 [사용 안내](native-cli-cron.ko.md)를 참고하세요. 새 후보의 `model_cron`·`cron_arguments` 시험은 해당 호출·취소 경계를 검사하기 위한 표적이며, 이 공개 작업 트리에서 실행한 결과로 보고하지 않습니다. 사용자 승인 후 새 패키지의 명령줄 바로가기·기본 공유 서버로 전환했지만 실제 모델의 자연어 도구 선택 평가는 실행하지 않았습니다.
+| 고정 소스 | 표적 | 통과·실패·무시 |
+| --- | --- | --- |
+| `159017bd9` | `auto_compact_accounts_for_encrypted_reasoning` | 3·0·0 |
+| `159017bd9` | `unavailable_recommendations_preserve_legacy_workflow` | 2·0·0 |
+| `3fdd3c3` | `suite::user_notification::notify_receives_user_text_while_the_model_receives_attachments` | 1·0·0 |
 
-Current R28 checks are in [R28 validation and limits](cli-r28-validation.md). The sections below preserve earlier checkpoints and do not describe a new R28 public-checkout build.
+`159017bd9`의 통합시험은 `cargo test --profile dev-small --offline --locked --target x86_64-pc-windows-msvc -j2 --no-run --message-format=json-render-diagnostics -p codex-core --test all`로 준비한 실행 파일에 각 필터와 `--nocapture --test-threads=1`을 전달해 실행했다. Windows 알림 시험은 `user_notification.rs`에서 시험 제외 조건과 Windows용 알림 실행 도우미를 보강한 `3fdd3c3`에서 다음 명령으로 실행했다. 사용자에게 보내는 본문에는 첨부가 포함되지 않고 모델에는 첨부가 전달되는 실제 요청 경계를 검사하며, 제품 알림 로직을 바꾼 것은 아니다.
+
+```powershell
+cargo test --profile dev-small --offline --locked --target x86_64-pc-windows-msvc -j2 -p codex-core --test all suite::user_notification::notify_receives_user_text_while_the_model_receives_attachments -- --exact --nocapture --test-threads=1
+```
+
+최종 `af098ce`는 직전 `3fdd3c3`에서 `Cargo.toml` 1곳과 `Cargo.lock` 167곳의 버전 표기만 치환한 소스다. 같은 소스의 `cargo metadata --offline --locked --no-deps --format-version 1`은 종료 코드 0이었다. 이 메타데이터 검사는 실행시험이나 최적화 빌드를 대신하지 않는다. 원시 로그·영수증·사용자 경로·실행 파일은 공개하지 않는다. `core` 전체 통합시험·새 최적화 실행 파일·제품 독립감사·설치와 실제 캐시율·장기 부하 개선은 이 표적 통과 범위에 포함하지 않는다.
+
+이전 `67404f4` 후보의 자연어 예약 도구 연결·설치 이력은 [사용 안내](native-cli-cron.ko.md)를 참고하세요. 해당 후보의 명령줄 바로가기·기본 공유 서버 전환은 현재 R29 후보의 설치 근거가 아닙니다. 실제 모델의 자연어 도구 선택 평가는 실행하지 않았습니다.
+
+이전 R28 검증은 [R28 검증과 한계](cli-r28-validation.md)에 보존한다. The sections below preserve earlier checkpoints and do not describe a new R28 public-checkout build.
 
 For the earlier R26 final-executable checks and actual public-checkout schema run, see the [2026-10-29 validation checkpoint](cli-validation-20261029.md). The export-handoff status below records the earlier point in time.
 

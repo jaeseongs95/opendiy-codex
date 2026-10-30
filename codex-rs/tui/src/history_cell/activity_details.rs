@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Retain hidden reasoning between activity calls without breaking their compact group.
 //!
 //! Positions count preceding calls. Prepending history shifts those positions while sharing the

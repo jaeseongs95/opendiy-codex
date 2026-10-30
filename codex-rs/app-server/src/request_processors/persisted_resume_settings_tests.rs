@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use super::PersistedResumeSettings;
 use super::latest_persisted_resume_settings;
 use codex_protocol::config_types::ApprovalsReviewer;
