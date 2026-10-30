@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "acd529ffc1a75272cc7d23c9d932a19342f82609",
+  "sourceCommit": "403d569900e9f71a6013ad2b514dfc616dd11db3",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -30728,10 +30728,10 @@
     {
       "path": "codex-rs/core/src/thread_manager/cleanup_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "47da61544f7aac1c5fe8560ef2de5c7d1cafee6b",
-      "sourceSha256": "ea351d3271619179fd8aa70de7ef878b56fc00f4a8b139041306e479fbcba20e",
-      "publishedSha256": "1eba23d675504fd0c5f976d33c4b9107458ec4b022cca0e4ee0763c575708fea",
-      "bytes": 42056,
+      "gitBlob": "9f6360021814e80c1d33c04a1f4cb9e6e18f9c03",
+      "sourceSha256": "ffa3c9fbd3c140f3352ed4b38b223d911eeba90f28c674d3af1b38f21fba3494",
+      "publishedSha256": "ded8a3ff330ce29153e44d577de247e2297d176f98d0a2be900274dae148d7ee",
+      "bytes": 42062,
       "modified": true,
       "noticeOnly": true
     },

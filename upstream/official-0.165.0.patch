@@ -37468,7 +37468,7 @@ index 000000000..41f8aad43
 +mod tests;
 diff --git a/codex-rs/core/src/thread_manager/cleanup_tests.rs b/codex-rs/core/src/thread_manager/cleanup_tests.rs
 new file mode 100644
-index 000000000..47da61544
+index 000000000..9f6360021
 --- /dev/null
 +++ b/codex-rs/core/src/thread_manager/cleanup_tests.rs
 @@ -0,0 +1,1132 @@
@@ -37560,7 +37560,7 @@ index 000000000..47da61544
 +}
 +
 +macro_rules! forward {
-+    ($name:ident($($arg:ident: $ty:ty),*) -> $result:ty) => {
++    ($name:ident($($arg:ident: $ty:ty),* $(,)?) -> $result:ty) => {
 +        fn $name(&self, $($arg: $ty),*) -> store::ThreadStoreFuture<'_, $result> {
 +            self.inner.$name($($arg),*)
 +        }

@@ -87,7 +87,7 @@ impl codex_agent_graph_store::AgentGraphStore for BarrierGraph {
 }
 
 macro_rules! forward {
-    ($name:ident($($arg:ident: $ty:ty),*) -> $result:ty) => {
+    ($name:ident($($arg:ident: $ty:ty),* $(,)?) -> $result:ty) => {
         fn $name(&self, $($arg: $ty),*) -> store::ThreadStoreFuture<'_, $result> {
             self.inner.$name($($arg),*)
         }
