@@ -45,7 +45,7 @@ async fn interrupt_if_no_pending_input_handles_cancelled_submission() {
     let thread = CodexThread::new(
         Arc::clone(&session),
         SessionIo {
-            admission: Arc::default(),
+            admission: Arc::clone(&session.cleanup_admission),
             tx_sub,
             rx_event,
             agent_status: watch::channel(AgentStatus::PendingInit).1,

@@ -142,6 +142,7 @@ async fn test_review_session() -> (
     let (tx_sub, rx_sub) = async_channel::bounded(4);
     let (tx_event, rx_event) = async_channel::unbounded();
     let (_agent_status_tx, agent_status) = tokio::sync::watch::channel(AgentStatus::PendingInit);
+    let admission = Arc::clone(&session.cleanup_admission);
     let reuse_key = GuardianReviewSessionReuseKey::from_spawn_config(
         session.get_config().await.as_ref(),
         session.inherited_instructions().await,
@@ -153,7 +154,7 @@ async fn test_review_session() -> (
         GuardianReviewSession {
             session,
             io: SessionIo {
-                admission: Arc::default(),
+                admission,
                 tx_sub,
                 rx_event,
                 agent_status,
