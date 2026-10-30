@@ -113,6 +113,14 @@ impl store::ThreadStore for FaultStore {
     forward!(persist_thread(id: ThreadId, context: store::PersistContext) -> ());
     forward!(flush_thread(id: ThreadId) -> ());
     forward!(load_history(params: store::LoadThreadHistoryParams) -> store::StoredThreadHistory);
+    forward!(
+        load_latest_model_context(
+            params: store::LoadThreadHistoryParams,
+        ) -> store::StoredModelContext
+    );
+    forward!(
+        is_model_context_current(params: store::LoadThreadHistoryParams, revision: String) -> bool
+    );
     forward!(read_thread(params: store::ReadThreadParams) -> store::StoredThread);
     forward!(
         read_thread_by_rollout_path(
@@ -121,6 +129,7 @@ impl store::ThreadStore for FaultStore {
     );
     forward!(list_threads(params: store::ListThreadsParams) -> store::ThreadPage);
     forward!(list_turns(params: store::ListTurnsParams) -> store::TurnPage);
+    forward!(list_items(params: store::ListItemsParams) -> store::ItemPage);
     forward!(
         update_thread_metadata(
             params: store::UpdateThreadMetadataParams,
@@ -271,6 +280,11 @@ async fn fixture_with_graph(
     let mut config = crate::config::test_config().await;
     config.codex_home = home.path().to_path_buf().try_into().unwrap();
     config.cwd = home.path().to_path_buf().try_into().unwrap();
+    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
+    config
+        .features
+        .enable(codex_features::Feature::Sqlite)
+        .unwrap();
     let _ = config
         .features
         .enable(codex_features::Feature::MultiAgentV2);
@@ -278,11 +292,17 @@ async fn fixture_with_graph(
         .features
         .disable(codex_features::Feature::WakeOnAgentMessages);
     config.model_catalog = Some(codex_models_manager::bundled_models_response().unwrap());
-    let mut manager = ThreadManager::with_models_provider_and_home_for_tests(
+    // Paginated terminal verification needs the same real metadata database as
+    // the local recorder. A store without it deliberately rejects list_turns.
+    let state_db = crate::init_state_db(&config)
+        .await
+        .expect("isolated cleanup fixture metadata database");
+    let mut manager = ThreadManager::with_models_provider_home_and_state_for_tests(
         codex_login::CodexAuth::from_api_key("dummy"),
         config.model_provider.clone(),
         config.codex_home.to_path_buf(),
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        Some(state_db),
     );
     let faults = Arc::new(StoreFaults::default());
     let state = Arc::get_mut(&mut manager.state).unwrap();
@@ -385,6 +405,78 @@ async fn stored(manager: &ThreadManager, id: ThreadId) -> bool {
 }
 
 #[tokio::test]
+async fn cleanup_fixture_uses_real_paginated_history_for_terminal_verification() {
+    let (_home, manager, config, root) = fixture().await;
+    let done = child(&manager, &config, &root).await;
+    complete(&done.thread).await;
+    assert!(
+        manager
+            .state
+            .thread_store
+            .supports_paginated_history_lists()
+    );
+    let page = manager
+        .state
+        .thread_store
+        .list_turns(store::ListTurnsParams {
+            thread_id: done.thread_id,
+            include_archived: true,
+            cursor: None,
+            page_size: 1,
+            sort_direction: store::SortDirection::Desc,
+            items_view: store::StoredTurnItemsView::NotLoaded,
+        })
+        .await
+        .expect("the wrapped local store must expose its persisted terminal turn");
+    assert_eq!(page.turns.len(), 1);
+    assert_eq!(page.turns[0].status, store::StoredTurnStatus::Completed);
+    assert_eq!(
+        Some(page.turns[0].turn_id.clone()),
+        done.thread.session.cleanup_last_started_turn().await
+    );
+}
+
+#[tokio::test]
+async fn cleanup_preserves_loaded_unknown_child_without_saved_record() {
+    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+    let unknown = child(&manager, &config, &root).await;
+    assert_eq!(
+        unknown.thread.agent_status().await,
+        AgentStatus::PendingInit
+    );
+    let error = manager
+        .state
+        .read_stored_thread(ReadThreadParams {
+            thread_id: unknown.thread_id,
+            include_archived: true,
+            include_history: false,
+        })
+        .await
+        .expect_err("an untouched real local writer must not fabricate a saved record");
+    assert!(matches!(
+        error.details(),
+        CodexErrorDetails::ThreadNotFound(id) if *id == unknown.thread_id
+    ));
+    let revision = unknown.thread.io.admission.activity_revision();
+    let preview = manager
+        .preview_completed_children(root.thread_id, root.thread_id)
+        .await
+        .expect("a child without durable ancestry must be preserved, not abort preview");
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].thread_id, unknown.thread_id);
+    assert_eq!(preview[0].outcome, "preserved");
+    assert!(preview[0].snapshot.is_none());
+    assert!(Arc::ptr_eq(
+        &manager.get_thread(unknown.thread_id).await.unwrap(),
+        &unknown.thread
+    ));
+    assert!(!unknown.thread.io.admission.is_closing());
+    assert_eq!(unknown.thread.io.admission.activity_revision(), revision);
+    assert!(!stored(&manager, unknown.thread_id).await);
+    assert!(faults.deletes.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn cleanup_deletes_exact_terminal_leaf_and_preserves_root_and_unknown_sibling() {
     let (_home, manager, config, root) = fixture().await;
     let done = child(&manager, &config, &root).await;
@@ -394,6 +486,12 @@ async fn cleanup_deletes_exact_terminal_leaf_and_preserves_root_and_unknown_sibl
         .preview_completed_children(root.thread_id, root.thread_id)
         .await
         .unwrap();
+    let preserved = preview
+        .iter()
+        .find(|entry| entry.thread_id == unknown.thread_id)
+        .expect("the untouched sibling must stay visible in preview");
+    assert_eq!(preserved.outcome, "preserved");
+    assert!(preserved.snapshot.is_none());
     let selected = preview
         .into_iter()
         .filter_map(|entry| entry.snapshot)
@@ -857,10 +955,24 @@ async fn cleanup_rejects_previous_generation_after_real_writer_reopen() {
     manager
         .remove_thread_if_matches(&done.thread_id, &done.thread)
         .await;
-    let history = manager
-        .legacy_initial_history_from_rollout_path(path)
+    // This fixture uses paginated history; legacy rollout loading deliberately
+    // rejects it. Reopen from the same durable model-context API as V2 reload.
+    let context = manager
+        .state
+        .thread_store
+        .load_latest_model_context(store::LoadThreadHistoryParams {
+            thread_id: done.thread_id,
+            include_archived: true,
+        })
         .await
         .unwrap();
+    assert_eq!(context.thread_id, done.thread_id);
+    let history = InitialHistory::Resumed(codex_history::ResumedHistory {
+        history_revision: context.revision,
+        conversation_id: context.thread_id,
+        history: Arc::new(context.items),
+        rollout_path: Some(path),
+    });
     let reopened = manager
         .state
         .spawn_child_thread(

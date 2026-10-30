@@ -20773,12 +20773,14 @@ index a1b113311..de3d51f7b 100644
 +mod passive_tests;
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..ca32a5667
+index 000000000..ab6396c2a
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
-@@ -0,0 +1,1005 @@
+@@ -0,0 +1,1018 @@
 +//! New method contracts through the real initialized JSON-RPC dispatcher and listener.
-+use super::message_processor_tracing_tests::{build_test_processor, read_response_from};
++use super::message_processor_tracing_tests::{
++    build_test_processor_with_state_db, read_response_from,
++};
 +use super::*;
 +use crate::outgoing_message::{OutgoingEnvelope, OutgoingMessage};
 +use crate::transport::{AppServerTransport, ConnectionOrigin};
@@ -20810,9 +20812,15 @@ index 000000000..ca32a5667
 +        .build()
 +        .await?;
 +    config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
++    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
++    config.features.enable(codex_features::Feature::Sqlite)?;
++    let state_db = codex_core::init_state_db(&config)
++        .await
++        .expect("passive fixture must initialize its isolated state database");
 +    let config = Arc::new(config);
 +    let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
-+    let (processor, rx) = build_test_processor(Arc::clone(&config), auth).await;
++    let (processor, rx) =
++        build_test_processor_with_state_db(Arc::clone(&config), auth, Some(state_db)).await;
 +    Ok((home, config, processor, rx))
 +}
 +
@@ -20851,6 +20859,11 @@ index 000000000..ca32a5667
 +    )
 +    .await;
 +    let _: InitializeResponse = read_response_from(rx, id, 1).await;
++    assert!(session.initialized());
++    // 실제 WebSocket 전송 루프도 initialize 응답 뒤 이 등록을 완료한다.
++    processor
++        .connection_initialized(id, session.request_attestation())
++        .await;
 +    session
 +}
 +
@@ -21783,10 +21796,49 @@ index 000000000..ca32a5667
 +    Ok(())
 +}
 diff --git a/codex-rs/app-server/src/message_processor_tracing_tests.rs b/codex-rs/app-server/src/message_processor_tracing_tests.rs
-index 2bb77bf6f..00f845e27 100644
+index 2bb77bf6f..15d98c0fe 100644
 --- a/codex-rs/app-server/src/message_processor_tracing_tests.rs
 +++ b/codex-rs/app-server/src/message_processor_tracing_tests.rs
-@@ -744,3 +744,100 @@ async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
+@@ -241,6 +241,17 @@ pub(super) async fn build_test_processor(
+ ) -> (
+     Arc<MessageProcessor>,
+     mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
++) {
++    build_test_processor_with_state_db(config, auth_manager, None).await
++}
++
++pub(super) async fn build_test_processor_with_state_db(
++    config: Arc<Config>,
++    auth_manager: Arc<AuthManager>,
++    state_db: Option<codex_core::StateDbHandle>,
++) -> (
++    Arc<MessageProcessor>,
++    mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
+ ) {
+     let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
+     let config_manager = ConfigManager::new(
+@@ -271,7 +282,7 @@ pub(super) async fn build_test_processor(
+         environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
+         feedback: CodexFeedback::new(),
+         log_db: None,
+-        state_db: None,
++        state_db,
+         config_warnings: Vec::new(),
+         session_source: SessionSource::VSCode,
+         user_verification: Arc::new(crate::user_verification::Service::new(Arc::clone(
+@@ -467,6 +478,11 @@ pub(super) async fn read_response_from<T: serde::de::DeserializeOwned>(
+         if connection_id != expected_connection_id {
+             continue;
+         }
++        if let crate::outgoing_message::OutgoingMessage::Error(error) = &message
++            && error.id == RequestId::Integer(request_id)
++        {
++            panic!("request {request_id} returned an error instead of a response: {error:?}");
++        }
+         let crate::outgoing_message::OutgoingMessage::Response(response) = message else {
+             continue;
+         };
+@@ -744,3 +760,100 @@ async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
  
      Ok(())
  }
@@ -31796,7 +31848,7 @@ index 245f417b1..c98e79548 100644
  codex-otel = { workspace = true }
  codex-protocol-test-support = { workspace = true }
 diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
-index 7a96817c9..41ef9836b 100644
+index 7a96817c9..c6e9744d4 100644
 --- a/codex-rs/core/config.schema.json
 +++ b/codex-rs/core/config.schema.json
 @@ -2774,6 +2774,14 @@
@@ -31884,7 +31936,7 @@ index 7a96817c9..41ef9836b 100644
 +          "$ref": "#/definitions/UiLanguage"
 +        }
 +      ],
-+      "description": "Client display language. Only the base $CODEX_HOME/config.toml value is used;\nproject, profile, CLI and remote values shown by merged config inspection are ignored.\nDefaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process."
++      "description": "Client display language. Only the base $CODEX_HOME/config.toml value is used; project, profile, CLI and remote values shown by merged config inspection are ignored. Defaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process."
 +    },
      "web_search": {
        "allOf": [
@@ -32731,10 +32783,63 @@ index 3e83bcead..34a1bd10b 100644
      let payload = rollout
          .raw_payloads
 diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
-index d4227af4b..fa9775ec9 100644
+index d4227af4b..984ca411e 100644
 --- a/codex-rs/core/src/codex_delegate.rs
 +++ b/codex-rs/core/src/codex_delegate.rs
-@@ -211,6 +211,7 @@ pub(crate) fn forward_session_io(io: Arc<SessionIo>, cancel_token: CancellationT
+@@ -51,6 +51,40 @@ use crate::session::completed_session_loop_termination;
+ /// Its submission channel accepts additional `Op`s for the sub-agent.
+ #[allow(clippy::too_many_arguments)]
+ pub(crate) async fn run_codex_thread_interactive(
++    config: Config,
++    auth_manager: Arc<AuthManager>,
++    models_manager: SharedModelsManager,
++    parent_session: Arc<Session>,
++    parent_ctx: Arc<TurnContext>,
++    parent_environments: TurnEnvironmentSnapshot,
++    cancel_token: CancellationToken,
++    subagent_source: SubAgentSource,
++    isolation: codex_extension_api::SessionIsolation,
++    initial_history: Option<InitialHistory>,
++    git_enrichment_policy: GitEnrichmentPolicy,
++    windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
++) -> Result<(Arc<Session>, SessionIo), CodexErr> {
++    let (session, io) = spawn_codex_thread(
++        config,
++        auth_manager,
++        models_manager,
++        parent_session,
++        parent_ctx,
++        parent_environments,
++        cancel_token.clone(),
++        subagent_source,
++        isolation,
++        initial_history,
++        git_enrichment_policy,
++        windows_sandbox_proxy_settings_mode,
++    )
++    .await?;
++    Ok((session, forward_session_io(Arc::new(io), cancel_token)))
++}
++
++/// Keep the underlying IO available to the one-shot shutdown owner.
++#[allow(clippy::too_many_arguments)]
++async fn spawn_codex_thread(
+     mut config: Config,
+     auth_manager: Arc<AuthManager>,
+     models_manager: SharedModelsManager,
+@@ -195,10 +229,9 @@ pub(crate) async fn run_codex_thread_interactive(
+         subagent_source,
+         /*resumed_created_at*/ None,
+     );
+-    let caller_io = forward_session_io(Arc::new(io), cancel_token);
+     startup.release_membership();
+     startup_guard.disarm();
+-    Ok((session, caller_io))
++    Ok((session, io))
+ }
+ 
+ /// Keeps delegate IO cancellation identical for standalone and manager-owned reviewers.
+@@ -211,6 +244,7 @@ pub(crate) fn forward_session_io(io: Arc<SessionIo>, cancel_token: CancellationT
  
      // Forward public events from the sub-agent to the consumer.
      let caller_io = SessionIo {
@@ -32742,16 +32847,214 @@ index d4227af4b..fa9775ec9 100644
          tx_sub: tx_ops,
          rx_event: rx_sub,
          agent_status: io.agent_status.clone(),
-@@ -330,6 +331,7 @@ pub(crate) async fn run_codex_thread_one_shot(
+@@ -231,7 +265,7 @@ pub(crate) fn forward_session_io(io: Arc<SessionIo>, cancel_token: CancellationT
+ 
+ /// Convenience wrapper for one-time use with an initial prompt.
+ ///
+-/// Internally calls the interactive variant, then immediately submits the provided input.
++/// Shares interactive startup, then immediately submits the provided input.
+ #[allow(clippy::too_many_arguments)]
+ pub(crate) async fn run_codex_thread_one_shot(
+     config: Config,
+@@ -245,13 +279,13 @@ pub(crate) async fn run_codex_thread_one_shot(
+     final_output_json_schema: Option<Value>,
+     initial_history: Option<InitialHistory>,
+ ) -> Result<(Arc<Session>, SessionIo), CodexErr> {
+-    // Use a child token so we can stop the delegate after completion without
+-    // requiring the caller to cancel the parent token.
++    // Parent cancellation reaches startup and event delivery. Once teardown
++    // begins, its owner finishes independently of this cancellation token.
+     let child_cancel = cancel_token.child_token();
+     let parent_turn_id = parent_ctx.sub_id.clone();
+     let parent_environments = parent_ctx.initial_environments.clone();
+     let root_turn_id = parent_ctx.turn_metadata_state.root_turn_id();
+-    let (session, io) = Box::pin(run_codex_thread_interactive(
++    let (session, io) = Box::pin(spawn_codex_thread(
+         config,
+         auth_manager,
+         models_manager,
+@@ -266,6 +300,19 @@ pub(crate) async fn run_codex_thread_one_shot(
+         codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
+     ))
+     .await?;
++    let io = Arc::new(io);
++
++    // Establish teardown ownership before submitting input. If startup input
++    // fails or its waiter is dropped, dropping rx_bridge still shuts down IO.
++    let (tx_bridge, rx_bridge) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
++    let agent_status = io.agent_status.clone();
++    let session_loop_termination = io.session_loop_termination.clone();
++    let admission = Arc::clone(&io.admission);
++    tokio::spawn(forward_one_shot_events(
++        Arc::clone(&io),
++        tx_bridge,
++        child_cancel,
++    ));
+ 
+     // Send the initial input to kick off the one-shot turn.
+     let submission = io
+@@ -289,38 +336,6 @@ pub(crate) async fn run_codex_thread_one_shot(
+         }
+     }
+ 
+-    // Bridge events so we can observe completion and shut down automatically.
+-    let (tx_bridge, rx_bridge) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
+-    let ops_tx = io.tx_sub.clone();
+-    let agent_status = io.agent_status.clone();
+-    let session_loop_termination = io.session_loop_termination.clone();
+-    let io_for_bridge = io;
+-    tokio::spawn(async move {
+-        while let Ok(event) = io_for_bridge.next_event().await {
+-            let should_shutdown = matches!(
+-                event.msg,
+-                EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
+-            );
+-            let _ = tx_bridge.send(event).await;
+-            if should_shutdown {
+-                let _ = ops_tx
+-                    .send(Submission {
+-                        id: "shutdown".to_string(),
+-                        op: Op::Shutdown {},
+-                        turn_extension_init: None,
+-                        trace: None,
+-                        parent_turn_id: None,
+-                        root_turn_id: None,
+-                        residency_guard: None,
+-                        message_delivery: None,
+-                    })
+-                    .await;
+-                child_cancel.cancel();
+-                break;
+-            }
+-        }
+-    });
+-
+     // For one-shot usage, return a closed `tx_sub` so callers cannot submit
+     // additional ops after the initial request. Create a channel and drop the
+     // receiver to close it immediately.
+@@ -330,6 +345,7 @@ pub(crate) async fn run_codex_thread_one_shot(
      Ok((
          session,
          SessionIo {
-+            admission: Arc::default(),
++            admission,
              rx_event: rx_bridge,
              tx_sub: tx_closed,
              agent_status,
+@@ -338,6 +354,86 @@ pub(crate) async fn run_codex_thread_one_shot(
+     ))
+ }
+ 
++/// This task owns teardown on completion, cancellation and consumer disconnect.
++async fn forward_one_shot_events(
++    io: Arc<SessionIo>,
++    tx_bridge: Sender<Event>,
++    cancel_token: CancellationToken,
++) {
++    let terminal = loop {
++        let event = tokio::select! {
++            biased;
++            _ = cancel_token.cancelled() => break None,
++            _ = tx_bridge.closed() => break None,
++            event = io.next_event() => match event {
++                Ok(event) => event,
++                Err(_) => break None,
++            },
++            _ = io.session_loop_termination.clone() => break None,
++        };
++        if is_private_delegate_event(&event) {
++            continue;
++        }
++        if matches!(
++            event.msg,
++            EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
++        ) {
++            break Some(event);
++        }
++        if !matches!(
++            tx_bridge.send(event).or_cancel(&cancel_token).await,
++            Ok(Ok(()))
++        ) {
++            break None;
++        }
++    };
++
++    // Retain raw IO and the exclusive gate through actual loop termination.
++    // Only this teardown owner bypasses closed input admission; ordinary input
++    // continues to use SessionIo::submit_with_id and its admission checks.
++    let shutdown = async {
++        let gate = Arc::clone(&io.admission.gate).write_owned().await;
++        io.admission.close();
++        let stop = io.shutdown_for_cleanup(&gate);
++        tokio::pin!(stop);
++        // No public events follow the terminal/cancellation boundary. Drain
++        // teardown events until the owner finishes, rather than retaining them
++        // or making shutdown depend on the consumer's output capacity.
++        let result = loop {
++            tokio::select! {
++                biased;
++                result = &mut stop => break result,
++                event = io.next_event() => {
++                    if event.is_err() {
++                        break stop.await;
++                    }
++                }
++            }
++        };
++        if let Err(error) = result {
++            tracing::warn!(%error, "failed to shut down one-shot delegate");
++        }
++        io.session_loop_termination.clone().await;
++    };
++    if let Some(event) = terminal {
++        // A full consumer queue must not delay teardown, and cancellation may
++        // abandon delivery but cannot cancel the owned shutdown future.
++        let _ = tokio::join!(tx_bridge.send(event).or_cancel(&cancel_token), shutdown);
++    } else {
++        shutdown.await;
++    }
++}
++
++fn is_private_delegate_event(event: &Event) -> bool {
++    matches!(
++        event.msg,
++        EventMsg::TokenCount(_)
++            | EventMsg::SessionConfigured(_)
++            | EventMsg::McpStartupUpdate(_)
++            | EventMsg::McpStartupComplete(_)
++    )
++}
++
+ async fn forward_events(
+     io: Arc<SessionIo>,
+     tx_sub: Sender<Event>,
+@@ -357,21 +453,10 @@ async fn forward_events(
+                     Ok(event) => event,
+                     Err(_) => break,
+                 };
+-                match event {
+-                    Event {
+-                        id: _,
+-                        msg:
+-                            EventMsg::TokenCount(_)
+-                            | EventMsg::SessionConfigured(_)
+-                            | EventMsg::McpStartupUpdate(_)
+-                            | EventMsg::McpStartupComplete(_),
+-                    } => {}
+-                    other => {
+-                        if !forward_event_or_shutdown(&io, &tx_sub, &cancel_token, other).await
+-                        {
+-                            break;
+-                        }
+-                    }
++                if !is_private_delegate_event(&event)
++                    && !forward_event_or_shutdown(&io, &tx_sub, &cancel_token, event).await
++                {
++                    break;
+                 }
+             }
+         }
 diff --git a/codex-rs/core/src/codex_delegate_tests.rs b/codex-rs/core/src/codex_delegate_tests.rs
-index 9b6c0aeca..f24cdf6e9 100644
+index 9b6c0aeca..a99163a8d 100644
 --- a/codex-rs/core/src/codex_delegate_tests.rs
 +++ b/codex-rs/core/src/codex_delegate_tests.rs
 @@ -43,6 +43,7 @@ async fn forward_events_filters_private_events_before_blocked_send_is_cancelled(
@@ -32770,6 +33073,253 @@ index 9b6c0aeca..f24cdf6e9 100644
          tx_sub,
          rx_event: rx_events,
          agent_status,
+@@ -191,6 +193,246 @@ async fn forward_ops_preserves_submission_trace_context() {
+         .expect("forward_ops join error");
+ }
+ 
++#[tokio::test]
++async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input() {
++    assert_one_shot_owned_shutdown(true, false, OneShotOutput::Drain).await;
++}
++
++#[tokio::test]
++async fn one_shot_completion_waits_for_owned_shutdown() {
++    assert_one_shot_owned_shutdown(false, false, OneShotOutput::Drain).await;
++}
++
++#[tokio::test]
++async fn one_shot_cancellation_during_owned_shutdown_preserves_teardown() {
++    assert_one_shot_owned_shutdown(true, true, OneShotOutput::Drain).await;
++}
++
++#[tokio::test]
++async fn one_shot_cancel_with_closed_input_and_full_output_finishes_shutdown() {
++    assert_one_shot_owned_shutdown(true, false, OneShotOutput::CancelFull).await;
++}
++
++#[tokio::test]
++async fn one_shot_disconnect_with_closed_input_and_full_output_finishes_shutdown() {
++    assert_one_shot_owned_shutdown(true, false, OneShotOutput::DisconnectFull).await;
++}
++
++#[tokio::test]
++async fn one_shot_disconnect_with_closed_input_while_waiting_finishes_shutdown() {
++    assert_one_shot_owned_shutdown(true, false, OneShotOutput::DisconnectWaiting).await;
++}
++
++#[derive(Clone, Copy)]
++enum OneShotOutput {
++    Drain,
++    CancelFull,
++    DisconnectFull,
++    DisconnectWaiting,
++}
++
++async fn assert_one_shot_owned_shutdown(
++    close_input: bool,
++    cancel_during_shutdown: bool,
++    output: OneShotOutput,
++) {
++    use core_test_support::responses;
++    use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
++
++    struct StopGate {
++        entered: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
++        release: tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
++        calls: Arc<AtomicUsize>,
++    }
++
++    impl ThreadLifecycleContributor<Config> for StopGate {
++        fn on_thread_stop<'a>(
++            &'a self,
++            _input: codex_extension_api::ThreadStopInput<'a>,
++        ) -> ExtensionFuture<'a, ()> {
++            Box::pin(async move {
++                self.calls.fetch_add(1, Ordering::SeqCst);
++                self.entered.lock().await.take().unwrap().send(()).unwrap();
++                let release = self.release.lock().await.take().unwrap();
++                release.await.unwrap();
++            })
++        }
++    }
++
++    let mut initial_events = vec![responses::ev_response_created("one-shot")];
++    if matches!(
++        output,
++        OneShotOutput::CancelFull | OneShotOutput::DisconnectFull
++    ) {
++        initial_events.push(responses::ev_message_item_added("message", ""));
++        initial_events.extend(
++            (0..SUBMISSION_CHANNEL_CAPACITY + 1)
++                .map(|_| responses::ev_output_text_delta("bounded output ")),
++        );
++    }
++    let (release, gate) = tokio::sync::oneshot::channel();
++    let mut release = Some(release);
++    let (server, _) = start_streaming_sse_server(vec![vec![
++        StreamingSseChunk {
++            gate: None,
++            body: responses::sse(initial_events),
++        },
++        StreamingSseChunk {
++            gate: Some(gate),
++            body: responses::sse(vec![responses::ev_completed("one-shot")]),
++        },
++    ]])
++    .await;
++    let mut provider = codex_model_provider_info::built_in_model_providers(None)["openai"].clone();
++    provider.base_url = Some(format!("{}/v1", server.uri()));
++    provider.supports_websockets = false;
++    let home = tempfile::tempdir().expect("isolated one-shot fixture home");
++    let (mut parent, context, _events) =
++        crate::session::tests::make_session_and_context_with_auth_config_home_and_rx(
++            codex_login::CodexAuth::from_api_key("test"),
++            Vec::new(),
++            home.path(),
++            move |config| {
++                config.model = Some("gpt-5.2".to_string());
++                config.model_provider = provider;
++            },
++        )
++        .await;
++    let (stop_entered_tx, stop_entered) = tokio::sync::oneshot::channel();
++    let (stop_release, stop_release_rx) = tokio::sync::oneshot::channel();
++    let stop_calls = Arc::new(AtomicUsize::new(0));
++    let mut extensions = ExtensionRegistryBuilder::<Config>::new();
++    extensions.thread_lifecycle_contributor(Arc::new(StopGate {
++        entered: tokio::sync::Mutex::new(Some(stop_entered_tx)),
++        release: tokio::sync::Mutex::new(Some(stop_release_rx)),
++        calls: Arc::clone(&stop_calls),
++    }));
++    Arc::get_mut(&mut parent)
++        .expect("parent session should be uniquely owned")
++        .services
++        .extensions = Arc::new(extensions.build());
++    let cancel = CancellationToken::new();
++    let mut config = context.config.as_ref().clone();
++    config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
++    let (session, io) = timeout(
++        Duration::from_secs(10),
++        run_codex_thread_one_shot(
++            config,
++            Arc::clone(&parent.services.auth_manager),
++            Arc::clone(&parent.services.models_manager),
++            vec![UserInput::Text {
++                text: "one-shot admission fixture".into(),
++                text_elements: Vec::new(),
++            }],
++            parent,
++            context,
++            cancel.clone(),
++            SubAgentSource::Review,
++            None,
++            None,
++        ),
++    )
++    .await
++    .expect("one-shot startup deadline")
++    .expect("one-shot should accept its initial input");
++    assert!(Arc::ptr_eq(&session.cleanup_admission, &io.admission));
++    let termination = io.session_loop_termination.clone();
++    let agent_status = io.agent_status.clone();
++    timeout(Duration::from_secs(10), server.wait_for_request_count(1))
++        .await
++        .expect("initial input must reach only the local mock provider");
++    if close_input {
++        session.cleanup_admission.close();
++        let revision = session.cleanup_admission.activity_revision();
++        let error = io
++            .submit(Op::Interrupt)
++            .await
++            .expect_err("the returned wrapper must honor its live session's closed admission");
++        assert!(
++            matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
++            if message == "thread cleanup has closed input admission")
++        );
++        assert_eq!(session.cleanup_admission.activity_revision(), revision);
++    }
++    match output {
++        OneShotOutput::Drain => {
++            release.take().unwrap().send(()).unwrap();
++            timeout(Duration::from_secs(10), async {
++                loop {
++                    let event = io.next_event().await.expect("one-shot completion event");
++                    assert!(!is_private_delegate_event(&event));
++                    if matches!(event.msg, EventMsg::TurnComplete(_)) {
++                        break;
++                    }
++                }
++            })
++            .await
++            .expect("the one-shot completion event must remain observable");
++        }
++        OneShotOutput::CancelFull
++        | OneShotOutput::DisconnectFull
++        | OneShotOutput::DisconnectWaiting => {
++            if !matches!(output, OneShotOutput::DisconnectWaiting) {
++                timeout(Duration::from_secs(10), async {
++                    while !io.rx_event.is_full() {
++                        tokio::task::yield_now().await;
++                    }
++                })
++                .await
++                .expect("real streamed events must fill the bounded one-shot output");
++            }
++            assert!(termination.clone().now_or_never().is_none());
++            if matches!(output, OneShotOutput::CancelFull) {
++                cancel.cancel();
++            } else {
++                // DisconnectFull cancels neither the parent nor its model stream.
++                drop(io);
++            }
++            // Keep the local SSE completion withheld: only owned shutdown can
++            // abort this active turn and reach the lifecycle barrier below.
++        }
++    }
++    timeout(Duration::from_secs(10), stop_entered)
++        .await
++        .expect("shutdown must reach the real thread-stop lifecycle")
++        .unwrap();
++    assert!(termination.clone().now_or_never().is_none());
++    assert!(session.cleanup_admission.is_closing());
++    assert!(session.cleanup_admission.gate.try_read().is_err());
++    assert_eq!(
++        session
++            .cleanup_admission
++            .shutdown_result
++            .load(Ordering::Acquire),
++        0
++    );
++    if cancel_during_shutdown {
++        cancel.cancel();
++    }
++    stop_release.send(()).unwrap();
++    timeout(Duration::from_secs(10), termination)
++        .await
++        .expect("the real one-shot bridge must finish its owned shutdown");
++    assert_eq!(*agent_status.borrow(), AgentStatus::Shutdown);
++    assert_eq!(
++        session
++            .cleanup_admission
++            .shutdown_result
++            .load(Ordering::Acquire),
++        1
++    );
++    assert!(
++        session
++            .cleanup_admission
++            .loop_completed
++            .load(Ordering::Acquire)
++    );
++    assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
++    assert_eq!(server.requests().await.len(), 1);
++    drop(release);
++    server.shutdown().await;
++}
++
+ #[tokio::test]
+ async fn run_codex_thread_interactive_respects_pre_cancelled_spawn() {
+     for shutdown_requested in [false, true] {
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
 index 024eb7613..863e2c9fb 100644
 --- a/codex-rs/core/src/codex_thread.rs
@@ -33581,14 +34131,22 @@ index 163f6b60e..3c91ab018 100644
              rx_event: thread.io.rx_event.clone(),
              agent_status: thread.io.agent_status.clone(),
 diff --git a/codex-rs/core/src/guardian/review_session_tests.rs b/codex-rs/core/src/guardian/review_session_tests.rs
-index 6e71ad6b9..95bab41bb 100644
+index 6e71ad6b9..faba3791a 100644
 --- a/codex-rs/core/src/guardian/review_session_tests.rs
 +++ b/codex-rs/core/src/guardian/review_session_tests.rs
-@@ -153,6 +153,7 @@ async fn test_review_session() -> (
+@@ -142,6 +142,7 @@ async fn test_review_session() -> (
+     let (tx_sub, rx_sub) = async_channel::bounded(4);
+     let (tx_event, rx_event) = async_channel::unbounded();
+     let (_agent_status_tx, agent_status) = tokio::sync::watch::channel(AgentStatus::PendingInit);
++    let admission = Arc::clone(&session.cleanup_admission);
+     let reuse_key = GuardianReviewSessionReuseKey::from_spawn_config(
+         session.get_config().await.as_ref(),
+         session.inherited_instructions().await,
+@@ -153,6 +154,7 @@ async fn test_review_session() -> (
          GuardianReviewSession {
              session,
              io: SessionIo {
-+                admission: Arc::default(),
++                admission,
                  tx_sub,
                  rx_event,
                  agent_status,
@@ -34508,14 +35066,14 @@ index 927a28630..34a74218f 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/core/src/session/extension_interruption_tests.rs b/codex-rs/core/src/session/extension_interruption_tests.rs
-index 7e46b02e3..38fed707f 100644
+index 7e46b02e3..29d3e280e 100644
 --- a/codex-rs/core/src/session/extension_interruption_tests.rs
 +++ b/codex-rs/core/src/session/extension_interruption_tests.rs
 @@ -45,6 +45,7 @@ async fn interrupt_if_no_pending_input_handles_cancelled_submission() {
      let thread = CodexThread::new(
          Arc::clone(&session),
          SessionIo {
-+            admission: Arc::default(),
++            admission: Arc::clone(&session.cleanup_admission),
              tx_sub,
              rx_event,
              agent_status: watch::channel(AgentStatus::PendingInit).1,
@@ -35324,7 +35882,7 @@ index a61493af7..8a641e118 100644
      session: Arc<Session>,
      turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 182e03e58..06a178197 100644
+index 182e03e58..7a36b2290 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
 @@ -3359,6 +3359,7 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
@@ -35539,7 +36097,15 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7139,6 +7253,7 @@ async fn make_session_with_config_and_rx(
+@@ -6996,6 +7110,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+     };
+ 
+     let session = Session {
++        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
+         thread_id,
+         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+         tx_event,
+@@ -7139,6 +7254,7 @@ async fn make_session_with_config_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35547,7 +36113,7 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7276,6 +7391,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
+@@ -7276,6 +7392,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35555,7 +36121,7 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -8128,6 +8244,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
+@@ -8128,6 +8245,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
      let (tx_sub, rx_sub) = async_channel::bounded(1);
      let (_tx_event, rx_event) = async_channel::unbounded();
      let io = SessionIo {
@@ -35563,7 +36129,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -8966,6 +9083,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
+@@ -8966,6 +9084,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
          tokio::time::sleep(StdDuration::from_millis(50)).await;
      });
      let io = Arc::new(SessionIo {
@@ -35571,7 +36137,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -9002,6 +9120,7 @@ async fn shutdown_and_wait_waits_when_shutdown_is_already_in_progress() {
+@@ -9002,6 +9121,7 @@ async fn shutdown_and_wait_waits_when_shutdown_is_already_in_progress() {
          let _ = shutdown_complete_rx.await;
      });
      let io = Arc::new(SessionIo {
@@ -35579,7 +36145,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -9104,6 +9223,7 @@ where
+@@ -9104,6 +9224,7 @@ where
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35587,7 +36153,15 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -12799,6 +12919,7 @@ async fn set_total_token_usage(sess: &Session, total_token_usage: TokenUsage) {
+@@ -9281,6 +9402,7 @@ where
+     };
+ 
+     let session = Arc::new(Session {
++        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
+         thread_id,
+         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+         tx_event,
+@@ -12799,6 +12921,7 @@ async fn set_total_token_usage(sess: &Session, total_token_usage: TokenUsage) {
      let mut state = sess.state.lock().await;
      state.set_token_info(Some(TokenUsageInfo {
          total_token_usage,
@@ -35595,7 +36169,7 @@ index 182e03e58..06a178197 100644
          last_token_usage: TokenUsage::default(),
          model_context_window: None,
      }));
-@@ -13587,3 +13708,67 @@ async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replace
+@@ -13587,3 +13710,67 @@ async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replace
          "rejection must not permit same-name ordinary-auth replacement in this session"
      );
  }
@@ -36862,16 +37436,17 @@ index 76ffa26d7..37d238999 100644
          let ThreadSpawnRequest {
 diff --git a/codex-rs/core/src/thread_manager/cleanup.rs b/codex-rs/core/src/thread_manager/cleanup.rs
 new file mode 100644
-index 000000000..41f8aad43
+index 000000000..15f9d0d47
 --- /dev/null
 +++ b/codex-rs/core/src/thread_manager/cleanup.rs
-@@ -0,0 +1,600 @@
+@@ -0,0 +1,610 @@
 +//! Exact, preview-bound cleanup of terminal local child runtimes.
 +//!
 +//! The manager fence covers a UUID's reload, child creation and unloaded mail;
 +//! the runtime gate covers submitted input, including handles obtained before preview.
 +
 +use super::*;
++use codex_protocol::error::CodexErrorDetails;
 +use codex_thread_store::DeleteThreadsParams;
 +use codex_thread_store::ListTurnsParams;
 +use codex_thread_store::SortDirection;
@@ -37149,14 +37724,23 @@ index 000000000..41f8aad43
 +            if !seen.insert(id) {
 +                return Ok(false);
 +            }
-+            let stored = self
++            let stored = match self
 +                .state
 +                .read_stored_thread(ReadThreadParams {
 +                    thread_id: id,
 +                    include_archived: true,
 +                    include_history: false,
 +                })
-+                .await?;
++                .await
++            {
++                Ok(stored) => stored,
++                // An untouched live child may not have a saved record yet.
++                // Missing durable ancestry cannot authorize cleanup.
++                Err(error) if matches!(error.details(), CodexErrorDetails::ThreadNotFound(_)) => {
++                    return Ok(false);
++                }
++                Err(error) => return Err(error),
++            };
 +            let Some(recorded_parent) = stored.parent_thread_id else {
 +                return Ok(false);
 +            };
@@ -37468,10 +38052,10 @@ index 000000000..41f8aad43
 +mod tests;
 diff --git a/codex-rs/core/src/thread_manager/cleanup_tests.rs b/codex-rs/core/src/thread_manager/cleanup_tests.rs
 new file mode 100644
-index 000000000..9f6360021
+index 000000000..ca065ac59
 --- /dev/null
 +++ b/codex-rs/core/src/thread_manager/cleanup_tests.rs
-@@ -0,0 +1,1132 @@
+@@ -0,0 +1,1244 @@
 +use super::*;
 +use codex_agent_graph_store::AgentGraphStore as _;
 +use codex_thread_store as store;
@@ -37586,6 +38170,14 @@ index 000000000..9f6360021
 +    forward!(persist_thread(id: ThreadId, context: store::PersistContext) -> ());
 +    forward!(flush_thread(id: ThreadId) -> ());
 +    forward!(load_history(params: store::LoadThreadHistoryParams) -> store::StoredThreadHistory);
++    forward!(
++        load_latest_model_context(
++            params: store::LoadThreadHistoryParams,
++        ) -> store::StoredModelContext
++    );
++    forward!(
++        is_model_context_current(params: store::LoadThreadHistoryParams, revision: String) -> bool
++    );
 +    forward!(read_thread(params: store::ReadThreadParams) -> store::StoredThread);
 +    forward!(
 +        read_thread_by_rollout_path(
@@ -37594,6 +38186,7 @@ index 000000000..9f6360021
 +    );
 +    forward!(list_threads(params: store::ListThreadsParams) -> store::ThreadPage);
 +    forward!(list_turns(params: store::ListTurnsParams) -> store::TurnPage);
++    forward!(list_items(params: store::ListItemsParams) -> store::ItemPage);
 +    forward!(
 +        update_thread_metadata(
 +            params: store::UpdateThreadMetadataParams,
@@ -37744,6 +38337,11 @@ index 000000000..9f6360021
 +    let mut config = crate::config::test_config().await;
 +    config.codex_home = home.path().to_path_buf().try_into().unwrap();
 +    config.cwd = home.path().to_path_buf().try_into().unwrap();
++    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
++    config
++        .features
++        .enable(codex_features::Feature::Sqlite)
++        .unwrap();
 +    let _ = config
 +        .features
 +        .enable(codex_features::Feature::MultiAgentV2);
@@ -37751,11 +38349,17 @@ index 000000000..9f6360021
 +        .features
 +        .disable(codex_features::Feature::WakeOnAgentMessages);
 +    config.model_catalog = Some(codex_models_manager::bundled_models_response().unwrap());
-+    let mut manager = ThreadManager::with_models_provider_and_home_for_tests(
++    // Paginated terminal verification needs the same real metadata database as
++    // the local recorder. A store without it deliberately rejects list_turns.
++    let state_db = crate::init_state_db(&config)
++        .await
++        .expect("isolated cleanup fixture metadata database");
++    let mut manager = ThreadManager::with_models_provider_home_and_state_for_tests(
 +        codex_login::CodexAuth::from_api_key("dummy"),
 +        config.model_provider.clone(),
 +        config.codex_home.to_path_buf(),
 +        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
++        Some(state_db),
 +    );
 +    let faults = Arc::new(StoreFaults::default());
 +    let state = Arc::get_mut(&mut manager.state).unwrap();
@@ -37858,6 +38462,78 @@ index 000000000..9f6360021
 +}
 +
 +#[tokio::test]
++async fn cleanup_fixture_uses_real_paginated_history_for_terminal_verification() {
++    let (_home, manager, config, root) = fixture().await;
++    let done = child(&manager, &config, &root).await;
++    complete(&done.thread).await;
++    assert!(
++        manager
++            .state
++            .thread_store
++            .supports_paginated_history_lists()
++    );
++    let page = manager
++        .state
++        .thread_store
++        .list_turns(store::ListTurnsParams {
++            thread_id: done.thread_id,
++            include_archived: true,
++            cursor: None,
++            page_size: 1,
++            sort_direction: store::SortDirection::Desc,
++            items_view: store::StoredTurnItemsView::NotLoaded,
++        })
++        .await
++        .expect("the wrapped local store must expose its persisted terminal turn");
++    assert_eq!(page.turns.len(), 1);
++    assert_eq!(page.turns[0].status, store::StoredTurnStatus::Completed);
++    assert_eq!(
++        Some(page.turns[0].turn_id.clone()),
++        done.thread.session.cleanup_last_started_turn().await
++    );
++}
++
++#[tokio::test]
++async fn cleanup_preserves_loaded_unknown_child_without_saved_record() {
++    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
++    let unknown = child(&manager, &config, &root).await;
++    assert_eq!(
++        unknown.thread.agent_status().await,
++        AgentStatus::PendingInit
++    );
++    let error = manager
++        .state
++        .read_stored_thread(ReadThreadParams {
++            thread_id: unknown.thread_id,
++            include_archived: true,
++            include_history: false,
++        })
++        .await
++        .expect_err("an untouched real local writer must not fabricate a saved record");
++    assert!(matches!(
++        error.details(),
++        CodexErrorDetails::ThreadNotFound(id) if *id == unknown.thread_id
++    ));
++    let revision = unknown.thread.io.admission.activity_revision();
++    let preview = manager
++        .preview_completed_children(root.thread_id, root.thread_id)
++        .await
++        .expect("a child without durable ancestry must be preserved, not abort preview");
++    assert_eq!(preview.len(), 1);
++    assert_eq!(preview[0].thread_id, unknown.thread_id);
++    assert_eq!(preview[0].outcome, "preserved");
++    assert!(preview[0].snapshot.is_none());
++    assert!(Arc::ptr_eq(
++        &manager.get_thread(unknown.thread_id).await.unwrap(),
++        &unknown.thread
++    ));
++    assert!(!unknown.thread.io.admission.is_closing());
++    assert_eq!(unknown.thread.io.admission.activity_revision(), revision);
++    assert!(!stored(&manager, unknown.thread_id).await);
++    assert!(faults.deletes.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
 +async fn cleanup_deletes_exact_terminal_leaf_and_preserves_root_and_unknown_sibling() {
 +    let (_home, manager, config, root) = fixture().await;
 +    let done = child(&manager, &config, &root).await;
@@ -37867,6 +38543,12 @@ index 000000000..9f6360021
 +        .preview_completed_children(root.thread_id, root.thread_id)
 +        .await
 +        .unwrap();
++    let preserved = preview
++        .iter()
++        .find(|entry| entry.thread_id == unknown.thread_id)
++        .expect("the untouched sibling must stay visible in preview");
++    assert_eq!(preserved.outcome, "preserved");
++    assert!(preserved.snapshot.is_none());
 +    let selected = preview
 +        .into_iter()
 +        .filter_map(|entry| entry.snapshot)
@@ -38330,10 +39012,24 @@ index 000000000..9f6360021
 +    manager
 +        .remove_thread_if_matches(&done.thread_id, &done.thread)
 +        .await;
-+    let history = manager
-+        .legacy_initial_history_from_rollout_path(path)
++    // This fixture uses paginated history; legacy rollout loading deliberately
++    // rejects it. Reopen from the same durable model-context API as V2 reload.
++    let context = manager
++        .state
++        .thread_store
++        .load_latest_model_context(store::LoadThreadHistoryParams {
++            thread_id: done.thread_id,
++            include_archived: true,
++        })
 +        .await
 +        .unwrap();
++    assert_eq!(context.thread_id, done.thread_id);
++    let history = InitialHistory::Resumed(codex_history::ResumedHistory {
++        history_revision: context.revision,
++        conversation_id: context.thread_id,
++        history: Arc::new(context.items),
++        rollout_path: Some(path),
++    });
 +    let reopened = manager
 +        .state
 +        .spawn_child_thread(
@@ -53061,7 +53757,7 @@ index 8ac0adfea..a84b8218c 100644
              .cancel_thread_verification(&thread_id.to_string());
          let app_event_tx = self.app_event_tx.clone();
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
-index 4a9461199..b2cd9073e 100644
+index 4a9461199..ae796e6e1 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__daemon_menu__tests__daemon_cli_confirmation.snap
 @@ -1,6 +1,6 @@
@@ -53081,14 +53777,14 @@ index 4a9461199..b2cd9073e 100644
                  Update daemon and exit Codex?
 -                Use this CLI package v0.0.0 from /x/cli-build/bin/codex. Copy the
 -                complete package and pin it against automatic updates.
-+                Use this CLI package v0.165.0+native-r28.20261029 from C:\cli-
++                Use this CLI package v0.165.0+native-r30.20261030 from C:\cli-
 +                build\bin\codex. Copy the complete package and pin it against
 +                automatic updates.
                  This may restart the daemon and interrupt active or queued work.
                  Codex exits to update in this terminal. Relaunch it afterward.
  
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
-index 789d6e4bd..e985e554b 100644
+index 789d6e4bd..dca92f1ae 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
 @@ -1,10 +1,11 @@
@@ -53100,7 +53796,7 @@ index 789d6e4bd..e985e554b 100644
  enabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
  
@@ -53109,12 +53805,12 @@ index 789d6e4bd..e985e554b 100644
  disabled:
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
  
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
-index 8aa1bca71..8c75a9e09 100644
+index 8aa1bca71..ace6965eb 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 +++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__tests__app_server_thread_replacement_clears_previous_transcript_before_replay-2.snap
 @@ -1,10 +1,10 @@
@@ -53126,7 +53822,7 @@ index 8aa1bca71..8c75a9e09 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       <thread cwd>
  
  
@@ -55795,7 +56491,7 @@ index 787c7e086..10924475b 100644
                          .collect::<Vec<_>>()
                  );
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__active_reconnect__unavailable_conversation.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__active_reconnect__unavailable_conversation.snap
-index 335071a07..5888f59a0 100644
+index 335071a07..c3f6cd940 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__active_reconnect__unavailable_conversation.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__active_reconnect__unavailable_conversation.snap
 @@ -1,10 +1,11 @@
@@ -55807,12 +56503,12 @@ index 335071a07..5888f59a0 100644
  • This conversation is unavailable. Its cached transcript and draft remain here; input is paused. Open the agent picker or return to the parent to continue.
  ⚠ A background Codex service is running v2.0.0, different from your Codex CLI
 -  v0.0.0.
-+  v0.165.0+native-r28.20261029.
++  v0.165.0+native-r30.20261030.
  › unavailable draft
  
    gpt-test default · /tmp/project
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
-index ab3a8c84c..2ffc8bfb0 100644
+index ab3a8c84c..97b3ff9f5 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_buffered_replay_reconciles_captions.snap
 @@ -1,10 +1,10 @@
@@ -55824,12 +56520,12 @@ index ab3a8c84c..2ffc8bfb0 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
-index 2ecde209a..33f427dcc 100644
+index 2ecde209a..f965317b8 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_completed_after_thread_switch.snap
 @@ -1,10 +1,10 @@
@@ -55841,12 +56537,12 @@ index 2ecde209a..33f427dcc 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
-index bfd8b46a6..6922112b8 100644
+index bfd8b46a6..2762875f5 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_partial_completed_after_thread_switch.snap
 @@ -1,5 +1,6 @@
@@ -55861,12 +56557,12 @@ index bfd8b46a6..6922112b8 100644
    gpt-test default · /tmp/project
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
-index 0dfd7333b..77466455f 100644
+index 0dfd7333b..587ed73eb 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__realtime_requests__voice_replay_reconciles_matching_captions.snap
 @@ -1,10 +1,10 @@
@@ -55878,12 +56574,12 @@ index 0dfd7333b..77466455f 100644
  ---
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
    To get started, describe a task or try one of these commands:
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__session_lifecycle_requests__new_session_tests__widget_replacement_preserves_mention_usage_with_history_disabled.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__session_lifecycle_requests__new_session_tests__widget_replacement_preserves_mention_usage_with_history_disabled.snap
-index 6a47bf2b7..9f740b5c3 100644
+index 6a47bf2b7..112f1658b 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__session_lifecycle_requests__new_session_tests__widget_replacement_preserves_mention_usage_with_history_disabled.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__session_lifecycle_requests__new_session_tests__widget_replacement_preserves_mention_usage_with_history_disabled.snap
 @@ -1,8 +1,9 @@
@@ -55893,12 +56589,12 @@ index 6a47bf2b7..9f740b5c3 100644
  expression: "normalize_snapshot_paths(render_bottom_popup(&app.chat_widget, 80))"
  ---
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
  
 diff --git a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
-index d45000ee7..5a8c3d9bf 100644
+index d45000ee7..690e6e15d 100644
 --- a/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 +++ b/codex-rs/tui/src/app/tests/snapshots/codex_tui__app__tests__startup_frame_tests__startup_tip_in_transcript.snap
 @@ -1,10 +1,11 @@
@@ -55910,7 +56606,7 @@ index d45000ee7..5a8c3d9bf 100644
  80 columns
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
       /tmp/project
  
  • Conversation continues here.
@@ -59311,6 +60007,18 @@ index 12baeb5a8..a2e75a9c5 100644
 +        });
 +    }
 +}
+diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
+index 4c455ed8c..e741da615 100644
+--- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
++++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
+@@ -343,6 +343,7 @@ mod tests {
+                 SlashCommand::Copy,
+                 SlashCommand::Export,
+                 SlashCommand::Raw,
++                SlashCommand::Language,
+                 SlashCommand::Diff,
+                 SlashCommand::Mention,
+                 SlashCommand::Status,
 diff --git a/codex-rs/tui/src/bottom_pane/subagent_status.rs b/codex-rs/tui/src/bottom_pane/subagent_status.rs
 new file mode 100644
 index 000000000..df75b0c40
@@ -63273,7 +63981,7 @@ index 5b14559f6..5cce66022 100644
      fn copy_source(&self) -> Option<&str> {
          None
 diff --git a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__pnpm_update_available_history_cell_snapshot.snap b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__pnpm_update_available_history_cell_snapshot.snap
-index a9dd9cac7..f6cf73982 100644
+index a9dd9cac7..586580f25 100644
 --- a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__pnpm_update_available_history_cell_snapshot.snap
 +++ b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__pnpm_update_available_history_cell_snapshot.snap
 @@ -1,11 +1,12 @@
@@ -63290,14 +63998,14 @@ index a9dd9cac7..f6cf73982 100644
 -│ https://github.com/openai/codex/releases/latest │
 -╰─────────────────────────────────────────────────╯
 +╭───────────────────────────────────────────────────────────╮
-+│ ✨ Update available! 0.165.0+native-r28.20261029 -> 9.9.9 │
++│ ✨ Update available! 0.165.0+native-r30.20261030 -> 9.9.9 │
 +│ Run pnpm add -g @openai/codex to update.                  │
 +│                                                           │
 +│ See full release notes:                                   │
 +│ https://github.com/openai/codex/releases/latest           │
 +╰───────────────────────────────────────────────────────────╯
 diff --git a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap
-index c8f352dbb..3b5f2ab17 100644
+index c8f352dbb..9ee1adfa2 100644
 --- a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap
 +++ b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_unix_update_available_history_cell_snapshot.snap
 @@ -1,9 +1,10 @@
@@ -63308,12 +64016,12 @@ index c8f352dbb..3b5f2ab17 100644
  ---
  ╭─────────────────────────────────────────────────────────────────────────────────────────────────────╮
 -│ ✨ Update available! 0.0.0 -> 9.9.9                                                                 │
-+│ ✨ Update available! 0.165.0+native-r28.20261029 -> 9.9.9                                           │
++│ ✨ Update available! 0.165.0+native-r30.20261030 -> 9.9.9                                           │
  │ Run sh -c 'curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh' to update. │
  │                                                                                                     │
  │ See full release notes:                                                                             │
 diff --git a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap
-index fb15a0577..286c71772 100644
+index fb15a0577..563ae9bbe 100644
 --- a/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap
 +++ b/codex-rs/tui/src/history_cell/snapshots/codex_tui__history_cell__tests__standalone_windows_update_available_history_cell_snapshot.snap
 @@ -1,9 +1,10 @@
@@ -63324,7 +64032,7 @@ index fb15a0577..286c71772 100644
  ---
  ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 -│ ✨ Update available! 0.0.0 -> 9.9.9                                                                        │
-+│ ✨ Update available! 0.165.0+native-r28.20261029 -> 9.9.9                                                  │
++│ ✨ Update available! 0.165.0+native-r30.20261030 -> 9.9.9                                                  │
  │ Run powershell -ExecutionPolicy Bypass -c '$env:CODEX_NON_INTERACTIVE=1; irm                               │
  │ https://chatgpt.com/codex/install.ps1 | iex' to update.                                                    │
  │                                                                                                            │
@@ -65706,7 +66414,7 @@ index edf78a1c9..6e13e6093 100644
  ↓
    left/right group · enter edit shortcut · * custom · - unbound · esc close
 diff --git a/codex-rs/tui/src/snapshots/codex_tui__managed_worktree_tools__tests__model_tests__managed_worktree_model_creation.snap b/codex-rs/tui/src/snapshots/codex_tui__managed_worktree_tools__tests__model_tests__managed_worktree_model_creation.snap
-index 24f5f48e8..e3e715f4b 100644
+index 24f5f48e8..581a02683 100644
 --- a/codex-rs/tui/src/snapshots/codex_tui__managed_worktree_tools__tests__model_tests__managed_worktree_model_creation.snap
 +++ b/codex-rs/tui/src/snapshots/codex_tui__managed_worktree_tools__tests__model_tests__managed_worktree_model_creation.snap
 @@ -14,9 +14,10 @@ Settings:
@@ -65715,8 +66423,8 @@ index 24f5f48e8..e3e715f4b 100644
    tool_choice: "auto"
 -  tools (1; hash=291b147361c7e927):
 -    - namespace/mcp__codex_worktrees: Tools in the mcp__codex_worktrees namespace.; hash=51011289080f7067
-+  tools (1; hash=7e7b082efb6c22e0):
-+    - namespace/mcp__codex_worktrees: Tools in the mcp__codex_worktrees namespace.; hash=19af27be43ac5f9a
++  tools (1; hash=3154016ea7b2bb5d):
++    - namespace/mcp__codex_worktrees: Tools in the mcp__codex_worktrees namespace.; hash=7b23cadeb6cfd565
        - function/create_worktree
 +      - function/cron
        - function/get_worktree_creation_status
@@ -65740,7 +66448,7 @@ index 6065eb840..3d7678a1d 100644
                                                  
                                                  
 diff --git a/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_picker_selected_28x12.snap b/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_picker_selected_28x12.snap
-index 53c805305..994779659 100644
+index 53c805305..df36a9170 100644
 --- a/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_picker_selected_28x12.snap
 +++ b/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_picker_selected_28x12.snap
 @@ -1,13 +1,14 @@
@@ -65753,8 +66461,8 @@ index 53c805305..994779659 100644
 -  Update available · 0.0.0
 -  → 9.9.9
 +  Update available ·
-+  0.165.0+native-r28.20261
-+  029 → 9.9.9
++  0.165.0+native-r30.20261
++  030 → 9.9.9
    Release notes:
    https://github.com/opena
 -  i/codex/releases/latest
@@ -65762,7 +66470,7 @@ index 53c805305..994779659 100644
  › 3. Skip until next version
  
 diff --git a/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_prompt_modal.snap b/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_prompt_modal.snap
-index b54764227..ef2d1a8f0 100644
+index b54764227..025a0628e 100644
 --- a/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_prompt_modal.snap
 +++ b/codex-rs/tui/src/snapshots/codex_tui__update_prompt__tests__update_prompt_modal.snap
 @@ -1,9 +1,10 @@
@@ -65773,7 +66481,7 @@ index b54764227..ef2d1a8f0 100644
  ---
  
 -  Update available · 0.0.0 → 9.9.9
-+  Update available · 0.165.0+native-r28.20261029 → 9.9.9
++  Update available · 0.165.0+native-r30.20261030 → 9.9.9
    Release notes: https://github.com/openai/codex/releases/latest
  
  › 1. Update now (runs `npm install -g @openai/codex`)                           
@@ -65800,7 +66508,7 @@ index d3fde7278..cdeb45878 100644
  
      if let Err(err) = screen_reader_result {
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
-index a00c3ae09..486e6ebc3 100644
+index a00c3ae09..347a1f98b 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_not_required.snap
 @@ -1,10 +1,11 @@
@@ -65812,12 +66520,12 @@ index a00c3ae09..486e6ebc3 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Model:           gpt-5.6-sol (reasoning none, summaries auto)
    Model provider:  server-ollama
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
-index f7be0da37..10c9d4282 100644
+index f7be0da37..edd970b4b 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_server_auth_required.snap
 @@ -4,7 +4,7 @@ expression: rendered
@@ -65825,12 +66533,12 @@ index f7be0da37..10c9d4282 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
-index 0f7605b35..378771c49 100644
+index 0f7605b35..c6e058f14 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_cached_limits_hide_credits_without_flag.snap
 @@ -1,10 +1,11 @@
@@ -65842,12 +66550,12 @@ index 0f7605b35..378771c49 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
-index 6783811c5..b877a3a11 100644
+index 6783811c5..ae7e36348 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_credits_and_limits.snap
 @@ -1,10 +1,11 @@
@@ -65859,12 +66567,12 @@ index 6783811c5..b877a3a11 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
-index 92686ae34..ab142d3b1 100644
+index 92686ae34..8ae96f0d8 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_enterprise_monthly_credit_limit.snap
 @@ -1,10 +1,11 @@
@@ -65876,12 +66584,12 @@ index 92686ae34..ab142d3b1 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
-index 9e2dde990..77a152fcb 100644
+index 9e2dde990..79803f0a5 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_forked_from.snap
 @@ -1,10 +1,11 @@
@@ -65893,12 +66601,12 @@ index 9e2dde990..77a152fcb 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
-index bdf79abd5..39e90165f 100644
+index bdf79abd5..50506f8ac 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_monthly_limit.snap
 @@ -1,10 +1,11 @@
@@ -65910,12 +66618,12 @@ index bdf79abd5..39e90165f 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
-index db8ba4cae..6e038b671 100644
+index db8ba4cae..538672e31 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_includes_reasoning_details.snap
 @@ -1,10 +1,11 @@
@@ -65927,12 +66635,12 @@ index db8ba4cae..6e038b671 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
-index c20a53281..208138027 100644
+index c20a53281..11369eeb2 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_local_background_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -65940,12 +66648,12 @@ index c20a53281..208138027 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
-index 57c04829f..563c8a583 100644
+index 57c04829f..e858573dd 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_remote_server.snap
 @@ -4,7 +4,7 @@ expression: sanitized
@@ -65953,12 +66661,12 @@ index 57c04829f..563c8a583 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
-index e21309d2f..0232ef32d 100644
+index e21309d2f..1e00ddb7f 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_active_user_defined_profile.snap
 @@ -1,10 +1,11 @@
@@ -65970,12 +66678,12 @@ index e21309d2f..0232ef32d 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
-index a5c7c21c0..7704deb52 100644
+index a5c7c21c0..f5bd3490a 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_auto_review_permissions.snap
 @@ -1,10 +1,11 @@
@@ -65987,12 +66695,12 @@ index a5c7c21c0..7704deb52 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
-index 51b58ecde..20bf971c4 100644
+index 51b58ecde..cf9b31517 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_chatgpt_plan_without_email.snap
 @@ -1,10 +1,11 @@
@@ -66004,12 +66712,12 @@ index 51b58ecde..20bf971c4 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
-index 8899e4ee3..1d56fcd47 100644
+index 8899e4ee3..076f6a35e 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_missing_limits_message.snap
 @@ -1,10 +1,11 @@
@@ -66021,12 +66729,12 @@ index 8899e4ee3..1d56fcd47 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
-index af4953d84..c9ed0beca 100644
+index af4953d84..72ca5a6fa 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_refreshing_limits_notice.snap
 @@ -1,10 +1,11 @@
@@ -66038,12 +66746,12 @@ index af4953d84..c9ed0beca 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
-index 2ec2677aa..56a92144b 100644
+index 2ec2677aa..68fa4a5d0 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_stale_limits_message.snap
 @@ -1,10 +1,11 @@
@@ -66055,12 +66763,12 @@ index 2ec2677aa..56a92144b 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
-index d83ee6f2d..2617e6bcd 100644
+index d83ee6f2d..4190c0794 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_shows_unavailable_limits_message.snap
 @@ -1,10 +1,11 @@
@@ -66072,12 +66780,12 @@ index d83ee6f2d..2617e6bcd 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
-index 593ffd201..4287513a8 100644
+index 593ffd201..543883c27 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_halfwidth_kana_in_narrow_terminal.snap
 @@ -1,10 +1,12 @@
@@ -66090,12 +66798,12 @@ index 593ffd201..4287513a8 100644
  
 -  >_ OpenAI Codex (v0.0.0)
 +  >_ OpenAI Codex (v0.165.0+native-
-+  r28.20261029)
++  r30.20261030)
  
    Visit https://chatgpt.com/settings/usage
    for up-to-date
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
-index be5c100ee..357847c61 100644
+index be5c100ee..5155a4b69 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_truncates_in_narrow_terminal.snap
 @@ -1,10 +1,11 @@
@@ -66107,12 +66815,12 @@ index be5c100ee..357847c61 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
-index 8661643e2..ff614e9e8 100644
+index 8661643e2..3b93c816c 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_default_reasoning_when_config_empty.snap
 @@ -1,10 +1,11 @@
@@ -66124,12 +66832,12 @@ index 8661643e2..ff614e9e8 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
-index 1ba1146d2..0d92728f9 100644
+index 1ba1146d2..ea14255b0 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_uses_generic_limit_labels_for_unsupported_windows.snap
 @@ -1,10 +1,11 @@
@@ -66141,12 +66849,12 @@ index 1ba1146d2..0d92728f9 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
-index 29cf7973f..87d11912b 100644
+index 29cf7973f..0b7295bf1 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal.snap
 @@ -4,7 +4,8 @@ expression: sanitized
@@ -66155,12 +66863,12 @@ index 29cf7973f..87d11912b 100644
  
 -  >_ OpenAI Codex (v0.0.0)
 +  >_ OpenAI Codex (v0.165.0+native-
-+  r28.20261029)
++  r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for
    up-to-date
 diff --git a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
-index 51fbff67d..e9648a513 100644
+index 51fbff67d..d46387bc3 100644
 --- a/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 +++ b/codex-rs/tui/src/status/snapshots/codex_tui__status__tests__transcript_overlay_status_rate_limit_refresh.snap
 @@ -1,12 +1,13 @@
@@ -66174,7 +66882,7 @@ index 51fbff67d..e9648a513 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits
@@ -66183,7 +66891,7 @@ index 51fbff67d..e9648a513 100644
  /status
  
 -  >_ OpenAI Codex (v0.0.0)
-+  >_ OpenAI Codex (v0.165.0+native-r28.20261029)
++  >_ OpenAI Codex (v0.165.0+native-r30.20261030)
  
    Visit https://chatgpt.com/settings/usage for up-to-date
    information on rate limits and credits

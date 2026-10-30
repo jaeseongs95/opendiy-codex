@@ -1,6 +1,8 @@
 // Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! New method contracts through the real initialized JSON-RPC dispatcher and listener.
-use super::message_processor_tracing_tests::{build_test_processor, read_response_from};
+use super::message_processor_tracing_tests::{
+    build_test_processor_with_state_db, read_response_from,
+};
 use super::*;
 use crate::outgoing_message::{OutgoingEnvelope, OutgoingMessage};
 use crate::transport::{AppServerTransport, ConnectionOrigin};
@@ -32,9 +34,15 @@ async fn setup(uri: &str) -> Result<(TempDir, Arc<Config>, Arc<MessageProcessor>
         .build()
         .await?;
     config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
+    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
+    config.features.enable(codex_features::Feature::Sqlite)?;
+    let state_db = codex_core::init_state_db(&config)
+        .await
+        .expect("passive fixture must initialize its isolated state database");
     let config = Arc::new(config);
     let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
-    let (processor, rx) = build_test_processor(Arc::clone(&config), auth).await;
+    let (processor, rx) =
+        build_test_processor_with_state_db(Arc::clone(&config), auth, Some(state_db)).await;
     Ok((home, config, processor, rx))
 }
 
@@ -73,6 +81,11 @@ async fn initialize(
     )
     .await;
     let _: InitializeResponse = read_response_from(rx, id, 1).await;
+    assert!(session.initialized());
+    // 실제 WebSocket 전송 루프도 initialize 응답 뒤 이 등록을 완료한다.
+    processor
+        .connection_initialized(id, session.request_attestation())
+        .await;
     session
 }
 
