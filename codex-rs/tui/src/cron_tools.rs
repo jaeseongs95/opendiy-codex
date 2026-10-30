@@ -85,7 +85,7 @@ pub(crate) fn specs() -> Vec<DynamicToolSpec> {
         description: "현재 대화의 CLI 수명 예약을 관리합니다.".into(),
         tools: vec![DynamicToolNamespaceTool::Function(DynamicToolFunctionSpec {
             name: NAME.into(),
-            description: "사용자가 예약·주기적 확인을 요청하면 호출하세요. 일정이나 실행할 일이 불명확하면 먼저 질문하세요. add는 every(예: 10m, 30s, 2h) 또는 at(offset 포함 RFC3339) 하나와 prompt가 필요합니다. list와 pause/resume/remove/cancel(id)을 지원합니다. 실제 성공 응답 전 등록됐다고 말하지 마세요. 시간초과·응답 유실은 결과 미확인입니다. 재등록하지 말고 list로 확인하세요. 현재 호출 대화만 대상이며 CLI 종료 시 사라집니다. 바쁜 회차는 건너뜁니다. remove는 실행 중 turn을 취소하지 않습니다.".into(),
+            description: "사용자가 CLI에서 자연어로 '5분마다 확인해줘', 'cron 걸어줘', '반복 실행해줘'처럼 예약·주기적 확인을 요청하면 이 도구로 등록하세요. /cron을 직접 입력하게 떠넘기지 마세요. 이 도구는 Windows 작업 스케줄러·시스템 crontab·데스크톱 heartbeat와 별개입니다. CLI 예약 요청을 다른 스케줄러 등록으로 대체하지 마세요. 일정이나 실행할 일이 불명확하면 먼저 질문하세요. add는 every(예: 10m, 30s, 2h) 또는 at(offset 포함 RFC3339) 하나와 prompt가 필요합니다. list와 pause/resume/remove/cancel(id)을 지원합니다. 실제 성공 응답 전 등록됐다고 말하지 마세요. 시간초과·응답 유실은 결과 미확인입니다. 재등록하지 말고 list로 확인하세요. 현재 호출 대화만 대상이며 CLI 종료 시 사라집니다. 바쁜 회차는 건너뜁니다. remove는 실행 중 turn을 취소하지 않습니다.".into(),
             input_schema: json!({"type":"object", "additionalProperties":false,
                 "properties": {
                     "action":{"type":"string","enum":["add","list","pause","resume","remove","cancel"]},
