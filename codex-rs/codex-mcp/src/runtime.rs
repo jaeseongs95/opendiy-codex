@@ -105,6 +105,10 @@ pub struct McpRuntimeInput {
     pub elicitation_lifecycle: Option<ElicitationLifecycle>,
 }
 
+#[cfg(feature = "test-support")]
+#[path = "runtime/test_support.rs"]
+pub mod test_support;
+
 /// Owns all mutable MCP state for one Codex thread.
 ///
 /// Publication replaces the latest state atomically. Existing bindings retain

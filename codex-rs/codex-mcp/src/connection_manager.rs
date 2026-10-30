@@ -19,6 +19,9 @@ mod resources;
 mod startup;
 #[path = "connection_manager/status.rs"]
 mod status;
+#[cfg(any(test, feature = "test-support"))]
+#[path = "connection_manager/test_support.rs"]
+mod test_support;
 #[path = "connection_manager/tool_catalog.rs"]
 mod tool_catalog;
 

@@ -31,6 +31,8 @@ pub use runtime::McpRuntimeInput;
 pub use runtime::McpStartupPolicy;
 pub use runtime::McpToolCallResult;
 pub use runtime::apply_http_headers_helper;
+#[cfg(feature = "test-support")]
+pub use runtime::test_support;
 pub use sandbox_metadata::MCP_SANDBOX_LAUNCHER_META_KEY;
 pub use sandbox_metadata::MCP_SANDBOX_STATE_CAPABILITY;
 pub use sandbox_metadata::MCP_SANDBOX_STATE_META_CAPABILITY;

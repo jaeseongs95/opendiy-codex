@@ -493,6 +493,150 @@ async fn cleanup_never_deletes_after_real_writer_shutdown_failure() {
     assert!(faults.deletes.lock().unwrap().is_empty());
 }
 
+// 장치는 시작 future의 하위 정리 결과만 제어한다. 상위 종료 계층과
+// 격리 LocalThreadStore는 실제 생산 구현을 그대로 사용한다.
+async fn assert_mcp_failure_preserved(
+    manager: &ThreadManager,
+    faults: &StoreFaults,
+    root: ThreadId,
+    done: &super::super::NewThread,
+) {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        done.thread.wait_until_terminated(),
+    )
+    .await
+    .unwrap();
+    // 분리된 정리 소유자가 최종 판정까지 이 잠금을 보유한다.
+    let gate = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Arc::clone(&done.thread.residency_gate).write_owned(),
+    )
+    .await
+    .unwrap();
+    drop(gate);
+    let error = done
+        .thread
+        .session
+        .services
+        .mcp_runtime
+        .shutdown()
+        .await
+        .expect_err("the real MCP shutdown must retain its failure");
+    assert!(
+        error
+            .to_string()
+            .contains("test startup cleanup termination unconfirmed")
+    );
+    assert!(!done.thread.io.admission.shutdown_confirmed());
+    assert!(faults.deletes.lock().unwrap().is_empty());
+    assert!(stored(manager, done.thread_id).await);
+    assert!(stored(manager, root).await);
+    let registered = manager.get_thread(done.thread_id).await.unwrap();
+    assert!(Arc::ptr_eq(&registered, &done.thread));
+    assert!(manager.admit_thread_activity(done.thread_id).is_err());
+    assert!(manager.admit_thread_activity(root).is_ok());
+    // 정리 전에 얻은 Arc다. 소유 잠금 해제 후 실제 닫힌 진입 경로의 거부를 확인한다.
+    assert!(done.thread.submit(Op::Interrupt).await.is_err());
+}
+
+#[tokio::test]
+async fn cleanup_mcp_shutdown_failure_never_deletes_and_preserves_registered_owner() {
+    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+    let done = child(&manager, &config, &root).await;
+    complete(&done.thread).await;
+    // 초기 준비와 게시가 끝난 뒤 하위 시작 결과를 설치한다.
+    done.thread.session.refresh_mcp_if_dirty().await;
+    let selected = selection(&manager, root.thread_id).await;
+    let probe = done
+        .thread
+        .session
+        .services
+        .mcp_runtime
+        .install_unconfirmed_startup_for_test();
+    probe.release();
+    let result = manager
+        .cleanup_completed_children(root.thread_id, root.thread_id, selected)
+        .await
+        .unwrap();
+    assert_eq!(result[0].outcome, "shutdown_unconfirmed");
+    assert_mcp_failure_preserved(&manager, &faults, root.thread_id, &done).await;
+}
+
+#[tokio::test]
+async fn cleanup_mcp_shutdown_owner_survives_request_cancellation() {
+    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+    let done = child(&manager, &config, &root).await;
+    complete(&done.thread).await;
+    // 초기 준비와 게시가 끝난 뒤 하위 시작 결과를 설치한다.
+    done.thread.session.refresh_mcp_if_dirty().await;
+    let selected = selection(&manager, root.thread_id).await;
+    let probe = done
+        .thread
+        .session
+        .services
+        .mcp_runtime
+        .install_unconfirmed_startup_for_test();
+    let owner_manager = copy_manager(&manager);
+    let request = tokio::spawn(async move {
+        owner_manager
+            .cleanup_completed_children(root.thread_id, root.thread_id, selected)
+            .await
+    });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        probe.wait_for_shutdown(),
+    )
+    .await
+    .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    assert!(faults.deletes.lock().unwrap().is_empty());
+    assert!(stored(&manager, done.thread_id).await);
+    assert!(manager.admit_thread_activity(done.thread_id).is_err());
+    probe.release();
+    assert_mcp_failure_preserved(&manager, &faults, root.thread_id, &done).await;
+}
+
+#[tokio::test]
+async fn cleanup_mcp_shutdown_timeout_never_restarts_deletion_after_late_failure() {
+    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+    let done = child(&manager, &config, &root).await;
+    complete(&done.thread).await;
+    // 초기 준비와 게시가 끝난 뒤 하위 시작 결과를 설치한다.
+    done.thread.session.refresh_mcp_if_dirty().await;
+    let selected = selection(&manager, root.thread_id).await;
+    let probe = done
+        .thread
+        .session
+        .services
+        .mcp_runtime
+        .install_unconfirmed_startup_for_test();
+    let owner_manager = copy_manager(&manager);
+    let request = tokio::spawn(async move {
+        owner_manager
+            .cleanup_completed_children(root.thread_id, root.thread_id, selected)
+            .await
+    });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        probe.wait_for_shutdown(),
+    )
+    .await
+    .unwrap();
+    // 실제 AsyncManagedClient::shutdown의 시작 취소 이후에만 시계를 전진시킨다.
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_secs(31)).await;
+    let result = request.await.unwrap().unwrap();
+    tokio::time::resume();
+    assert_eq!(result[0].outcome, "shutdown_unconfirmed");
+    assert!(faults.deletes.lock().unwrap().is_empty());
+    assert!(stored(&manager, done.thread_id).await);
+    assert!(manager.admit_thread_activity(done.thread_id).is_err());
+    probe.release();
+    assert_mcp_failure_preserved(&manager, &faults, root.thread_id, &done).await;
+}
+
 async fn selection(manager: &ThreadManager, root: ThreadId) -> Vec<CompletedChildSnapshot> {
     manager
         .preview_completed_children(root, root)
