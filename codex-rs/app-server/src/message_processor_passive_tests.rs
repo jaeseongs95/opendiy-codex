@@ -35,9 +35,7 @@ async fn setup(uri: &str) -> Result<(TempDir, Arc<Config>, Arc<MessageProcessor>
         .await?;
     config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
     config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
-    config
-        .features
-        .enable(codex_core::features::Feature::Sqlite)?;
+    config.features.enable(codex_features::Feature::Sqlite);
     let state_db = codex_core::init_state_db(&config)
         .await
         .expect("passive fixture must initialize its isolated state database");

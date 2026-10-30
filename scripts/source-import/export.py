@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 
 OFFICIAL='360319d8dee62d87e2d59fc0c21805d79519cfed'
-PATCHED='ba9155abe9c4ce3350fd6cd5ac6e022830569058'
+PATCHED='5b8bb66fd2b4b6175f2c549ede0e5bb0942438d6'
 PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes','docs/native-cli-r27.ko.md','docs/native-cli-cron.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
 DATE='2026-10-30'

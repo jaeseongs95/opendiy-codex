@@ -20773,10 +20773,10 @@ index a1b113311..de3d51f7b 100644
 +mod passive_tests;
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..4ed905392
+index 000000000..a01efa2f8
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
-@@ -0,0 +1,1020 @@
+@@ -0,0 +1,1018 @@
 +//! New method contracts through the real initialized JSON-RPC dispatcher and listener.
 +use super::message_processor_tracing_tests::{
 +    build_test_processor_with_state_db, read_response_from,
@@ -20813,9 +20813,7 @@ index 000000000..4ed905392
 +        .await?;
 +    config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
 +    config.sqlite = codex_state::SqliteConfig::new_for_testing(config.codex_home.clone());
-+    config
-+        .features
-+        .enable(codex_core::features::Feature::Sqlite)?;
++    config.features.enable(codex_features::Feature::Sqlite);
 +    let state_db = codex_core::init_state_db(&config)
 +        .await
 +        .expect("passive fixture must initialize its isolated state database");
@@ -21798,7 +21796,7 @@ index 000000000..4ed905392
 +    Ok(())
 +}
 diff --git a/codex-rs/app-server/src/message_processor_tracing_tests.rs b/codex-rs/app-server/src/message_processor_tracing_tests.rs
-index 2bb77bf6f..6634d0950 100644
+index 2bb77bf6f..15d98c0fe 100644
 --- a/codex-rs/app-server/src/message_processor_tracing_tests.rs
 +++ b/codex-rs/app-server/src/message_processor_tracing_tests.rs
 @@ -241,6 +241,17 @@ pub(super) async fn build_test_processor(
@@ -21812,7 +21810,7 @@ index 2bb77bf6f..6634d0950 100644
 +pub(super) async fn build_test_processor_with_state_db(
 +    config: Arc<Config>,
 +    auth_manager: Arc<AuthManager>,
-+    state_db: Option<StateDbHandle>,
++    state_db: Option<codex_core::StateDbHandle>,
 +) -> (
 +    Arc<MessageProcessor>,
 +    mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
