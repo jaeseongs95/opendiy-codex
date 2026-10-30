@@ -639,6 +639,7 @@ impl TranscriptView {
                     TranscriptHistoryState::LoadingOlder
                         | TranscriptHistoryState::LoadingBeginning
                         | TranscriptHistoryState::Partial
+                        | TranscriptHistoryState::Deferred
                         | TranscriptHistoryState::Failed
                 ) =>
             {

@@ -401,6 +401,7 @@ pub(crate) enum TranscriptHistoryState {
     LoadingOlder,
     LoadingBeginning,
     Partial,
+    Deferred,
     Failed,
     Complete,
 }
@@ -409,7 +410,11 @@ impl TranscriptHistoryState {
     pub(crate) fn has_unloaded_history(self) -> bool {
         matches!(
             self,
-            Self::LoadingOlder | Self::LoadingBeginning | Self::Partial | Self::Failed
+            Self::LoadingOlder
+                | Self::LoadingBeginning
+                | Self::Partial
+                | Self::Deferred
+                | Self::Failed
         )
     }
 }

@@ -221,6 +221,7 @@ pub(crate) struct ThreadHistoryPagination {
     oldest_item: Option<(String, String)>,
     errors: Vec<String>,
     incomplete: bool,
+    deferred: bool,
 }
 
 pub(super) fn is_unmaterialized_history_error(error: &color_eyre::Report) -> bool {
@@ -247,6 +248,19 @@ impl AppServerSession {
             .is_some_and(|state| state.incomplete)
     }
 
+    pub(crate) fn transcript_history_state(
+        &self,
+        thread_id: ThreadId,
+    ) -> crate::pager_overlay::TranscriptHistoryState {
+        use crate::pager_overlay::TranscriptHistoryState;
+        match self.history_pagination.get(&thread_id) {
+            Some(state) if state.incomplete && state.deferred => TranscriptHistoryState::Deferred,
+            Some(state) if state.incomplete => TranscriptHistoryState::Failed,
+            _ if self.has_older_history(thread_id) => TranscriptHistoryState::Partial,
+            _ => TranscriptHistoryState::Complete,
+        }
+    }
+
     pub(super) fn mark_initial_history_unavailable(
         &mut self,
         thread_id: ThreadId,
@@ -256,7 +270,11 @@ impl AppServerSession {
         let state = self.history_pagination.entry(thread_id).or_default();
         state.history_mode = history_mode;
         state.incomplete = true;
-        state.errors.push(format!("{error:#}"));
+        state.deferred = is_unmaterialized_history_error(error);
+        // 성공한 재개 뒤의 저장 대기는 빈 이력의 증거도 사용자 오류도 아니다.
+        if !state.deferred {
+            state.errors.push(format!("{error:#}"));
+        }
     }
 
     pub(crate) fn take_history_errors(&mut self, thread_id: ThreadId) -> Vec<String> {
@@ -717,6 +735,7 @@ impl AppServerSession {
         state.loading_token = None;
         if state.direction == HistoryDirection::Latest {
             state.incomplete = false;
+            state.deferred = false;
         }
         self.history_pagination.insert(thread_id, state);
         Ok(items)
@@ -907,10 +926,9 @@ impl AppServerSession {
                     .await?
                     .turns;
             }
-            self.history_pagination
-                .entry(thread_id)
-                .or_default()
-                .incomplete = false;
+            let state = self.history_pagination.entry(thread_id).or_default();
+            state.incomplete = false;
+            state.deferred = false;
             return Ok(());
         }
 
