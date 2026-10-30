@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Transient side-conversation threads.
 //!
 //! A side conversation is an ephemeral fork used for a quick /side question while keeping the
@@ -511,6 +512,17 @@ impl App {
     }
 
     pub(super) async fn discard_thread_local_state(&mut self, thread_id: ThreadId) {
+        self.cron
+            .tool_tasks
+            .retain(|_, (source, cancellation, task)| {
+                if *source == thread_id {
+                    cancellation.cancel();
+                    task.abort();
+                    false
+                } else {
+                    true
+                }
+            });
         self.pending_app_server_requests
             .cancel_thread_verification(&thread_id.to_string());
         let app_event_tx = self.app_event_tx.clone();

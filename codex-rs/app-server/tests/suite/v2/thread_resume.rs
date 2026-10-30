@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::MockResponsesConfig;
@@ -448,13 +449,13 @@ async fn wait_for_responses_request_count(
 }
 
 #[test_case(ThreadHistoryMode::Legacy, false; "legacy with turns")]
-#[test_case(ThreadHistoryMode::Legacy, true; "legacy without turns")]
 #[test_case(ThreadHistoryMode::Paginated, false; "paginated with turns")]
-#[test_case(ThreadHistoryMode::Paginated, true; "paginated without turns")]
+#[test_case(ThreadHistoryMode::Legacy, true; "legacy initial page")]
+#[test_case(ThreadHistoryMode::Paginated, true; "paginated initial page")]
 #[tokio::test]
-async fn thread_resume_rejects_unmaterialized_thread(
+async fn thread_resume_rejects_unmaterialized_thread_history(
     history_mode: ThreadHistoryMode,
-    exclude_turns: bool,
+    initial_page: bool,
 ) -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let codex_home = TempDir::new()?;
@@ -476,11 +477,16 @@ async fn thread_resume_rejects_unmaterialized_thread(
     let ThreadStartResponse { thread, .. } =
         timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(start_id)).await??;
 
-    // Resume should fail before the first user message materializes rollout storage.
+    // Metadata-only rejoin must not make stored history available before materialization.
     let resume_id = mcp
         .send_thread_resume_request(ThreadResumeParams {
             thread_id: thread.id.clone(),
-            exclude_turns,
+            exclude_turns: initial_page,
+            initial_turns_page: initial_page.then_some(ThreadResumeInitialTurnsPageParams {
+                limit: Some(1),
+                sort_direction: None,
+                items_view: None,
+            }),
             ..Default::default()
         })
         .await?;
@@ -498,6 +504,426 @@ async fn thread_resume_rejects_unmaterialized_thread(
         resume_err.error.message
     );
 
+    Ok(())
+}
+
+#[test_case(ThreadHistoryMode::Legacy; "legacy")]
+#[test_case(ThreadHistoryMode::Paginated; "paginated")]
+#[tokio::test]
+async fn thread_resume_rejoins_unmaterialized_thread_from_another_connection(
+    history_mode: ThreadHistoryMode,
+) -> Result<()> {
+    use super::connection_handling_websocket as websocket;
+    use codex_app_server_protocol::JSONRPCMessage;
+    use futures::SinkExt;
+
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let codex_home = TempDir::new()?;
+    websocket::create_config_toml(codex_home.path(), &server.uri(), "on-request")?;
+    let (mut process, address) = websocket::spawn_websocket_server(codex_home.path()).await?;
+    let mut owner = websocket::connect_websocket(address).await?;
+    websocket::send_request(
+        &mut owner,
+        "initialize",
+        1,
+        Some(json!({
+            "clientInfo": { "name": "thread_owner", "version": "0" },
+            "capabilities": { "experimentalApi": true },
+        })),
+    )
+    .await?;
+    websocket::read_response_for_id(&mut owner, 1).await?;
+    websocket::send_request(
+        &mut owner,
+        "thread/start",
+        2,
+        Some(serde_json::to_value(ThreadStartParams {
+            history_mode: Some(history_mode),
+            ..Default::default()
+        })?),
+    )
+    .await?;
+    let started: ThreadStartResponse =
+        to_response(websocket::read_response_for_id(&mut owner, 2).await?)?;
+    let path = started.thread.path.as_ref().expect("local rollout path");
+    assert!(
+        !path.exists(),
+        "untouched thread must remain unmaterialized"
+    );
+
+    let mut joining = websocket::connect_websocket(address).await?;
+    websocket::send_request(
+        &mut joining,
+        "initialize",
+        3,
+        Some(json!({
+            "clientInfo": { "name": "thread_joining", "version": "0" },
+            "capabilities": { "experimentalApi": true },
+        })),
+    )
+    .await?;
+    websocket::read_response_for_id(&mut joining, 3).await?;
+    // Rejoining must retain the live writer, permissions, and session identity.
+    websocket::send_request(
+        &mut joining,
+        "thread/resume",
+        4,
+        Some(serde_json::to_value(ThreadResumeParams {
+            thread_id: started.thread.id.clone(),
+            exclude_turns: true,
+            approval_policy: Some(AskForApproval::Never),
+            model: Some("ignored-rejoin-model".to_string()),
+            ..Default::default()
+        })?),
+    )
+    .await?;
+    let resumed: ThreadResumeResponse = loop {
+        match websocket::read_jsonrpc_message(&mut joining).await? {
+            JSONRPCMessage::Response(response) if response.id == RequestId::Integer(4) => {
+                break to_response(response)?;
+            }
+            JSONRPCMessage::Error(error) if error.id == RequestId::Integer(4) => {
+                anyhow::bail!("unexpected thread/resume error: {error:?}");
+            }
+            _ => {}
+        }
+    };
+    assert_eq!(resumed.thread.id, started.thread.id);
+    assert_eq!(resumed.thread.session_id, started.thread.session_id);
+    assert_eq!(resumed.thread.history_mode, history_mode);
+    assert_eq!(resumed.turns_backwards_cursor, None);
+    assert_eq!(resumed.items_backwards_cursor, None);
+    assert_eq!(resumed.thread.path, started.thread.path);
+    assert_eq!(resumed.thread.can_accept_direct_input, Some(true));
+    assert_eq!(resumed.thread.status, ThreadStatus::Idle);
+    assert!(resumed.thread.turns.is_empty());
+    assert_eq!(resumed.model, started.model);
+    assert_eq!(resumed.approval_policy, started.approval_policy);
+    assert_eq!(resumed.approvals_reviewer, started.approvals_reviewer);
+    assert_eq!(resumed.sandbox, started.sandbox);
+    assert_eq!(
+        resumed.active_permission_profile,
+        started.active_permission_profile
+    );
+    assert!(
+        !path.exists(),
+        "rejoin must not materialize an empty rollout"
+    );
+
+    let (method, params, expected_code, expected_message) = match history_mode {
+        ThreadHistoryMode::Legacy => (
+            "thread/read",
+            json!({ "threadId": started.thread.id, "includeTurns": true }),
+            -32600,
+            format!(
+                "thread {} is not materialized yet; includeTurns is unavailable before first user message",
+                started.thread.id
+            ),
+        ),
+        ThreadHistoryMode::Paginated => (
+            "thread/turns/list",
+            json!({ "threadId": started.thread.id, "limit": 20 }),
+            -32600,
+            format!(
+                "thread {} is not materialized yet; thread/turns/list is unavailable before first user message",
+                started.thread.id
+            ),
+        ),
+    };
+    websocket::send_request(&mut joining, method, 9, Some(params)).await?;
+    let error = websocket::read_error_for_id(&mut joining, 9).await?;
+    assert_eq!(error.error.code, expected_code);
+    assert_eq!(error.error.message, expected_message);
+    assert_eq!(
+        error.error.data,
+        Some(json!({
+            "kind": "historyProjectionUnavailable", "reason": "unmaterialized"
+        }))
+    );
+    assert!(
+        !path.exists(),
+        "unavailable history must not force persistence"
+    );
+    // Cursor and anchor failures must retain their original error contracts.
+    for (id, method, params) in [
+        (
+            10,
+            "thread/turns/list",
+            json!({ "threadId": started.thread.id, "cursor": "invalid-cursor" }),
+        ),
+        (
+            11,
+            "thread/items/list",
+            json!({ "threadId": started.thread.id, "cursor": { "type": "item", "itemId": "missing-item" } }),
+        ),
+        (
+            12,
+            "thread/items/list",
+            json!({ "threadId": started.thread.id, "turnId": "missing-turn" }),
+        ),
+        (
+            13,
+            "thread/read",
+            json!({ "threadId": Uuid::new_v4().to_string(), "includeTurns": true }),
+        ),
+    ] {
+        websocket::send_request(&mut joining, method, id, Some(params)).await?;
+        assert_eq!(
+            websocket::read_error_for_id(&mut joining, id)
+                .await?
+                .error
+                .data,
+            None
+        );
+    }
+    if history_mode == ThreadHistoryMode::Paginated {
+        websocket::send_request(
+            &mut joining,
+            "thread/items/list",
+            14,
+            Some(json!({ "threadId": started.thread.id })),
+        )
+        .await?;
+        let error = websocket::read_error_for_id(&mut joining, 14).await?;
+        assert_eq!(error.error.code, -32601);
+        assert_eq!(
+            error.error.message,
+            "thread/items/list is not supported yet"
+        );
+        assert_eq!(
+            error.error.data, None,
+            "unsupported item paging retains compatibility recovery"
+        );
+    }
+
+    // A mismatched path must not switch this live thread to another source.
+    websocket::send_request(
+        &mut joining,
+        "thread/resume",
+        5,
+        Some(json!({
+            "threadId": started.thread.id,
+            "excludeTurns": true,
+            "path": codex_home.path().join("other-rollout.jsonl"),
+        })),
+    )
+    .await?;
+    let error = websocket::read_error_for_id(&mut joining, 5).await?;
+    assert_eq!(error.error.code, -32600);
+    assert!(error.error.message.contains("stale path"));
+    websocket::send_request(
+        &mut joining,
+        "thread/resume",
+        8,
+        Some(json!({ "threadId": started.thread.id, "excludeTurns": true, "history": [] })),
+    )
+    .await?;
+    let error = websocket::read_error_for_id(&mut joining, 8).await?;
+    assert_eq!(error.error.code, -32600);
+    assert!(
+        error
+            .error
+            .message
+            .contains("with history while it is already running")
+    );
+
+    // Disconnect only the joining client; the original runtime must remain usable.
+    joining.close(None).await?;
+    websocket::send_request(
+        &mut owner,
+        "thread/read",
+        6,
+        Some(json!({ "threadId": started.thread.id, "includeTurns": false })),
+    )
+    .await?;
+    let read: ThreadReadResponse =
+        to_response(websocket::read_response_for_id(&mut owner, 6).await?)?;
+    assert_eq!(read.thread.session_id, started.thread.session_id);
+    websocket::send_request(&mut owner, "thread/loaded/list", 7, Some(json!({}))).await?;
+    let loaded: ThreadLoadedListResponse =
+        to_response(websocket::read_response_for_id(&mut owner, 7).await?)?;
+    assert_eq!(loaded.data, vec![started.thread.id]);
+    process.kill().await?;
+    Ok(())
+}
+
+#[test_case(false; "without sqlite metadata")]
+#[test_case(true; "with sqlite metadata")]
+#[tokio::test]
+async fn thread_resume_metadata_preserves_deleted_rollout_contract(
+    stored_metadata_present: bool,
+) -> Result<()> {
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let codex_home = TempDir::new()?;
+    mock_responses_config(&server.uri()).write(codex_home.path())?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let started = mcp
+        .start_thread(ThreadStartParams {
+            history_mode: Some(ThreadHistoryMode::Legacy),
+            ..Default::default()
+        })
+        .await?;
+    mcp.start_turn_and_wait_for_completion(TurnStartParams {
+        thread_id: started.thread.id.clone(),
+        input: vec![UserInput::Text {
+            text: "materialize rollout".to_string(),
+            text_elements: Vec::new(),
+        }],
+        ..Default::default()
+    })
+    .await?;
+    let path = started.thread.path.as_ref().expect("local rollout path");
+    assert!(path.exists());
+    let state_db = StateRuntime::init(
+        codex_state::SqliteConfig::new_for_testing(codex_home.path().abs()),
+        "mock_provider".into(),
+    )
+    .await?;
+    let thread_id = ThreadId::from_string(&started.thread.id)?;
+    // Wait for the real backing record before deleting JSONL. A live thread/read
+    // snapshot alone cannot prove that the metadata-only stored source exists.
+    let metadata = timeout(DEFAULT_READ_TIMEOUT, async {
+        loop {
+            if let Some(metadata) = state_db.get_thread(thread_id).await? {
+                break Ok::<_, anyhow::Error>(metadata);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    assert_eq!(metadata.id, thread_id);
+    assert_eq!(&metadata.rollout_path, path);
+    assert_eq!(
+        metadata.history_mode,
+        codex_protocol::protocol::ThreadHistoryMode::Legacy
+    );
+    std::fs::remove_file(path)?;
+    if !stored_metadata_present {
+        // SQLite is always initialized; its removed feature flag cannot create this case.
+        assert_eq!(state_db.delete_thread(thread_id).await?, 1);
+        assert!(state_db.get_thread(thread_id).await?.is_none());
+    }
+    let request = mcp
+        .send_thread_resume_request(ThreadResumeParams {
+            thread_id: started.thread.id.clone(),
+            exclude_turns: true,
+            ..Default::default()
+        })
+        .await?;
+    if stored_metadata_present {
+        let resumed: ThreadResumeResponse =
+            timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request)).await??;
+        assert_eq!(resumed.thread.id, started.thread.id);
+        assert_eq!(resumed.thread.session_id, started.thread.session_id);
+        assert_eq!(resumed.thread.history_mode, started.thread.history_mode);
+        assert_eq!(resumed.thread.path, started.thread.path);
+        assert!(resumed.thread.turns.is_empty());
+        assert_eq!(resumed.model, started.model);
+        assert_eq!(resumed.approval_policy, started.approval_policy);
+        assert_eq!(resumed.approvals_reviewer, started.approvals_reviewer);
+        assert_eq!(resumed.sandbox, started.sandbox);
+        assert_eq!(
+            resumed.active_permission_profile,
+            started.active_permission_profile
+        );
+    } else {
+        let error = timeout(
+            DEFAULT_READ_TIMEOUT,
+            mcp.read_stream_until_error_message(RequestId::Integer(request)),
+        )
+        .await??;
+        assert_eq!(error.error.code, -32600);
+        assert_eq!(
+            error.error.message,
+            format!("no rollout found for thread id {}", started.thread.id)
+        );
+        assert_eq!(error.error.data, None);
+    }
+    let history_id = mcp
+        .send_thread_read_request(ThreadReadParams {
+            thread_id: started.thread.id.clone(),
+            include_turns: true,
+        })
+        .await?;
+    let error = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(history_id)),
+    )
+    .await??;
+    assert_eq!(
+        error.error.data, None,
+        "deleted stored history must not become deferred history"
+    );
+    let read_id = mcp
+        .send_thread_read_request(ThreadReadParams {
+            thread_id: started.thread.id.clone(),
+            include_turns: false,
+        })
+        .await?;
+    let read: ThreadReadResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(read_id)).await??;
+    assert_eq!(read.thread.session_id, started.thread.session_id);
+    let loaded_id = mcp
+        .send_thread_loaded_list_request(ThreadLoadedListParams::default())
+        .await?;
+    let loaded: ThreadLoadedListResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(loaded_id)).await??;
+    assert_eq!(loaded.data, vec![started.thread.id]);
+    assert!(!path.exists());
+    Ok(())
+}
+
+#[test_case(ThreadHistoryMode::Legacy; "legacy")]
+#[test_case(ThreadHistoryMode::Paginated; "paginated")]
+#[tokio::test]
+async fn thread_resume_metadata_does_not_create_missing_runtime(
+    history_mode: ThreadHistoryMode,
+) -> Result<()> {
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let codex_home = TempDir::new()?;
+    mock_responses_config(&server.uri()).write(codex_home.path())?;
+    let mut owner = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let started = owner
+        .start_thread(ThreadStartParams {
+            history_mode: Some(history_mode),
+            ..Default::default()
+        })
+        .await?;
+    let mut other_process = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    for thread_id in [started.thread.id, Uuid::new_v4().to_string()] {
+        let request = other_process
+            .send_thread_resume_request(ThreadResumeParams {
+                thread_id: thread_id.clone(),
+                exclude_turns: true,
+                ..Default::default()
+            })
+            .await?;
+        let error = timeout(
+            DEFAULT_READ_TIMEOUT,
+            other_process.read_stream_until_error_message(RequestId::Integer(request)),
+        )
+        .await??;
+        assert_eq!(error.error.code, -32600);
+        assert_eq!(
+            error.error.message,
+            format!("no rollout found for thread id {thread_id}")
+        );
+    }
+    let loaded = other_process
+        .send_thread_loaded_list_request(ThreadLoadedListParams::default())
+        .await?;
+    let loaded: ThreadLoadedListResponse =
+        timeout(DEFAULT_READ_TIMEOUT, other_process.read_response(loaded)).await??;
+    assert!(loaded.data.is_empty());
     Ok(())
 }
 
@@ -4137,6 +4563,7 @@ async fn cold_paginated_resume_restores_usage_without_loading_turns() -> Result<
                     total_tokens: 150,
                     ..Default::default()
                 },
+                last_usage_includes_reasoning: None,
                 last_token_usage: TokenUsage {
                     input_tokens: 70,
                     output_tokens: 20,
@@ -4216,6 +4643,7 @@ async fn cold_paginated_resume_omits_usage_when_its_turn_is_ambiguous() -> Resul
                     total_tokens: 150,
                     ..Default::default()
                 },
+                last_usage_includes_reasoning: None,
                 last_token_usage: TokenUsage {
                     total_tokens: 90,
                     ..Default::default()
@@ -4500,6 +4928,7 @@ async fn thread_resume_token_usage_replay_can_belong_to_interrupted_turn() -> Re
                         total_tokens: 230,
                         codex_rollout_budget_units: None,
                     },
+                    last_usage_includes_reasoning: None,
                     last_token_usage: TokenUsage {
                         input_tokens: 90,
                         cached_input_tokens: 30,

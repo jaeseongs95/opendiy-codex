@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use crate::MemoryWorkspaceLock;
 use crate::metrics::MEMORY_PHASE_TWO_E2E_MS;
 use crate::metrics::MEMORY_PHASE_TWO_INPUT;

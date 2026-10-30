@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! TUI-only out-of-process reconnection. Each attempt initializes a fresh client and rejoins existing
 //! threads using ordinary resume/history semantics. Confirmed submissions are reconciled before
 //! unsent queues resume; uncertain submissions and old async completions remain quarantined.
@@ -357,6 +357,13 @@ impl App {
         session.inherit_task_tool_capabilities(app_server);
         // A queued foreground request must never bind to the recovered backend epoch.
         self.chat_widget.invalidate_background_terminal_owner();
+        // Reconnect paused all schedules, but only this connection is being retired.
+        app_server
+            .cron_tool_connection()
+            .live
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.cron
+            .invalidate_backend(app_server.backend_id(), "원래 연결 교체: 예약 실행 중지");
         *app_server = session;
         #[cfg(any(target_os = "windows", test))]
         let interrupted_windows_setup = self.windows_sandbox.pending_setup.take().is_some();
@@ -567,7 +574,11 @@ impl App {
         }
         // Only accept fresh task-tool calls once this connection and its event queue are adopted.
         if let ThreadToolTransport::Mcp(server) = app_server.thread_tool_transport() {
-            server.reconnect(app_server.request_handle(), self.app_event_tx.clone());
+            server.reconnect(
+                app_server.request_handle(),
+                self.app_event_tx.clone(),
+                Some(app_server.cron_tool_connection()),
+            );
         }
         self.reconnect.offline = false;
         self.chat_widget.update_account_state(

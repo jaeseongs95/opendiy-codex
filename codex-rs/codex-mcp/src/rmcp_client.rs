@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! RMCP client lifecycle for MCP server connections.
 //!
 //! This module owns startup of individual RMCP clients: building the transport,

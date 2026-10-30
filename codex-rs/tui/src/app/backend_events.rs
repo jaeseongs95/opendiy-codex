@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Checks incoming event ownership before consulting native-thread caches or UI state.
 //! Connection-wide lifecycle and account events may only update the displayed conversation's UI.
 
@@ -10,16 +10,35 @@ use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::ServerNotification;
 
 impl App {
+    pub(super) fn handle_backend_stream_closed(&mut self, app_server: &AppServerSession) {
+        app_server
+            .cron_tool_connection()
+            .live
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.cron.invalidate_backend(
+            app_server.backend_id(),
+            "backend 이벤트 스트림 종료: 예약 실행 중지",
+        );
+    }
+
     pub(super) async fn handle_polled_backend_event(
         &mut self,
         app_server: &AppServerSession,
         displayed_owner: BackendId,
         event: AppServerSessionEvent,
     ) {
+        if event.backend_id != app_server.backend_id() {
+            tracing::warn!("ignoring server event from a different backend");
+            return;
+        }
         if matches!(
             &event.event,
             AppServerEvent::Disconnected { .. } | AppServerEvent::Lagged { .. }
         ) {
+            app_server
+                .cron_tool_connection()
+                .live
+                .store(false, std::sync::atomic::Ordering::Release);
             self.cron.invalidate_backend(
                 event.backend_id,
                 "backend 연결 또는 이벤트 수신 유실: 예약 실행 중지",

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 #[path = "daemon_continuation.rs"]
 mod daemon_continuation;
 
@@ -928,13 +928,80 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    async fn loaded_thread_for_history(&self, thread_id: &str) -> Option<Arc<CodexThread>> {
+        let thread_id = ThreadId::from_string(thread_id).ok()?;
+        self.thread_manager.get_thread(thread_id).await.ok()
+    }
+
+    async fn mark_unmaterialized_history_error(
+        &self,
+        observed_thread: Option<Arc<CodexThread>>,
+        mut error: JSONRPCErrorError,
+    ) -> JSONRPCErrorError {
+        if error.code != crate::error_code::INVALID_REQUEST_ERROR_CODE
+            || error.data.is_some()
+            || !self.thread_store.as_any().is::<LocalThreadStore>()
+        {
+            return error;
+        }
+        let Some(thread) = observed_thread else {
+            return error;
+        };
+        if thread.config_snapshot().await.ephemeral {
+            return error;
+        }
+        let Some(path) = thread.rollout_path() else {
+            return error;
+        };
+        // A missing file alone also describes deleted history. The owning writer must
+        // still report intentional deferred creation, ordered with its persistence.
+        if !matches!(tokio::fs::try_exists(&path).await, Ok(false))
+            || !matches!(thread.feedback_rollout_path().await, Ok(None))
+        {
+            return error;
+        }
+        let thread_id = thread.startup_metadata().thread_id;
+        let unloading = self
+            .pending_thread_unloads
+            .lock()
+            .await
+            .contains_key(&thread_id);
+        if unloading
+            || !self
+                .thread_manager
+                .get_thread(thread_id)
+                .await
+                .is_ok_and(|current| Arc::ptr_eq(&current, &thread))
+        {
+            return error;
+        }
+        // This is unavailable history, never evidence of an empty projection.
+        error.data = Some(serde_json::json!({
+            "kind": "historyProjectionUnavailable",
+            "reason": "unmaterialized",
+        }));
+        error
+    }
+
     pub(crate) async fn thread_read(
         &self,
         request_id: &ConnectionRequestId,
         params: ThreadReadParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         let include_turns = params.include_turns;
-        let response = self.thread_read_response_inner(params).await?;
+        let observed_thread = if include_turns {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        let response = match self.thread_read_response_inner(params).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(self
+                    .mark_unmaterialized_history_error(observed_thread, error)
+                    .await);
+            }
+        };
         if include_turns
             && matches!(
                 response.thread.history_mode,
@@ -954,18 +1021,34 @@ impl ThreadRequestProcessor {
         &self,
         params: ThreadTurnsListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_turns_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let observed_thread = if params.cursor.is_none() {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        match self.thread_turns_list_response_inner(params).await {
+            Ok(response) => Ok(Some(response.into())),
+            Err(error) => Err(self
+                .mark_unmaterialized_history_error(observed_thread, error)
+                .await),
+        }
     }
 
     pub(crate) async fn thread_items_list(
         &self,
         params: ThreadItemsListParams,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_items_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let observed_thread = if params.cursor.is_none() && params.turn_id.is_none() {
+            self.loaded_thread_for_history(&params.thread_id).await
+        } else {
+            None
+        };
+        match self.thread_items_list_response_inner(params).await {
+            Ok(response) => Ok(Some(response.into())),
+            Err(error) => Err(self
+                .mark_unmaterialized_history_error(observed_thread, error)
+                .await),
+        }
     }
 
     pub(crate) async fn thread_items_read(
@@ -4679,12 +4762,26 @@ impl ThreadRequestProcessor {
             && let Ok(existing_thread) = self.thread_manager.get_thread(existing_thread_id).await
         {
             let source_thread = self
-                .read_stored_thread_for_resume(
-                    &params.thread_id,
-                    /*path*/ None,
-                    /*include_history*/ false,
-                )
-                .await?;
+                .read_stored_thread_for_read(existing_thread_id, /*include_history*/ false)
+                .await
+                .map_err(thread_read_view_error)?;
+            if source_thread.is_none()
+                && !(params.exclude_turns
+                    && params.initial_turns_page.is_none()
+                    && self.thread_store.as_any().is::<LocalThreadStore>()
+                    && existing_thread.rollout_path().is_some()
+                    && existing_thread
+                        .feedback_rollout_path()
+                        .await
+                        .map_err(thread_store_resume_read_error)?
+                        .is_none())
+            {
+                return Err(invalid_request(format!(
+                    "no rollout found for thread id {existing_thread_id}"
+                )));
+            }
+            // Only the owning, unmaterialized local writer can rejoin without stored metadata.
+            // feedback_rollout_path retains Some(path) for a materialized but deleted rollout.
             Some((existing_thread_id, existing_thread, source_thread))
         } else {
             let source_thread = self
@@ -4696,7 +4793,9 @@ impl ThreadRequestProcessor {
                 .await?;
             let existing_thread_id = source_thread.thread_id;
             match self.thread_manager.get_thread(existing_thread_id).await {
-                Ok(existing_thread) => Some((existing_thread_id, existing_thread, source_thread)),
+                Ok(existing_thread) => {
+                    Some((existing_thread_id, existing_thread, Some(source_thread)))
+                }
                 Err(_) => {
                     return Ok(RunningThreadResumeResult::NotRunning(Some(Box::new(
                         source_thread,
@@ -4706,12 +4805,25 @@ impl ThreadRequestProcessor {
         };
 
         if let Some((existing_thread_id, existing_thread, mut source_thread)) = running_thread {
-            let paginated_resume =
-                matches!(source_thread.history_mode, ThreadHistoryMode::Paginated);
-            let existing_thread_rollout_path = existing_thread.rollout_path();
-            let active_path = existing_thread_rollout_path
+            if let Some(source_thread) = source_thread.as_ref()
+                && source_thread.archived_at.is_some()
+            {
+                return Err(invalid_request(format!(
+                    "session {existing_thread_id} is archived. Run `codex unarchive {existing_thread_id}` to unarchive it first."
+                )));
+            }
+            let (config_snapshot, selected_service_tier) =
+                existing_thread.resume_config_snapshot().await;
+            let history_mode = source_thread
                 .as_ref()
-                .or(source_thread.rollout_path.as_ref());
+                .map_or(config_snapshot.history_mode, |thread| thread.history_mode);
+            let paginated_resume = matches!(history_mode, ThreadHistoryMode::Paginated);
+            let existing_thread_rollout_path = existing_thread.rollout_path();
+            let active_path = existing_thread_rollout_path.as_ref().or_else(|| {
+                source_thread
+                    .as_ref()
+                    .and_then(|thread| thread.rollout_path.as_ref())
+            });
             if let (Some(requested_path), Some(active_path)) = (params.path.as_ref(), active_path)
                 && !path_utils::paths_match_after_normalization(requested_path, active_path)
             {
@@ -4721,8 +4833,6 @@ impl ThreadRequestProcessor {
                     active_path.display()
                 )));
             }
-            let (config_snapshot, selected_service_tier) =
-                existing_thread.resume_config_snapshot().await;
             let mismatch_details = collect_resume_override_mismatches(
                 params,
                 &config_snapshot,
@@ -4742,10 +4852,12 @@ impl ThreadRequestProcessor {
                     matches!(existing_thread.agent_status().await, AgentStatus::Running);
 
                 // Parent-owned V2 children must not be rebuilt from public resume overrides.
-                if can_accept_direct_input(
-                    existing_thread.multi_agent_version(),
-                    &config_snapshot.session_source,
-                ) && !has_subscribers
+                if source_thread.is_some()
+                    && can_accept_direct_input(
+                        existing_thread.multi_agent_version(),
+                        &config_snapshot.session_source,
+                    )
+                    && !has_subscribers
                     && matches!(loaded_status, ThreadStatus::Idle)
                     && !is_running
                 {
@@ -4790,9 +4902,12 @@ impl ThreadRequestProcessor {
             let needs_history =
                 !paginated_resume && (include_turns || params.initial_turns_page.is_some());
             if needs_history {
+                let source_thread = source_thread.as_mut().ok_or_else(|| {
+                    internal_error(format!("thread {existing_thread_id} has no stored history"))
+                })?;
                 let source_thread_id = source_thread.thread_id.to_string();
                 let source_rollout_path = source_thread.rollout_path.clone();
-                source_thread = self
+                *source_thread = self
                     .read_stored_thread_for_resume(
                         &source_thread_id,
                         source_rollout_path.as_ref(),
@@ -4808,8 +4923,8 @@ impl ThreadRequestProcessor {
             }
             let history_items = if needs_history {
                 source_thread
-                    .history
-                    .take()
+                    .as_mut()
+                    .and_then(|thread| thread.history.take())
                     .map(|history| history.items)
                     .ok_or_else(|| {
                         internal_error(format!(
@@ -4837,11 +4952,21 @@ impl ThreadRequestProcessor {
             )
             .await?;
 
-            let mut thread_summary = self.stored_thread_to_api_thread(
-                source_thread,
-                config_snapshot.model_provider_id.as_str(),
-                /*include_turns*/ false,
-            );
+            // An unmaterialized writer has no stored history to anchor pagination cursors.
+            let resume_cursor_store = (paginated_resume && source_thread.is_some())
+                .then(|| Arc::clone(&self.thread_store));
+            let mut thread_summary = match source_thread {
+                Some(source_thread) => self.stored_thread_to_api_thread(
+                    source_thread,
+                    config_snapshot.model_provider_id.as_str(),
+                    /*include_turns*/ false,
+                ),
+                None => build_thread_from_loaded_snapshot(
+                    existing_thread_id,
+                    &config_snapshot,
+                    &existing_thread,
+                ),
+            };
             thread_summary.session_id = existing_thread.startup_metadata().session_id.to_string();
             thread_summary.thread_source = config_snapshot.thread_source.clone().map(Into::into);
             apply_live_thread_settings(&mut thread_summary, &config_snapshot);
@@ -4915,7 +5040,6 @@ impl ThreadRequestProcessor {
             } else {
                 None
             };
-            let resume_cursor_store = paginated_resume.then(|| Arc::clone(&self.thread_store));
 
             let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
             let command = crate::thread_state::ThreadListenerCommand::SendThreadResumeResponse {

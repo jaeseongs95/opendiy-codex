@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Launch MCP stdio servers and return the transport rmcp should use.
 //!
 //! This module owns the "where does the server process run?" decision:

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use crate::notification_media::without_notification_media;
 use crate::outgoing_message::ClientRequestResult;
 use crate::outgoing_message::ThreadScopedOutgoingMessageSender;
@@ -3755,6 +3756,7 @@ mod tests {
                 total_tokens: 200,
                 codex_rollout_budget_units: None,
             },
+            last_usage_includes_reasoning: None,
             last_token_usage: TokenUsage {
                 input_tokens: 10,
                 cached_input_tokens: 5,

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Startup bootstrap, draft handoff, and protected-input orchestration for the TUI app.
 //!
 //! Owns the main app run loop from app-server bootstrap through terminal shutdown. Startup input
@@ -1447,7 +1447,11 @@ See the Codex keymap documentation for supported actions and examples."
                                 if cell.as_any().is::<history_cell::SessionInfoCell>()
                         );
                         let had_active_modal = app.chat_widget.has_active_modal();
-                        match Box::pin(app.handle_event(tui, backends.session_at_mut(displayed_session), event)).await {
+                        let event_session = match &event {
+                            AppEvent::CronToolCall(request) => backends.slot(request.connection.backend).unwrap_or(displayed_session),
+                            _ => displayed_session,
+                        };
+                        match Box::pin(app.handle_event(tui, backends.session_at_mut(event_session), event)).await {
                             Ok(AppRunControl::Continue) => {
                                 if is_initial_session_header {
                                     waiting_for_initial_session_header = false;
@@ -1526,6 +1530,9 @@ See the Codex keymap documentation for supported actions and examples."
                             }
                             Some(_) => {}
                             None => {
+                                if let Some(session) = backends.session(owner) {
+                                    app.handle_backend_stream_closed(session);
+                                }
                                 if owner == initial_owner {
                                     if app.reconnect.offline && app.pending_startup_thread_start {
                                         reconnect = None;
@@ -1545,6 +1552,8 @@ See the Codex keymap documentation for supported actions and examples."
                                 if let Err(err) = app.finish_reconnect(tui, backends.session_at_mut(displayed_session), &mut app_event_rx, connected, CODEX_CLI_VERSION).await {
                                     break Err(err);
                                 }
+                                // finish_reconnect rotates the app queue for every backend.
+                                backends.update_tool_event_senders(&app.app_event_tx);
                                 backends.resume_events(initial_owner);
                                 waiting_for_initial_session_configured = app.pending_startup_thread_start;
                                 if app.pending_startup_thread_start {

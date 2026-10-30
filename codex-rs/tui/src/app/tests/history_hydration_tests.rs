@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Public history requests preserve bounded metadata loading, cursor ownership and retry settings.
 
 use super::session_lifecycle_requests::recorded_params;
@@ -701,6 +701,384 @@ async fn oversized_display_item_stays_available_to_complete_and_anchor_queries()
         };
         assert!(content.iter().any(|input| matches!(input, codex_app_server_protocol::UserInput::Text { text, .. } if text.len() == size)));
     }
+    server.shutdown().await?;
+    proxy.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history() -> Result<()> {
+    use super::session_lifecycle_requests::HistoryCapabilities;
+    use super::session_lifecycle_requests::start_recording_app_server_with_history;
+    use crate::app_server_session::ResumeModelSettings;
+    use codex_app_server_client::AppServerEvent;
+    use codex_app_server_protocol::ThreadHistoryMode;
+    use codex_app_server_protocol::ThreadStartParams;
+    use codex_app_server_protocol::ThreadStartResponse;
+    use codex_app_server_protocol::UserInput;
+
+    for history_mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
+        let (mut app, mut events, _) = make_test_app_with_channels().await;
+        let home = tempdir()?;
+        let model =
+            app_test_support::create_mock_responses_server_repeating_assistant("Done").await;
+        app_test_support::MockResponsesConfig::new(&model.uri()).write(home.path())?;
+        app.config = ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
+            .await?;
+        app.local_settings = crate::local_settings::LocalSettings::from(&app.config);
+        app.local_settings.transcript_mode = TranscriptMode::Owned;
+        let mut tui = crate::tui::test_support::make_test_tui()?;
+        tui.set_owned_screen(true)?;
+        let init = app.chatwidget_init_for_forked_or_resumed_thread(
+            &mut tui,
+            app.config.clone(),
+            /*initial_user_message*/ None,
+        );
+        app.replace_chat_widget(ChatWidget::new_with_app_event(init));
+        let (mut server, requests, proxy) = start_recording_app_server_with_history(
+            &app.config,
+            HistoryCapabilities::ForwardLiveEvents,
+            None,
+            None,
+            crate::app_server_session::ThreadParamsMode::Remote,
+            codex_config::LoaderOverrides::without_managed_config_for_tests(),
+        )
+        .await?;
+        let backend_id = server.backend_id();
+        let request_id = server.next_request_id();
+        let started: ThreadStartResponse = server
+            .request_handle()
+            .request_typed(ClientRequest::ThreadStart {
+                request_id,
+                params: ThreadStartParams {
+                    history_mode: Some(history_mode),
+                    ..Default::default()
+                },
+            })
+            .await?;
+        let thread_id = ThreadId::from_string(&started.thread.id)?;
+        let path = started.thread.path.as_ref().expect("local writer path");
+        let resumed = server
+            .resume_thread(
+                &app.local_settings,
+                app.config.clone(),
+                thread_id,
+                ResumeModelSettings::RestoreFromThread,
+            )
+            .await?;
+        assert_eq!(resumed.session.thread_id, thread_id);
+        assert!(resumed.turns.is_empty());
+        assert!(server.has_incomplete_history(thread_id));
+        assert!(!path.exists());
+        assert!(model.received_requests().await.unwrap().is_empty());
+        let before = server.thread_read(thread_id, false).await?;
+        assert_eq!(before.session_id, started.thread.session_id);
+        let original_session = resumed.session.clone();
+        app.enqueue_primary_thread_session(resumed.session, resumed.turns)
+            .await?;
+
+        // Both empty attachments queue their End event. Consuming the older event must
+        // use the active thread, never display the other thread's unavailable state.
+        let normal = server.start_thread(&app.config).await?;
+        let normal_id = normal.session.thread_id;
+        app.store_active_thread_receiver().await;
+        app.clear_active_thread().await;
+        app.enqueue_primary_thread_session(normal.session, normal.turns)
+            .await?;
+        let mut end_events = 0;
+        while let Ok(event) = events.try_recv() {
+            end_events += usize::from(matches!(event, AppEvent::EndInitialHistoryReplayBuffer));
+            app.handle_event(&mut tui, &mut server, event).await?;
+        }
+        assert_eq!(end_events, 2);
+        assert_eq!(app.chat_widget.thread_id(), Some(normal_id));
+        assert_eq!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
+        assert_eq!(app.active_thread_id, Some(normal_id));
+        let home = crate::tui::TuiEvent::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Home,
+            crossterm::event::KeyModifiers::CONTROL,
+        ));
+        assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &home)?);
+        assert_eq!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
+        assert!(server.has_incomplete_history(thread_id));
+        app.store_active_thread_receiver().await;
+        app.clear_active_thread().await;
+        app.enqueue_primary_thread_session(original_session, Vec::new())
+            .await?;
+        let mut displayed_errors = String::new();
+        while let Ok(event) = events.try_recv() {
+            if let AppEvent::InsertHistoryCell(cell) = &event {
+                displayed_errors.push_str(&lines_to_single_string(&cell.display_lines(1000)));
+            }
+            app.handle_event(&mut tui, &mut server, event).await?;
+        }
+        assert!(displayed_errors.contains("not materialized yet"));
+        assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert!(
+            server.has_incomplete_history(thread_id),
+            "displaying the error must not clear unknown history"
+        );
+        assert!(
+            server.take_history_errors(thread_id).is_empty(),
+            "the original error was displayed once"
+        );
+
+        let history_requests_before_home = recorded_params(&requests, "thread/items/list").len();
+        assert_eq!(app.active_thread_id, Some(thread_id));
+        assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &home)?);
+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_eq!(
+            recorded_params(&requests, "thread/items/list").len(),
+            history_requests_before_home,
+            "Home must not invent a retry without a cursor"
+        );
+
+        let approval_policy = app.config.permissions.approval_policy.value();
+        let permission_profile = app.config.permissions.permission_profile().clone();
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            crate::tui::TuiEvent::Paste("First real input".to_string()),
+        )
+        .await?;
+        assert_eq!(
+            app.chat_widget.composer_text_with_pending(),
+            "First real input"
+        );
+        app.handle_tui_event(
+            &mut tui,
+            &mut server,
+            crate::tui::TuiEvent::Key(crossterm::event::KeyEvent::from(
+                crossterm::event::KeyCode::Enter,
+            )),
+        )
+        .await?;
+        let mut submitted_user_turns = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(&event, AppEvent::CodexOp(AppCommand::UserTurn { .. })) {
+                submitted_user_turns += 1;
+            }
+            app.handle_event(&mut tui, &mut server, event).await?;
+        }
+        assert_eq!(
+            submitted_user_turns, 1,
+            "Enter submits through the app queue once"
+        );
+        assert_eq!(
+            app.config.permissions.approval_policy.value(),
+            approval_policy
+        );
+        assert_eq!(
+            app.config.permissions.permission_profile(),
+            &permission_profile
+        );
+        let turn_id = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut started_turn_id = None;
+            loop {
+                let event = server
+                    .next_event()
+                    .await
+                    .expect("live event stream remains connected");
+                let AppServerEvent::ServerNotification(notification) = event.event else {
+                    continue;
+                };
+                let (notified_thread_id, notified_turn_id) = match notification.as_ref() {
+                    ServerNotification::TurnStarted(event) => (&event.thread_id, &event.turn.id),
+                    ServerNotification::TurnCompleted(event) => (&event.thread_id, &event.turn.id),
+                    ServerNotification::ItemStarted(event) => (&event.thread_id, &event.turn_id),
+                    ServerNotification::ItemCompleted(event) => (&event.thread_id, &event.turn_id),
+                    _ => continue,
+                };
+                if notified_thread_id != &started.thread.id {
+                    continue;
+                }
+                if matches!(notification.as_ref(), ServerNotification::TurnStarted(_)) {
+                    assert!(
+                        started_turn_id.replace(notified_turn_id.clone()).is_none(),
+                        "one submitted input starts one turn"
+                    );
+                }
+                let turn_id = started_turn_id
+                    .as_ref()
+                    .expect("turn starts before its items or completion");
+                assert_eq!(notified_turn_id, turn_id);
+                let completed =
+                    matches!(notification.as_ref(), ServerNotification::TurnCompleted(_));
+                let turn_id = turn_id.clone();
+                app.enqueue_thread_notification(thread_id, *notification)
+                    .await?;
+                if completed {
+                    break Ok::<_, color_eyre::Report>(turn_id);
+                }
+            }
+        })
+        .await??;
+        let snapshot = app.thread_event_channels[&thread_id]
+            .store
+            .lock()
+            .await
+            .snapshot();
+        assert!(
+            snapshot.turns.is_empty(),
+            "live events do not rewrite the hydration snapshot"
+        );
+        assert!(snapshot.events.iter().any(
+            |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::TurnStarted(event)
+                    if event.thread_id == started.thread.id && event.turn.id == turn_id))
+        ));
+        assert!(snapshot.events.iter().any(
+            |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::TurnCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn.id == turn_id
+                        && event.turn.status == codex_app_server_protocol::TurnStatus::Completed))
+        ));
+        assert_eq!(snapshot.events.iter().filter(|event|
+            matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn_id == turn_id
+                        && matches!(&event.item, ThreadItem::UserMessage { content, .. }
+                            if content.iter().any(|input| matches!(input, UserInput::Text { text, .. }
+                                if text == "First real input")))))).count(), 1);
+        assert_eq!(
+            snapshot
+                .events
+                .iter()
+                .filter(
+                    |event| matches!(event, ThreadBufferedEvent::Notification(notification)
+                if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
+                    if event.thread_id == started.thread.id && event.turn_id == turn_id
+                        && matches!(&event.item, ThreadItem::AgentMessage { text, .. }
+                            if text == "Done")))
+                )
+                .count(),
+            1
+        );
+
+        // Use the main loop's existing drain path: active receiver -> ChatWidget -> app queue.
+        while app
+            .active_thread_rx
+            .as_ref()
+            .is_some_and(|rx| !rx.is_empty())
+        {
+            app.drain_active_thread_events(&mut tui).await?;
+            while let Ok(event) = events.try_recv() {
+                app.handle_event(&mut tui, &mut server, event).await?;
+            }
+        }
+        assert_eq!(app.chat_widget.last_turn_id(), Some(turn_id.as_str()));
+        let displayed = app
+            .transcript_cells
+            .iter()
+            .map(|cell| lines_to_single_string(&cell.transcript_lines(1000)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(displayed.matches("First real input").count(), 1);
+        assert_eq!(displayed.matches("Done").count(), 1);
+
+        assert!(
+            server.has_incomplete_history(thread_id),
+            "live events do not prove earlier history complete"
+        );
+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_eq!(server.backend_id(), backend_id);
+        assert_eq!(
+            server.thread_read(thread_id, false).await?.session_id,
+            started.thread.session_id
+        );
+        let submitted = recorded_params(&requests, "turn/start");
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(submitted[0]["threadId"], started.thread.id);
+        assert_eq!(submitted[0]["input"][0]["text"], "First real input");
+        assert_eq!(model.received_requests().await.unwrap().len(), 1);
+
+        // Explicit successful hydration can clear the marker; there is no automatic retry.
+        let rehydrated = server
+            .resume_thread(
+                &app.local_settings,
+                app.config.clone(),
+                thread_id,
+                ResumeModelSettings::RestoreFromThread,
+            )
+            .await?;
+        assert!(!server.has_incomplete_history(thread_id));
+        assert!(rehydrated.turns.iter().flat_map(|turn| &turn.items).any(|item|
+            matches!(item, ThreadItem::UserMessage { content, .. } if content.iter().any(|input|
+                matches!(input, UserInput::Text { text, .. } if text == "First real input")))));
+        server.shutdown().await?;
+        proxy.await??;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn generic_projection_unavailable_survives_resume_and_error_display() -> Result<()> {
+    use super::session_lifecycle_requests::HistoryCapabilities;
+    use super::session_lifecycle_requests::start_recording_app_server_with_history;
+    use crate::app_server_session::ResumeModelSettings;
+    let (mut app, mut events, _) = make_test_app_with_channels().await;
+    let (_fixture, home, target) = history_fixture(&[1]).await?;
+    app.config.codex_home = home.path().to_path_buf().abs();
+    app.config.sqlite = SqliteConfig::new_for_testing(home.path().abs());
+    app.local_settings.transcript_mode = TranscriptMode::Owned;
+    let (mut server, _, proxy) = start_recording_app_server_with_history(
+        &app.config,
+        HistoryCapabilities::ItemsProjectionUnavailable,
+        None,
+        None,
+        crate::app_server_session::ThreadParamsMode::Remote,
+        codex_config::LoaderOverrides::without_managed_config_for_tests(),
+    )
+    .await?;
+    let resumed = server
+        .resume_thread(
+            &app.local_settings,
+            app.config.clone(),
+            target.thread_id,
+            ResumeModelSettings::RestoreFromThread,
+        )
+        .await?;
+    assert!(
+        !resumed.turns.is_empty(),
+        "already loaded turn metadata must be preserved"
+    );
+    assert!(server.has_incomplete_history(target.thread_id));
+    app.enqueue_primary_thread_session(resumed.session, resumed.turns)
+        .await?;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(true)?;
+    let mut displayed_errors = String::new();
+    while let Ok(event) = events.try_recv() {
+        if let AppEvent::InsertHistoryCell(cell) = &event {
+            displayed_errors.push_str(&lines_to_single_string(&cell.display_lines(1000)));
+        }
+        app.handle_event(&mut tui, &mut server, event).await?;
+    }
+    assert!(
+        displayed_errors
+            .contains("display history projection is unavailable; retry after history persistence")
+    );
+    assert_eq!(app.chat_widget.thread_id(), Some(target.thread_id));
+    assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+    assert!(server.has_incomplete_history(target.thread_id));
+    assert!(server.take_history_errors(target.thread_id).is_empty());
+    assert!(
+        !app.thread_event_channels[&target.thread_id]
+            .store
+            .lock()
+            .await
+            .turns
+            .is_empty()
+    );
     server.shutdown().await?;
     proxy.await??;
     Ok(())

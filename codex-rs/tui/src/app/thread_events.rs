@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Thread event buffering and replay state for the TUI app.
 //!
 //! This module owns the per-thread event store used when the TUI switches between the main

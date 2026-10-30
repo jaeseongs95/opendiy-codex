@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Streaming transcript updates for `ChatWidget`.
 //!
 //! This module owns assistant, plan, and reasoning deltas, including stream-tail

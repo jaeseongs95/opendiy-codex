@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Exercise config/read through its real handler and ConfigBuilder, without starting a thread.
 
 use super::ConfigRequestProcessor;

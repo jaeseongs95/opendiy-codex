@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 use crate::app_event::TranscriptExportDestination;
 use crate::bottom_pane::BottomPaneView;
@@ -367,11 +367,14 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum HistoryCapabilities {
     Current,
+    ForwardLiveEvents,
+    ItemsProjectionUnavailable,
     LegacyOnly,
     LegacyOnlyUnsupportedVariant,
     LegacyDynamicToolsAndHistory,
     ForkHydrationFails,
     ReadAfterResumeFails,
+    ResumeFails,
     ItemsListFails,
     ItemsAndSummaryTurnsFail,
     ThreadListFails,
@@ -527,7 +530,8 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                 event = embedded.next_event() => {
                     let Some(event) = event else { break };
                     if let codex_app_server_client::InProcessServerEvent::ServerNotification(notification) = event
-                        && matches!(*notification, ServerNotification::ThreadSettingsUpdated(_))
+                        && (history_capabilities == HistoryCapabilities::ForwardLiveEvents
+                            || matches!(*notification, ServerNotification::ThreadSettingsUpdated(_)))
                     {
                         let result = websocket.send(Message::Text(serde_json::to_string(&notification)?.into())).await;
                         if result.as_ref().is_err_and(is_recording_client_disconnect) {
@@ -624,6 +628,29 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                         JSONRPCMessage::Response(JSONRPCResponse {
                             id: request_id,
                             result: serde_json::json!({}),
+                        })
+                    } else if history_capabilities == HistoryCapabilities::ResumeFails
+                        && request.method == "thread/resume"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32603,
+                                data: None,
+                                message: "live resume unavailable".to_string(),
+                            },
+                        })
+                    } else if history_capabilities
+                        == HistoryCapabilities::ItemsProjectionUnavailable
+                        && request.method == "thread/items/list"
+                    {
+                        JSONRPCMessage::Error(JSONRPCError {
+                            id: request_id,
+                            error: JSONRPCErrorError {
+                                code: -32603,
+                                data: Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
+                                message: "display history projection is unavailable; retry after history persistence".to_string(),
+                            },
                         })
                     } else if (matches!(
                         history_capabilities,
@@ -1311,17 +1338,31 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
         assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
         assert_eq!(
             params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
-            Some(6)
+            Some(7)
         );
-        assert!(
-            params["dynamicTools"][0]["tools"]
-                .as_array()
-                .is_some_and(|tools| tools.iter().all(|tool| {
-                    tool["deferLoading"] == true
-                        && !crate::dynamic_tools::DELEGATION_TOOLS
-                            .contains(&tool["name"].as_str().unwrap_or_default())
-                }))
+        let tools = params["dynamicTools"][0]["tools"].as_array().unwrap();
+        assert_eq!(
+            tools
+                .iter()
+                .filter(|tool| tool["name"] == crate::cron_tools::NAME)
+                .count(),
+            1
         );
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap();
+            // The protocol omits false on serialization and defaults it on read.
+            // Cron stays visible; existing non-delegation tools stay deferred.
+            assert_eq!(
+                tool.get("deferLoading"),
+                (name != crate::cron_tools::NAME).then_some(&serde_json::Value::Bool(true))
+            );
+            let codex_app_server_protocol::DynamicToolNamespaceTool::Function(function) =
+                serde_json::from_value::<codex_app_server_protocol::DynamicToolNamespaceTool>(
+                    tool.clone(),
+                )?;
+            assert_eq!(function.defer_loading, name != crate::cron_tools::NAME);
+            assert!(!crate::dynamic_tools::DELEGATION_TOOLS.contains(&name));
+        }
     }
     let target_id = started.session.thread_id;
     app_server
@@ -1611,7 +1652,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
         .find(|server| server.name == "codex_tui")
         .expect("local daemon must connect to the TUI MCP server")
         .tools;
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 10);
+    assert!(tools.contains_key(crate::cron_tools::NAME));
     for tool in crate::dynamic_tools::DELEGATION_TOOLS {
         assert!(tools.contains_key(tool));
     }
@@ -1754,7 +1796,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
     drop(events);
     let mut events = new_rx;
     assert!(app.app_event_tx.app_event_tx.is_closed());
-    tool_server.reconnect(replacement.request_handle(), new_sender);
+    tool_server.reconnect(
+        replacement.request_handle(),
+        new_sender,
+        Some(replacement.cron_tool_connection()),
+    );
     let previous = std::mem::replace(
         &mut app_server,
         replacement.with_thread_tool_transport(transport),
@@ -1945,7 +1991,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
         } else {
             assert_eq!(
                 start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
-                Some(6)
+                Some(7)
             );
             assert!(start["config"]["mcp_servers.codex_tui"].is_null());
         }
@@ -5351,21 +5397,30 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
             .await?;
             assert_eq!(
                 notice,
-                Some("Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable.")
+                Some(
+                    "Showing up to 100 recent prompts and final replies. Intermediate messages and tool activity are unavailable."
+                )
             );
             assert_eq!(
-                viewed.turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
+                viewed
+                    .turns
+                    .iter()
+                    .map(|turn| turn.id.clone())
+                    .collect::<Vec<_>>(),
                 (saved_turn_count.saturating_sub(100)..saved_turn_count)
                     .map(|index| format!("saved-turn-{index}"))
                     .collect::<Vec<_>>()
             );
             assert!(viewed.turns.iter().all(|turn| {
-                turn.items.iter().any(|item| matches!(item,
+                turn.items.iter().any(|item| {
+                    matches!(item,
                     ThreadItem::UserMessage { content, .. }
                         if content.iter().any(|input| matches!(input,
-                            UserInput::Text { text, .. } if text == "Locked task"))))
-                    && turn.items.iter().any(|item| matches!(item,
-                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer"))
+                            UserInput::Text { text, .. } if text == "Locked task")))
+                }) && turn.items.iter().any(|item| {
+                    matches!(item,
+                        ThreadItem::AgentMessage { text, .. } if text == "Saved final answer")
+                })
             }));
             assert!(
                 recorded_params(&requests, "thread/read")
@@ -5463,9 +5518,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                 assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                 assert_eq!(
                     turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
-                    (saved_turn_count.saturating_sub(
-                        100usize.min(crate::history_window::MAX_HISTORY_TURNS),
-                    )..saved_turn_count)
+                    (saved_turn_count
+                        .saturating_sub(100usize.min(crate::history_window::MAX_HISTORY_TURNS),)
+                        ..saved_turn_count)
                         .map(|index| format!("saved-turn-{index}"))
                         .collect::<Vec<_>>()
                 );

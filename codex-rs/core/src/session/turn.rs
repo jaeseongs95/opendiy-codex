@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use crate::feedback_tags;
 use crate::hook_runtime::drain_async_hook_results;
 use crate::hook_runtime::hooks_for_model_request;
 use crate::hook_runtime::inspect_pending_input;
+use crate::hook_runtime::legacy_notify_input_messages;
 use crate::hook_runtime::record_additional_contexts;
 use crate::hook_runtime::record_pending_input;
 use crate::hook_runtime::run_legacy_after_agent_hook;
@@ -592,7 +593,7 @@ pub(crate) async fn run_turn(
         }
         .await;
         match sampling_request_result {
-            Ok((sampling_request_output, sampling_request_input)) => {
+            Ok((sampling_request_output, notify_messages)) => {
                 guardian_budget_compacted = false;
                 let SamplingRequestResult {
                     needs_follow_up: model_needs_follow_up,
@@ -788,7 +789,7 @@ pub(crate) async fn run_turn(
                     if run_legacy_after_agent_hook(
                         &sess,
                         &turn_context,
-                        &sampling_request_input,
+                        notify_messages,
                         last_agent_message.clone(),
                     )
                     .await
@@ -1737,7 +1738,7 @@ async fn run_sampling_request(
     client_session: &mut ModelClientSession,
     input: Vec<ResponseItem>,
     cancellation_token: CancellationToken,
-) -> CodexResult<(SamplingRequestResult, Vec<ResponseItem>)> {
+) -> CodexResult<(SamplingRequestResult, Vec<String>)> {
     let turn_context = Arc::clone(&step_context.turn);
     let preempt = step_context.preempt.clone().unwrap_or_default();
     let _input_watch = if let Some(preempt) = &step_context.preempt {
@@ -1771,7 +1772,7 @@ async fn run_sampling_request(
     let auth_owner = sess.services.model_client.auth_owner_generation();
     let mut retry_state = ResponsesStreamRetryState::for_sampling(auth_owner);
     let mut initial_input = Some(input);
-    let mut original_input = None;
+    let mut notify_messages = Vec::new();
     let mut executed_tool_calls_by_output = HashMap::new();
     let mut capacity_retry_active = false;
     loop {
@@ -1781,6 +1782,7 @@ async fn run_sampling_request(
         }
         // Running code-mode cells can request review while this response is in flight.
         // Keep the latest received ID until response.created replaces it.
+        let first_attempt = initial_input.is_some();
         let prompt_input = if let Some(input) = initial_input.take() {
             input
         } else {
@@ -1810,6 +1812,9 @@ async fn run_sampling_request(
             )
             .await?;
         }
+        if first_attempt && turn_context.config.notify.is_some() {
+            notify_messages = legacy_notify_input_messages(&prompt.input);
+        }
         let mut draining_for_mailbox = false;
         let mut capacity_retry_safe = true;
         let err = match try_run_sampling_request(
@@ -1820,7 +1825,7 @@ async fn run_sampling_request(
             client_session,
             &responses_metadata,
             Arc::clone(&turn_diff_tracker),
-            &prompt,
+            prompt,
             cancellation_token.child_token(),
             &mut draining_for_mailbox,
             preempt.clone(),
@@ -1829,7 +1834,7 @@ async fn run_sampling_request(
         .await
         {
             Ok(output) => {
-                return Ok((output, original_input.unwrap_or(prompt.input)));
+                return Ok((output, notify_messages));
             }
             Err(err) => match err.details() {
                 CodexErrorDetails::ContextWindowExceeded => {
@@ -1856,8 +1861,6 @@ async fn run_sampling_request(
             client_session.bind_capacity_retry_owner(auth_owner);
         }
 
-        let original_input = original_input.get_or_insert(prompt.input);
-
         let retry = handle_response_stream_error(
             &mut retry_state,
             max_retries,
@@ -1881,7 +1884,7 @@ async fn run_sampling_request(
                     needs_follow_up: true,
                     last_agent_message: None,
                 },
-                std::mem::take(original_input),
+                notify_messages,
             ));
         }
         retry??;
@@ -2680,7 +2683,7 @@ async fn try_run_sampling_request(
     client_session: &mut ModelClientSession,
     responses_metadata: &CodexResponsesMetadata,
     turn_diff_tracker: SharedTurnDiffTracker,
-    prompt: &Prompt,
+    prompt: Prompt,
     cancellation_token: CancellationToken,
     draining_for_mailbox: &mut bool,
     mut preempt: CancellationToken,
@@ -2783,12 +2786,11 @@ async fn try_run_sampling_request(
     let sampling_timing_guard = turn_context.turn_timing_state.begin_sampling();
     let mut response_completed = false;
     let mut request_token_usage = None;
-    sess.set_server_reasoning_included(step_context.settings.model_info.use_responses_lite)
-        .await;
+    let mut includes_reasoning = step_context.settings.model_info.use_responses_lite;
     let stream_result = {
         let request = client_session
             .stream(
-                prompt,
+                &prompt,
                 &step_context.settings.model_info,
                 &step_context.session_telemetry,
                 effort,
@@ -2807,6 +2809,7 @@ async fn try_run_sampling_request(
             result = request => result?.map(Some),
         }
     };
+    drop(prompt);
     let mut stream = match stream_result {
         Ok(Some(stream)) => stream,
         Ok(None) => {
@@ -3268,7 +3271,7 @@ async fn try_run_sampling_request(
                 .await;
             }
             ResponseEvent::ServerReasoningIncluded(included) => {
-                sess.set_server_reasoning_included(included).await;
+                includes_reasoning = included;
             }
             ResponseEvent::RateLimits(snapshot) => {
                 // Update internal state with latest rate limits, but defer sending until
@@ -3320,7 +3323,7 @@ async fn try_run_sampling_request(
                         &turn_context,
                         &step_context.settings,
                         token_usage.as_ref(),
-                        super::TokenUsageContext::Sampling,
+                        super::TokenUsageContext::Sampling { includes_reasoning },
                     )
                     .await;
                 should_emit_token_count = true;

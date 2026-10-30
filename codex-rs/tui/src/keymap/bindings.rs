@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Shared inventory of resolved runtime bindings.
 //!
 //! `/keymap` lookup and chord-prefix conflict detection must inspect the same

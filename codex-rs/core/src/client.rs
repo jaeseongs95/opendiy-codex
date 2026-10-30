@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Session- and turn-scoped helpers for talking to model provider APIs.
 //!
 //! `ModelClient` is intended to live for the lifetime of a Codex session and holds the stable
@@ -1955,14 +1955,14 @@ impl ResponsesHttpExecutor<'_> {
 
             match stream_result {
                 Ok(stream) => {
-                    let (stream, _) = map_response_stream(
+                    return Ok(map_response_stream(
                         stream,
                         request_session_telemetry,
                         inference_trace_attempt,
                         Arc::clone(&self.client.state.provider),
                         interceptors,
-                    );
-                    return Ok(stream);
+                        /*last_response_tx*/ None,
+                    ));
                 }
                 Err(ApiError::Transport(unauthorized_transport))
                     if self
@@ -2313,14 +2313,16 @@ impl ModelClientSession {
                 );
                 err
             })?;
-            let (stream, last_request_rx) = map_response_stream(
+            let (last_response_tx, last_response_rx) = oneshot::channel();
+            let stream = map_response_stream(
                 stream_result,
                 request_session_telemetry,
                 inference_trace_attempt,
                 Arc::clone(&self.client.state.provider),
                 interceptors,
+                Some(last_response_tx),
             );
-            self.websocket_session.last_response_rx = Some(last_request_rx);
+            self.websocket_session.last_response_rx = Some(last_response_rx);
             return Ok(WebsocketStreamOutcome::Stream(stream));
         }
     }
@@ -2575,18 +2577,20 @@ fn map_response_stream(
     inference_trace_attempt: InferenceTraceAttempt,
     provider: SharedModelProvider,
     interceptors: Vec<Box<dyn codex_extension_api::ModelResponseInterceptor>>,
-) -> (ResponseStream, oneshot::Receiver<LastResponse>) {
+    last_response_tx: Option<oneshot::Sender<LastResponse>>,
+) -> ResponseStream {
     let upstream_request_id = api_stream.upstream_request_id.take();
     let interrupt = api_stream.interrupt.take();
-    let (mut stream, last_response) = map_response_events(
+    let mut stream = map_response_events(
         upstream_request_id,
         crate::model_request::intercept_stream(Box::pin(api_stream), interceptors),
         session_telemetry,
         inference_trace_attempt,
         provider,
+        last_response_tx,
     );
     stream.interrupt = interrupt;
-    (stream, last_response)
+    stream
 }
 
 fn map_response_events<S>(
@@ -2595,7 +2599,8 @@ fn map_response_events<S>(
     session_telemetry: SessionTelemetry,
     inference_trace_attempt: InferenceTraceAttempt,
     provider: SharedModelProvider,
-) -> (ResponseStream, oneshot::Receiver<LastResponse>)
+    mut last_response_tx: Option<oneshot::Sender<LastResponse>>,
+) -> ResponseStream
 where
     S: futures::Stream<Item = std::result::Result<ResponseEvent, ApiError>>
         + Unpin
@@ -2604,13 +2609,13 @@ where
 {
     let (tx_event, rx_event) =
         mpsc::channel::<Result<ResponseEvent>>(RESPONSE_STREAM_CHANNEL_CAPACITY);
-    let (tx_last_response, rx_last_response) = oneshot::channel::<LastResponse>();
     let consumer_dropped = CancellationToken::new();
     let consumer_dropped_for_stream = consumer_dropped.clone();
 
     tokio::spawn(async move {
         let mut logged_error = false;
-        let mut tx_last_response = Some(tx_last_response);
+        let collect_output_items =
+            last_response_tx.is_some() || inference_trace_attempt.needs_output_items();
         let mut items_added: Vec<ResponseItem> = Vec::new();
         let mut active_item_id: Option<ResponseItemId> = None;
         let (request_start, mut ttft_ms) = (Instant::now(), None);
@@ -2646,7 +2651,9 @@ where
                         );
                     }
                     active_item_id = None;
-                    items_added.push(item.clone());
+                    if collect_output_items {
+                        items_added.push(item.clone());
+                    }
                     if tx_event
                         .send(Ok(ResponseEvent::OutputItemDone(item)))
                         .await
@@ -2676,12 +2683,13 @@ where
                         &token_usage,
                         &items_added,
                     );
-                    if let Some(sender) = tx_last_response.take() {
+                    if let Some(sender) = last_response_tx.take() {
                         let _ = sender.send(LastResponse {
                             response_id: response_id.clone(),
-                            items_added: std::mem::take(&mut items_added),
+                            items_added,
                         });
                     }
+                    items_added = Vec::new();
                     if tx_event
                         .send(Ok(ResponseEvent::Completed {
                             response_id,
@@ -2747,14 +2755,11 @@ where
         );
     });
 
-    (
-        ResponseStream {
-            rx_event,
-            interrupt: None,
-            consumer_dropped: consumer_dropped_for_stream,
-        },
-        rx_last_response,
-    )
+    ResponseStream {
+        rx_event,
+        interrupt: None,
+        consumer_dropped: consumer_dropped_for_stream,
+    }
 }
 
 /// Handles a 401 response by optionally refreshing ChatGPT tokens once.

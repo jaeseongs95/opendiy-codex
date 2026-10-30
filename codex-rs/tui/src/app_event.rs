@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
@@ -622,6 +622,9 @@ pub(crate) enum AppEvent {
         request_id: AppServerRequestId,
         response: DynamicToolCallResponse,
     },
+
+    /// Run a caller-bound scheduler command on the owning app event loop.
+    CronToolCall(Box<crate::cron_tools::Request>),
 
     /// Register task tools inherited by a dynamically created thread.
     TaskToolsAvailable {

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain
@@ -92,6 +92,7 @@ impl App {
                     | AppEvent::BeginThreadSwitchHistoryReplayBuffer
                     | AppEvent::EndInitialHistoryReplayBuffer
                     | AppEvent::FatalExitRequest(_)
+                    | AppEvent::CronToolCall(_)
                     | AppEvent::CronCommand { .. }
                     | AppEvent::CronReply(_)
                     | AppEvent::CronCancelReply(_)
@@ -169,6 +170,7 @@ impl App {
         match event {
             AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
             AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
+            AppEvent::CronToolCall(request) => self.handle_cron_tool_call(app_server, *request).await,
             AppEvent::CronCommand { thread_id, args } => self.handle_cron_command(app_server, thread_id, args).await,
             AppEvent::CronReply(reply) => self.handle_cron_reply(app_server, *reply).await,
             AppEvent::CronCancelReply(reply) => self.handle_cron_cancel_reply(*reply),
@@ -948,7 +950,13 @@ impl App {
                     .thread_id()
                     .is_some_and(|thread_id| app_server.has_older_history(thread_id));
                 if tui.is_owned_screen() {
-                    self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
+                    self.transcript_view.history = if self.chat_widget.thread_id().is_some_and(|thread_id| app_server.has_incomplete_history(thread_id)) {
+                        TranscriptHistoryState::Failed
+                    } else if self.scrollback_has_older_history {
+                        TranscriptHistoryState::Partial
+                    } else {
+                        TranscriptHistoryState::Complete
+                    };
                 }
                 if let Some(thread_id) = self.chat_widget.thread_id() {
                     for error in app_server.take_history_errors(thread_id) {

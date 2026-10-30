@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 //! One bounded, event-driven summary row for descendants of the displayed conversation root.
 //! No key handlers or backend reads live here. Empty summaries consume no terminal rows.
 

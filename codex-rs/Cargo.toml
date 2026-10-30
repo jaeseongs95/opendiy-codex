@@ -1,4 +1,4 @@
-# Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+# Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 [workspace]
 members = [
     "aws-auth",
@@ -167,7 +167,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.165.0+native-r28.20261029"
+version = "0.165.0+native-r29.20261030"
 # Track the edition for all workspace crates in one place. Individual
 # crates can still override this value, but keeping it here means new
 # crates created with `cargo new -w ...` automatically inherit the 2024

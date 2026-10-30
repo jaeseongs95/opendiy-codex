@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R28 (2026-10-29); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
 use super::CursorHistory;
 use super::HistoryHydrationScope;
 use super::HistoryLoadBudget;
@@ -134,4 +134,41 @@ fn cursor_history_still_rejects_cycles_larger_than_its_recent_cache() {
         stopped,
         "a cycle must terminate even after recent-cursor eviction"
     );
+}
+
+#[test]
+fn unmaterialized_history_recovery_requires_exact_structured_contract() {
+    use codex_app_server_client::TypedRequestError;
+    use codex_app_server_protocol::JSONRPCErrorError;
+    let data = serde_json::json!({
+        "kind": "historyProjectionUnavailable", "reason": "unmaterialized"
+    });
+    for (code, data, expected) in [
+        (-32600, Some(data.clone()), true),
+        (-32601, Some(data.clone()), false),
+        (-32603, Some(data.clone()), false),
+        (-32000, Some(data), false),
+        (-32600, None, false),
+        (
+            -32600,
+            Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
+            false,
+        ),
+    ] {
+        let error = color_eyre::Report::new(TypedRequestError::Server {
+            method: "thread/read".to_string(),
+            source: JSONRPCErrorError {
+                code,
+                message: "thread is not materialized yet".to_string(),
+                data,
+            },
+        })
+        .wrap_err("initial history hydration");
+        assert_eq!(super::is_unmaterialized_history_error(&error), expected);
+    }
+    let transport = color_eyre::Report::new(TypedRequestError::Transport {
+        method: "thread/read".to_string(),
+        source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "not materialized yet"),
+    });
+    assert!(!super::is_unmaterialized_history_error(&transport));
 }
