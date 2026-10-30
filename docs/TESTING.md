@@ -2,7 +2,32 @@
 
 ## R29 선별 이식 후보의 검증 상태
 
-R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개는 종료 코드 0이었으나 코드 회귀시험은 컴파일 중이며 실행 통과·새 후보 설치·감사 완료를 주장하지 않는다. 이전 후보의 아래 시험·설치·한정 감사 결과를 이번 후보의 통과 근거로 재사용하지 않는다.
+R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개와 표적 단위시험 컴파일은 종료 코드 0이었다. 같은 소스의 단위시험 11그룹은 802개 통과·0개 실패였고 컴파일 전후 원본 입력은 같았다. 현재 `core` 통합시험 컴파일이 진행 중이며 새 후보의 실행 파일·설치·독립감사는 미완료다. 실제 캐시율 개선을 측정한 결과는 아니다. 이전 후보의 아래 시험·설치·한정 감사 결과를 이번 후보의 통과 근거로 재사용하지 않는다.
+
+단위시험 원본은 `159017bd9b04533865ee9cb8173d7efe41cb414e`로 고정했다. 표적 컴파일 명령은 다음과 같았고 종료 코드는 0이었다. 컴파일 전후 같은 커밋·빈 변경 목록과 현재 원본 작업 트리의 변경 없음을 확인했다. 공개 사본에서 다시 컴파일한 결과는 아니다.
+
+```powershell
+cd codex-rs
+cargo test --profile dev-small --offline --locked --target x86_64-pc-windows-msvc -j2 --no-run --message-format=json-render-diagnostics -p codex-core -p codex-config -p codex-connectors -p codex-app-server-protocol --lib
+```
+
+이 컴파일이 만든 각 패키지 시험 실행 파일을 표의 필터와 `--nocapture --test-threads=1`로 직접 실행했다. 전체 시험은 빈 필터를 사용했다. 11개 실행기의 종료 코드는 모두 0이었고 각 원시 로그의 요약과 합계를 대조했다.
+
+| 패키지·검사 | 필터 | 통과·실패 |
+| --- | --- | --- |
+| `codex-config` 전체 | 빈 필터 | 378·0 |
+| `codex-connectors` 전체 | 빈 필터 | 64·0 |
+| `codex-app-server-protocol` 전체 | 빈 필터 | 321·0, 무시 1 |
+| `codex-core` 출력 보유 해제 | `untraced_http_stream_releases_completed_output_before_response_ends` | 1·0 |
+| `codex-core` 출력 가공 보존 | `intercepted_output_reaches_trace_and_websocket_bookkeeping` | 1·0 |
+| `codex-core` 취소 추적 | `dropped_response_stream_traces_cancelled_partial_output` | 1·0 |
+| `codex-core` 역압 취소 추적 | `dropped_backpressured_response_stream_traces_cancelled_partial_output` | 1·0 |
+| `codex-core` 재개 추론 회계 | `total_token_usage_respects_saved_reasoning_accounting` | 3·0 |
+| `codex-core` 이력 사용량 복구 | `record_initial_history_seeds_token_info_from_rollout` | 1·0 |
+| `codex-core` 기존 용량 재시도 | `capacity_` | 15·0 |
+| `codex-core` 기존 컨텍스트 설정 | `context_window_` | 16·0 |
+
+공식 `user_notification` 시험은 `cfg(not(target_os = "windows"))`로 이 환경에서 제외되므로 위 802개 통과에 세지 않았다. 같은 기대 동작을 확인하는 후속 보강은 아직 실행 결과가 없다. `core` 전체 통합시험·일반 실행 파일·설치·독립감사와 실제 캐시율·장기 부하 개선은 이 단위시험 통과 범위에 포함하지 않는다.
 
 자연어 예약 도구 연결은 [사용 안내](native-cli-cron.ko.md)를 참고하세요. 새 후보의 `model_cron`·`cron_arguments` 시험은 해당 호출·취소 경계를 검사하기 위한 표적이며, 이 공개 작업 트리에서 실행한 결과로 보고하지 않습니다. 사용자 승인 후 새 패키지의 명령줄 바로가기·기본 공유 서버로 전환했지만 실제 모델의 자연어 도구 선택 평가는 실행하지 않았습니다.
 

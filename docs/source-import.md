@@ -2,7 +2,7 @@
 
 The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `159017bd9b04533865ee9cb8173d7efe41cb414e`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs describe R28; root LICENSE/NOTICE are unchanged. [R28 validation](cli-r28-validation.md) distinguishes the local build from the unbuilt public export. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
 
-R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개는 종료 코드 0이었으나 코드 회귀시험은 컴파일 중이며 실행 통과·새 후보 설치·감사 완료를 주장하지 않는다. 이전 후보의 시험·설치 이력과 구분한다.
+R29 준비 후보 `159017bd9b04533865ee9cb8173d7efe41cb414e`는 공식 0.165.0 기반을 유지하면서 공식 0.166 변경 5개만 선별 이식했다. 전체 0.166로 기반을 바꾸거나 실행 파일 버전을 0.166으로 올린 후보가 아니다. 이전 `67404f4` 이후 32파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 원래 수정 고지는 보존하며 이 후속 범위는 여기서 별도로 고지한다. 스키마 재생성 시험 1개와 표적 단위시험 컴파일은 종료 코드 0이었다. 같은 소스의 단위시험 11그룹은 802개 통과·0개 실패였고 컴파일 전후 원본 입력은 같았다. 현재 `core` 통합시험 컴파일이 진행 중이며 새 후보의 실행 파일·설치·독립감사는 미완료다. 실제 캐시율 개선을 측정한 결과는 아니다. 이전 후보의 시험·설치 이력과 구분한다.
 
 이전 고정 소스 `67404f4`에 포함된 [자연어 예약 도구 연결과 사용 안내](native-cli-cron.ko.md)의 설치 기록은 아래에 보존합니다. 새 R29 후보의 설치·실행 결과가 아닙니다. 기존 R28 실행 파일은 보존하고 사용자 승인 후 새 패키지의 명령줄 바로가기·기본 공유 서버로 전환했습니다. 기능 전체의 검증 완료를 뜻하지는 않습니다. 실제 모델의 자연어 일정 해석과 도구 선택 평가는 실행하지 않았습니다. 아래 R28 빌드·시험 기록은 이전 소스의 결과이며 이 후속 후보의 통과 근거가 아닙니다.
 
