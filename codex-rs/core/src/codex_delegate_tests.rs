@@ -195,14 +195,87 @@ async fn forward_ops_preserves_submission_trace_context() {
 
 #[tokio::test]
 async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input() {
+    assert_one_shot_owned_shutdown(true, false, OneShotOutput::Drain).await;
+}
+
+#[tokio::test]
+async fn one_shot_completion_waits_for_owned_shutdown() {
+    assert_one_shot_owned_shutdown(false, false, OneShotOutput::Drain).await;
+}
+
+#[tokio::test]
+async fn one_shot_cancellation_during_owned_shutdown_preserves_teardown() {
+    assert_one_shot_owned_shutdown(true, true, OneShotOutput::Drain).await;
+}
+
+#[tokio::test]
+async fn one_shot_cancel_with_closed_input_and_full_output_finishes_shutdown() {
+    assert_one_shot_owned_shutdown(true, false, OneShotOutput::CancelFull).await;
+}
+
+#[tokio::test]
+async fn one_shot_disconnect_with_closed_input_and_full_output_finishes_shutdown() {
+    assert_one_shot_owned_shutdown(true, false, OneShotOutput::DisconnectFull).await;
+}
+
+#[tokio::test]
+async fn one_shot_disconnect_with_closed_input_while_waiting_finishes_shutdown() {
+    assert_one_shot_owned_shutdown(true, false, OneShotOutput::DisconnectWaiting).await;
+}
+
+#[derive(Clone, Copy)]
+enum OneShotOutput {
+    Drain,
+    CancelFull,
+    DisconnectFull,
+    DisconnectWaiting,
+}
+
+async fn assert_one_shot_owned_shutdown(
+    close_input: bool,
+    cancel_during_shutdown: bool,
+    output: OneShotOutput,
+) {
     use core_test_support::responses;
     use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
 
+    struct StopGate {
+        entered: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        release: tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ThreadLifecycleContributor<Config> for StopGate {
+        fn on_thread_stop<'a>(
+            &'a self,
+            _input: codex_extension_api::ThreadStopInput<'a>,
+        ) -> ExtensionFuture<'a, ()> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.entered.lock().await.take().unwrap().send(()).unwrap();
+                let release = self.release.lock().await.take().unwrap();
+                release.await.unwrap();
+            })
+        }
+    }
+
+    let mut initial_events = vec![responses::ev_response_created("one-shot")];
+    if matches!(
+        output,
+        OneShotOutput::CancelFull | OneShotOutput::DisconnectFull
+    ) {
+        initial_events.push(responses::ev_message_item_added("message", ""));
+        initial_events.extend(
+            (0..SUBMISSION_CHANNEL_CAPACITY + 1)
+                .map(|_| responses::ev_output_text_delta("bounded output ")),
+        );
+    }
     let (release, gate) = tokio::sync::oneshot::channel();
+    let mut release = Some(release);
     let (server, _) = start_streaming_sse_server(vec![vec![
         StreamingSseChunk {
             gate: None,
-            body: responses::sse(vec![responses::ev_response_created("one-shot")]),
+            body: responses::sse(initial_events),
         },
         StreamingSseChunk {
             gate: Some(gate),
@@ -214,7 +287,7 @@ async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider.supports_websockets = false;
     let home = tempfile::tempdir().expect("isolated one-shot fixture home");
-    let (parent, context, _events) =
+    let (mut parent, context, _events) =
         crate::session::tests::make_session_and_context_with_auth_config_home_and_rx(
             codex_login::CodexAuth::from_api_key("test"),
             Vec::new(),
@@ -225,6 +298,20 @@ async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input
             },
         )
         .await;
+    let (stop_entered_tx, stop_entered) = tokio::sync::oneshot::channel();
+    let (stop_release, stop_release_rx) = tokio::sync::oneshot::channel();
+    let stop_calls = Arc::new(AtomicUsize::new(0));
+    let mut extensions = ExtensionRegistryBuilder::<Config>::new();
+    extensions.thread_lifecycle_contributor(Arc::new(StopGate {
+        entered: tokio::sync::Mutex::new(Some(stop_entered_tx)),
+        release: tokio::sync::Mutex::new(Some(stop_release_rx)),
+        calls: Arc::clone(&stop_calls),
+    }));
+    Arc::get_mut(&mut parent)
+        .expect("parent session should be uniquely owned")
+        .services
+        .extensions = Arc::new(extensions.build());
+    let cancel = CancellationToken::new();
     let mut config = context.config.as_ref().clone();
     config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
     let (session, io) = timeout(
@@ -239,7 +326,7 @@ async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input
             }],
             parent,
             context,
-            CancellationToken::new(),
+            cancel.clone(),
             SubAgentSource::Review,
             None,
             None,
@@ -249,34 +336,100 @@ async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input
     .expect("one-shot startup deadline")
     .expect("one-shot should accept its initial input");
     assert!(Arc::ptr_eq(&session.cleanup_admission, &io.admission));
+    let termination = io.session_loop_termination.clone();
+    let agent_status = io.agent_status.clone();
     timeout(Duration::from_secs(10), server.wait_for_request_count(1))
         .await
         .expect("initial input must reach only the local mock provider");
-    session.cleanup_admission.close();
-    let revision = session.cleanup_admission.activity_revision();
-    let error = io
-        .submit(Op::Interrupt)
-        .await
-        .expect_err("the returned wrapper must honor its live session's closed admission");
-    assert!(
-        matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
-        if message == "thread cleanup has closed input admission")
-    );
-    assert_eq!(session.cleanup_admission.activity_revision(), revision);
-    release.send(()).unwrap();
-    timeout(Duration::from_secs(10), async {
-        loop {
-            let event = io.next_event().await.expect("one-shot completion event");
-            if matches!(event.msg, EventMsg::TurnComplete(_)) {
-                break;
-            }
+    if close_input {
+        session.cleanup_admission.close();
+        let revision = session.cleanup_admission.activity_revision();
+        let error = io
+            .submit(Op::Interrupt)
+            .await
+            .expect_err("the returned wrapper must honor its live session's closed admission");
+        assert!(
+            matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
+            if message == "thread cleanup has closed input admission")
+        );
+        assert_eq!(session.cleanup_admission.activity_revision(), revision);
+    }
+    match output {
+        OneShotOutput::Drain => {
+            release.take().unwrap().send(()).unwrap();
+            timeout(Duration::from_secs(10), async {
+                loop {
+                    let event = io.next_event().await.expect("one-shot completion event");
+                    assert!(!is_private_delegate_event(&event));
+                    if matches!(event.msg, EventMsg::TurnComplete(_)) {
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("the one-shot completion event must remain observable");
         }
-        io.session_loop_termination.clone().await;
-    })
-    .await
-    .expect("the real one-shot bridge must finish its owned shutdown");
-    assert_eq!(io.agent_status().await, AgentStatus::Shutdown);
+        OneShotOutput::CancelFull
+        | OneShotOutput::DisconnectFull
+        | OneShotOutput::DisconnectWaiting => {
+            if !matches!(output, OneShotOutput::DisconnectWaiting) {
+                timeout(Duration::from_secs(10), async {
+                    while !io.rx_event.is_full() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("real streamed events must fill the bounded one-shot output");
+            }
+            assert!(termination.clone().now_or_never().is_none());
+            if matches!(output, OneShotOutput::CancelFull) {
+                cancel.cancel();
+            } else {
+                // DisconnectFull cancels neither the parent nor its model stream.
+                drop(io);
+            }
+            // Keep the local SSE completion withheld: only owned shutdown can
+            // abort this active turn and reach the lifecycle barrier below.
+        }
+    }
+    timeout(Duration::from_secs(10), stop_entered)
+        .await
+        .expect("shutdown must reach the real thread-stop lifecycle")
+        .unwrap();
+    assert!(termination.clone().now_or_never().is_none());
+    assert!(session.cleanup_admission.is_closing());
+    assert!(session.cleanup_admission.gate.try_read().is_err());
+    assert_eq!(
+        session
+            .cleanup_admission
+            .shutdown_result
+            .load(Ordering::Acquire),
+        0
+    );
+    if cancel_during_shutdown {
+        cancel.cancel();
+    }
+    stop_release.send(()).unwrap();
+    timeout(Duration::from_secs(10), termination)
+        .await
+        .expect("the real one-shot bridge must finish its owned shutdown");
+    assert_eq!(*agent_status.borrow(), AgentStatus::Shutdown);
+    assert_eq!(
+        session
+            .cleanup_admission
+            .shutdown_result
+            .load(Ordering::Acquire),
+        1
+    );
+    assert!(
+        session
+            .cleanup_admission
+            .loop_completed
+            .load(Ordering::Acquire)
+    );
+    assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
     assert_eq!(server.requests().await.len(), 1);
+    drop(release);
     server.shutdown().await;
 }
 

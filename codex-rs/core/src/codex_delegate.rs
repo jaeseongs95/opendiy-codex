@@ -51,6 +51,40 @@ use crate::session::completed_session_loop_termination;
 /// Its submission channel accepts additional `Op`s for the sub-agent.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_codex_thread_interactive(
+    config: Config,
+    auth_manager: Arc<AuthManager>,
+    models_manager: SharedModelsManager,
+    parent_session: Arc<Session>,
+    parent_ctx: Arc<TurnContext>,
+    parent_environments: TurnEnvironmentSnapshot,
+    cancel_token: CancellationToken,
+    subagent_source: SubAgentSource,
+    isolation: codex_extension_api::SessionIsolation,
+    initial_history: Option<InitialHistory>,
+    git_enrichment_policy: GitEnrichmentPolicy,
+    windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
+) -> Result<(Arc<Session>, SessionIo), CodexErr> {
+    let (session, io) = spawn_codex_thread(
+        config,
+        auth_manager,
+        models_manager,
+        parent_session,
+        parent_ctx,
+        parent_environments,
+        cancel_token.clone(),
+        subagent_source,
+        isolation,
+        initial_history,
+        git_enrichment_policy,
+        windows_sandbox_proxy_settings_mode,
+    )
+    .await?;
+    Ok((session, forward_session_io(Arc::new(io), cancel_token)))
+}
+
+/// Keep the underlying IO available to the one-shot shutdown owner.
+#[allow(clippy::too_many_arguments)]
+async fn spawn_codex_thread(
     mut config: Config,
     auth_manager: Arc<AuthManager>,
     models_manager: SharedModelsManager,
@@ -195,10 +229,9 @@ pub(crate) async fn run_codex_thread_interactive(
         subagent_source,
         /*resumed_created_at*/ None,
     );
-    let caller_io = forward_session_io(Arc::new(io), cancel_token);
     startup.release_membership();
     startup_guard.disarm();
-    Ok((session, caller_io))
+    Ok((session, io))
 }
 
 /// Keeps delegate IO cancellation identical for standalone and manager-owned reviewers.
@@ -232,7 +265,7 @@ pub(crate) fn forward_session_io(io: Arc<SessionIo>, cancel_token: CancellationT
 
 /// Convenience wrapper for one-time use with an initial prompt.
 ///
-/// Internally calls the interactive variant, then immediately submits the provided input.
+/// Shares interactive startup, then immediately submits the provided input.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_codex_thread_one_shot(
     config: Config,
@@ -246,13 +279,13 @@ pub(crate) async fn run_codex_thread_one_shot(
     final_output_json_schema: Option<Value>,
     initial_history: Option<InitialHistory>,
 ) -> Result<(Arc<Session>, SessionIo), CodexErr> {
-    // Use a child token so we can stop the delegate after completion without
-    // requiring the caller to cancel the parent token.
+    // Parent cancellation reaches startup and event delivery. Once teardown
+    // begins, its owner finishes independently of this cancellation token.
     let child_cancel = cancel_token.child_token();
     let parent_turn_id = parent_ctx.sub_id.clone();
     let parent_environments = parent_ctx.initial_environments.clone();
     let root_turn_id = parent_ctx.turn_metadata_state.root_turn_id();
-    let (session, io) = Box::pin(run_codex_thread_interactive(
+    let (session, io) = Box::pin(spawn_codex_thread(
         config,
         auth_manager,
         models_manager,
@@ -267,6 +300,19 @@ pub(crate) async fn run_codex_thread_one_shot(
         codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
     ))
     .await?;
+    let io = Arc::new(io);
+
+    // Establish teardown ownership before submitting input. If startup input
+    // fails or its waiter is dropped, dropping rx_bridge still shuts down IO.
+    let (tx_bridge, rx_bridge) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
+    let agent_status = io.agent_status.clone();
+    let session_loop_termination = io.session_loop_termination.clone();
+    let admission = Arc::clone(&io.admission);
+    tokio::spawn(forward_one_shot_events(
+        Arc::clone(&io),
+        tx_bridge,
+        child_cancel,
+    ));
 
     // Send the initial input to kick off the one-shot turn.
     let submission = io
@@ -290,39 +336,6 @@ pub(crate) async fn run_codex_thread_one_shot(
         }
     }
 
-    // Bridge events so we can observe completion and shut down automatically.
-    let (tx_bridge, rx_bridge) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
-    let ops_tx = io.tx_sub.clone();
-    let agent_status = io.agent_status.clone();
-    let session_loop_termination = io.session_loop_termination.clone();
-    let admission = Arc::clone(&io.admission);
-    let io_for_bridge = io;
-    tokio::spawn(async move {
-        while let Ok(event) = io_for_bridge.next_event().await {
-            let should_shutdown = matches!(
-                event.msg,
-                EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
-            );
-            let _ = tx_bridge.send(event).await;
-            if should_shutdown {
-                let _ = ops_tx
-                    .send(Submission {
-                        id: "shutdown".to_string(),
-                        op: Op::Shutdown {},
-                        turn_extension_init: None,
-                        trace: None,
-                        parent_turn_id: None,
-                        root_turn_id: None,
-                        residency_guard: None,
-                        message_delivery: None,
-                    })
-                    .await;
-                child_cancel.cancel();
-                break;
-            }
-        }
-    });
-
     // For one-shot usage, return a closed `tx_sub` so callers cannot submit
     // additional ops after the initial request. Create a channel and drop the
     // receiver to close it immediately.
@@ -339,6 +352,86 @@ pub(crate) async fn run_codex_thread_one_shot(
             session_loop_termination,
         },
     ))
+}
+
+/// This task owns teardown on completion, cancellation and consumer disconnect.
+async fn forward_one_shot_events(
+    io: Arc<SessionIo>,
+    tx_bridge: Sender<Event>,
+    cancel_token: CancellationToken,
+) {
+    let terminal = loop {
+        let event = tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => break None,
+            _ = tx_bridge.closed() => break None,
+            event = io.next_event() => match event {
+                Ok(event) => event,
+                Err(_) => break None,
+            },
+            _ = io.session_loop_termination.clone() => break None,
+        };
+        if is_private_delegate_event(&event) {
+            continue;
+        }
+        if matches!(
+            event.msg,
+            EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
+        ) {
+            break Some(event);
+        }
+        if !matches!(
+            tx_bridge.send(event).or_cancel(&cancel_token).await,
+            Ok(Ok(()))
+        ) {
+            break None;
+        }
+    };
+
+    // Retain raw IO and the exclusive gate through actual loop termination.
+    // Only this teardown owner bypasses closed input admission; ordinary input
+    // continues to use SessionIo::submit_with_id and its admission checks.
+    let shutdown = async {
+        let gate = Arc::clone(&io.admission.gate).write_owned().await;
+        io.admission.close();
+        let stop = io.shutdown_for_cleanup(&gate);
+        tokio::pin!(stop);
+        // No public events follow the terminal/cancellation boundary. Drain
+        // teardown events until the owner finishes, rather than retaining them
+        // or making shutdown depend on the consumer's output capacity.
+        let result = loop {
+            tokio::select! {
+                biased;
+                result = &mut stop => break result,
+                event = io.next_event() => {
+                    if event.is_err() {
+                        break stop.await;
+                    }
+                }
+            }
+        };
+        if let Err(error) = result {
+            tracing::warn!(%error, "failed to shut down one-shot delegate");
+        }
+        io.session_loop_termination.clone().await;
+    };
+    if let Some(event) = terminal {
+        // A full consumer queue must not delay teardown, and cancellation may
+        // abandon delivery but cannot cancel the owned shutdown future.
+        let _ = tokio::join!(tx_bridge.send(event).or_cancel(&cancel_token), shutdown);
+    } else {
+        shutdown.await;
+    }
+}
+
+fn is_private_delegate_event(event: &Event) -> bool {
+    matches!(
+        event.msg,
+        EventMsg::TokenCount(_)
+            | EventMsg::SessionConfigured(_)
+            | EventMsg::McpStartupUpdate(_)
+            | EventMsg::McpStartupComplete(_)
+    )
 }
 
 async fn forward_events(
@@ -360,21 +453,10 @@ async fn forward_events(
                     Ok(event) => event,
                     Err(_) => break,
                 };
-                match event {
-                    Event {
-                        id: _,
-                        msg:
-                            EventMsg::TokenCount(_)
-                            | EventMsg::SessionConfigured(_)
-                            | EventMsg::McpStartupUpdate(_)
-                            | EventMsg::McpStartupComplete(_),
-                    } => {}
-                    other => {
-                        if !forward_event_or_shutdown(&io, &tx_sub, &cancel_token, other).await
-                        {
-                            break;
-                        }
-                    }
+                if !is_private_delegate_event(&event)
+                    && !forward_event_or_shutdown(&io, &tx_sub, &cancel_token, event).await
+                {
+                    break;
                 }
             }
         }
