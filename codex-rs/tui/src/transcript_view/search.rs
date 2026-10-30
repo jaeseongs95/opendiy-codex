@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Incremental literal search over full transcript content, independent of collapsed display.
 //!
 //! Search retains one match and one entry being scanned. Each frame examines a bounded text
@@ -639,6 +640,7 @@ impl TranscriptView {
                     TranscriptHistoryState::LoadingOlder
                         | TranscriptHistoryState::LoadingBeginning
                         | TranscriptHistoryState::Partial
+                        | TranscriptHistoryState::Deferred
                         | TranscriptHistoryState::Failed
                 ) =>
             {

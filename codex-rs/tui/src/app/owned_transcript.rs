@@ -725,12 +725,10 @@ impl App {
             }
         }
         if !self.scrollback_has_older_history {
-            if self
-                .chat_widget
-                .thread_id()
-                .is_some_and(|thread_id| app_server.has_incomplete_history(thread_id))
+            if let Some(thread_id) = self.chat_widget.thread_id()
+                && app_server.has_incomplete_history(thread_id)
             {
-                self.transcript_view.history = TranscriptHistoryState::Failed;
+                self.transcript_view.history = app_server.transcript_history_state(thread_id);
             }
             return;
         }

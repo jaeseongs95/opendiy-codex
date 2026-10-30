@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Project transcript interactions and page-loading feedback into the existing footer.
 //! Loading never inserts transcript rows; the owner schedules motion only while a page is pending.
 //! Surface owners supply the latest shortcut because legacy pagers reserve Escape for editing.
@@ -52,7 +53,11 @@ impl TranscriptView {
                 is_interactive: true,
             });
         }
-        let pending = self.is_loading_history() || self.history == TranscriptHistoryState::Failed;
+        let pending = self.is_loading_history()
+            || matches!(
+                self.history,
+                TranscriptHistoryState::Deferred | TranscriptHistoryState::Failed
+            );
         if has_selected_text {
             return Some(TranscriptFooter {
                 text: if self.tail_visible && !pending {
@@ -121,6 +126,8 @@ impl TranscriptView {
                     let mut spans = vec!["Retry: ".dim()];
                     spans.extend(key_label_spans(&JumpTarget::Beginning.hint_label()));
                     Line::from(spans)
+                } else if self.history == TranscriptHistoryState::Deferred {
+                    Line::from(crate::i18n::text("Waiting for history to be saved")).dim()
                 } else if navigation.is_empty() {
                     Line::from("New activity").dim()
                 } else if self.unseen_activity {
@@ -182,6 +189,9 @@ impl TranscriptView {
                 spans
             }
             TranscriptHistoryState::Partial => vec!["Earlier messages available.  ".dim()],
+            TranscriptHistoryState::Deferred => {
+                vec![crate::i18n::text("Waiting for history to be saved.  ").dim()]
+            }
             TranscriptHistoryState::LoadingOlder
             | TranscriptHistoryState::LoadingBeginning
             | TranscriptHistoryState::Complete

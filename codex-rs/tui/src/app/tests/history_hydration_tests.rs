@@ -820,27 +820,58 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             }
             app.handle_event(&mut tui, &mut server, event).await?;
         }
-        assert!(displayed_errors.contains("not materialized yet"));
+        assert!(
+            displayed_errors.is_empty(),
+            "정상 저장 대기는 오류 셀을 만들지 않는다"
+        );
         assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
-        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
         assert!(
             server.has_incomplete_history(thread_id),
-            "displaying the error must not clear unknown history"
+            "저장 대기는 미조회 이력의 보호를 유지한다"
         );
         assert!(
             server.take_history_errors(thread_id).is_empty(),
-            "the original error was displayed once"
+            "정상 저장 대기는 표시할 오류를 남기지 않는다"
         );
 
         let history_requests_before_home = recorded_params(&requests, "thread/items/list").len();
         assert_eq!(app.active_thread_id, Some(thread_id));
         assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &home)?);
-        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
         assert_eq!(
             recorded_params(&requests, "thread/items/list").len(),
             history_requests_before_home,
             "Home must not invent a retry without a cursor"
         );
+        let footer = app
+            .transcript_view
+            .footer_with_navigation(100, crate::motion::MotionMode::Reduced, "")
+            .expect("저장 대기 안내")
+            .text
+            .to_string();
+        assert!(footer.contains("Waiting for history to be saved"));
+        assert!(!footer.contains("Retry"));
+        app.transcript_view.begin_search();
+        app.transcript_view.paste_search("missing history");
+        assert!(!app.transcript_view.advance_search(&app.transcript_cells));
+        let search_footer = app
+            .transcript_view
+            .footer_with_navigation(100, crate::motion::MotionMode::Reduced, "")
+            .expect("검색의 저장 대기 안내")
+            .text
+            .to_string();
+        assert!(search_footer.contains("Waiting for history to be saved"));
+        assert!(!search_footer.contains("Retry"));
+        app.transcript_view.jump_to_latest();
 
         let approval_policy = app.config.permissions.approval_policy.value();
         let permission_profile = app.config.permissions.permission_profile().clone();
@@ -989,7 +1020,11 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             server.has_incomplete_history(thread_id),
             "live events do not prove earlier history complete"
         );
-        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
+        assert_ne!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
         assert_eq!(server.backend_id(), backend_id);
         assert_eq!(
             server.thread_read(thread_id, false).await?.session_id,
@@ -1011,6 +1046,18 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             )
             .await?;
         assert!(!server.has_incomplete_history(thread_id));
+        assert!(server.take_history_errors(thread_id).is_empty());
+        app.store_active_thread_receiver().await;
+        app.clear_active_thread().await;
+        app.enqueue_primary_thread_session(rehydrated.session.clone(), rehydrated.turns.clone())
+            .await?;
+        while let Ok(event) = events.try_recv() {
+            app.handle_event(&mut tui, &mut server, event).await?;
+        }
+        assert_eq!(
+            app.transcript_view.history,
+            TranscriptHistoryState::Complete
+        );
         assert!(rehydrated.turns.iter().flat_map(|turn| &turn.items).any(|item|
             matches!(item, ThreadItem::UserMessage { content, .. } if content.iter().any(|input|
                 matches!(input, UserInput::Text { text, .. } if text == "First real input")))));
@@ -1022,6 +1069,13 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
 
 #[tokio::test]
 async fn generic_projection_unavailable_survives_resume_and_error_display() -> Result<()> {
+    for reason in [None, Some("unknown"), Some("deleted")] {
+        check_projection_unavailable_error_display(reason).await?;
+    }
+    Ok(())
+}
+
+async fn check_projection_unavailable_error_display(reason: Option<&'static str>) -> Result<()> {
     use super::session_lifecycle_requests::HistoryCapabilities;
     use super::session_lifecycle_requests::start_recording_app_server_with_history;
     use crate::app_server_session::ResumeModelSettings;
@@ -1032,7 +1086,7 @@ async fn generic_projection_unavailable_survives_resume_and_error_display() -> R
     app.local_settings.transcript_mode = TranscriptMode::Owned;
     let (mut server, _, proxy) = start_recording_app_server_with_history(
         &app.config,
-        HistoryCapabilities::ItemsProjectionUnavailable,
+        HistoryCapabilities::ItemsProjectionUnavailable(reason),
         None,
         None,
         crate::app_server_session::ThreadParamsMode::Remote,
