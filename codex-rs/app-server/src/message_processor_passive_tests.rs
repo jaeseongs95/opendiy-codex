@@ -875,3 +875,86 @@ async fn strict_user_idle_lost_response_keeps_accepted_owner_and_never_resubmits
     server.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn passive_snapshot_gap_delivers_committed_model_and_effort_after_its_response() -> Result<()>
+{
+    let server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    let (_home, _, processor, mut rx) = setup(&server.uri()).await?;
+    let owner = ConnectionId(1);
+    let observer = ConnectionId(2);
+    let sa = initialize(&processor, &mut rx, owner).await;
+    let sb = initialize(&processor, &mut rx, observer).await;
+    let thread = start(&processor, &mut rx, owner, &sa).await.thread;
+    let id = ThreadId::from_string(&thread.id)?;
+    let runtime = processor
+        .thread_processor
+        .thread_manager
+        .get_thread(id)
+        .await?;
+    let original = runtime.config_snapshot().await;
+    let (entered, release) = processor
+        .thread_processor
+        .subscription_state_for_test()
+        .pause_passive_snapshot_for_test(id)
+        .await;
+    send(
+        &processor,
+        observer,
+        &sb,
+        json!({"id":95,"method":"thread/subscribePassive","params":{"threadId":thread.id}}),
+    )
+    .await;
+    // Pause the real listener after it captured metadata and before membership.
+    timeout(DEADLINE, entered).await??;
+    runtime
+        .update_thread_settings(codex_protocol::protocol::ThreadSettingsOverrides {
+            model: Some("gpt-5.4".into()),
+            effort: Some(Some(codex_protocol::openai_models::ReasoningEffort::High)),
+            ..Default::default()
+        })
+        .await?;
+    assert_eq!(runtime.config_snapshot().await.model, "gpt-5.4");
+    assert_eq!(
+        runtime.config_snapshot().await.reasoning_effort,
+        Some(codex_protocol::openai_models::ReasoningEffort::High)
+    );
+    release.send(()).unwrap();
+    let mut response_seen = false;
+    loop {
+        if let Some(OutgoingEnvelope::ToConnection {
+            connection_id,
+            message,
+            ..
+        }) = timeout(DEADLINE, rx.recv()).await?
+        {
+            if connection_id != observer {
+                continue;
+            }
+            match message {
+                OutgoingMessage::Response(response) if response.id == RequestId::Integer(95) => {
+                    let response: ThreadResumeResponse =
+                        serde_json::from_value(serde_json::to_value(response.result)?)?;
+                    assert_eq!(response.model, original.model);
+                    assert_eq!(response.reasoning_effort, original.reasoning_effort);
+                    response_seen = true;
+                }
+                OutgoingMessage::AppServerNotification(
+                    ServerNotification::ThreadSettingsUpdated(update),
+                ) if update.thread_id == thread.id => {
+                    assert!(
+                        response_seen,
+                        "same-thread settings must follow the passive snapshot response"
+                    );
+                    let updated = serde_json::to_string(&update.thread_settings)?;
+                    assert!(updated.contains("gpt-5.4"));
+                    assert!(updated.contains("high"));
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    finish(&processor, rx).await;
+    Ok(())
+}

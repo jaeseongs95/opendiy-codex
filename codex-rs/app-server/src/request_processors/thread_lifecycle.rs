@@ -748,6 +748,10 @@ pub(super) async fn handle_pending_thread_resume_request(
         ));
         pending.config_snapshot = snapshot;
         pending.instruction_sources = conversation.legacy_instruction_sources().await;
+        #[cfg(test)]
+        thread_state_manager
+            .wait_passive_snapshot_for_test(conversation_id)
+            .await;
     }
     let (active_turn_metadata, active_turn) = {
         let state = thread_state.lock().await;
