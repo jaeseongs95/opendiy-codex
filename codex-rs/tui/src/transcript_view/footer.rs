@@ -126,7 +126,7 @@ impl TranscriptView {
                     spans.extend(key_label_spans(&JumpTarget::Beginning.hint_label()));
                     Line::from(spans)
                 } else if self.history == TranscriptHistoryState::Deferred {
-                    Line::from("이력 저장 대기 중").dim()
+                    Line::from(crate::i18n::text("Waiting for history to be saved")).dim()
                 } else if navigation.is_empty() {
                     Line::from("New activity").dim()
                 } else if self.unseen_activity {
@@ -188,7 +188,9 @@ impl TranscriptView {
                 spans
             }
             TranscriptHistoryState::Partial => vec!["Earlier messages available.  ".dim()],
-            TranscriptHistoryState::Deferred => vec!["이력 저장 대기 중.  ".dim()],
+            TranscriptHistoryState::Deferred => {
+                vec![crate::i18n::text("Waiting for history to be saved.  ").dim()]
+            }
             TranscriptHistoryState::LoadingOlder
             | TranscriptHistoryState::LoadingBeginning
             | TranscriptHistoryState::Complete

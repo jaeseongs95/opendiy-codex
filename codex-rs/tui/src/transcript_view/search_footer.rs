@@ -61,9 +61,10 @@ impl Search {
             Progress::Idle if !self.editor.is_empty() => (next_hint.as_str(), "enter accept"),
             Progress::Idle => ("Type to find", "Type to find"),
             Progress::Restart | Progress::Scanning(_) => ("Searching…", "Searching…"),
-            Progress::AwaitingHistory if history == TranscriptHistoryState::Deferred => {
-                ("이력 저장 대기 중", "저장 대기 중")
-            }
+            Progress::AwaitingHistory if history == TranscriptHistoryState::Deferred => (
+                crate::i18n::text("Waiting for history to be saved"),
+                crate::i18n::text("Waiting for save"),
+            ),
             Progress::AwaitingHistory if history == TranscriptHistoryState::Failed => {
                 (unavailable_hint.as_str(), retry_hint.as_str())
             }

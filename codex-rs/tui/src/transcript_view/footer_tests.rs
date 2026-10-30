@@ -14,6 +14,60 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 #[test]
+fn deferred_history_footer_uses_selected_ui_language_without_translating_query() {
+    use crate::i18n::Locale;
+    use unicode_width::UnicodeWidthStr;
+
+    for (locale, waiting, compact, other) in [
+        (
+            Locale::English,
+            "Waiting for history to be saved",
+            "Waiting for save",
+            "이력 저장 대기 중",
+        ),
+        (
+            Locale::Korean,
+            "이력 저장 대기 중",
+            "저장 대기 중",
+            "Waiting for history to be saved",
+        ),
+    ] {
+        crate::i18n::with_locale(locale, || {
+            let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
+                "visible history".into(),
+            ]))];
+            let mut view = TranscriptView::default();
+            render(&mut view, &cells);
+            view.history = TranscriptHistoryState::Deferred;
+            let full = view
+                .footer(100, MotionMode::Reduced)
+                .unwrap()
+                .text
+                .to_string();
+            assert!(full.contains(waiting));
+            assert!(!full.contains(other));
+            assert!(!full.contains("Retry"));
+            let narrow = view
+                .footer(waiting.width() as u16, MotionMode::Reduced)
+                .unwrap();
+            assert_eq!(narrow.text.to_string(), waiting);
+
+            view.begin_search();
+            let query = "Waiting for history to be saved";
+            view.paste_search(query);
+            assert!(!view.advance_search(&cells));
+            let full = view.footer(100, MotionMode::Reduced).unwrap();
+            assert!(full.text.lines[0].to_string().contains(query));
+            assert!(full.text.lines[1].to_string().contains(waiting));
+            assert!(!full.text.lines[1].to_string().contains(other));
+            let narrow = view.footer(30, MotionMode::Reduced).unwrap();
+            assert!(narrow.text.lines[1].to_string().contains(compact));
+            assert!(narrow.text.lines[1].width() <= 30);
+        });
+    }
+}
+
+#[test]
 fn selection_at_bottom_restores_footer_without_resuming_following() {
     let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
         "one".into(),

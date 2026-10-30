@@ -857,7 +857,7 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             .expect("저장 대기 안내")
             .text
             .to_string();
-        assert!(footer.contains("이력 저장 대기 중"));
+        assert!(footer.contains("Waiting for history to be saved"));
         assert!(!footer.contains("Retry"));
         app.transcript_view.begin_search();
         app.transcript_view.paste_search("missing history");
@@ -868,7 +868,7 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             .expect("검색의 저장 대기 안내")
             .text
             .to_string();
-        assert!(search_footer.contains("이력 저장 대기 중"));
+        assert!(search_footer.contains("Waiting for history to be saved"));
         assert!(!search_footer.contains("Retry"));
         app.transcript_view.jump_to_latest();
 
