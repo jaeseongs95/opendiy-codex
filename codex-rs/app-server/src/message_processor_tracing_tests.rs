@@ -243,6 +243,17 @@ pub(super) async fn build_test_processor(
     Arc<MessageProcessor>,
     mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
 ) {
+    build_test_processor_with_state_db(config, auth_manager, None).await
+}
+
+pub(super) async fn build_test_processor_with_state_db(
+    config: Arc<Config>,
+    auth_manager: Arc<AuthManager>,
+    state_db: Option<StateDbHandle>,
+) -> (
+    Arc<MessageProcessor>,
+    mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
+) {
     let (outgoing_tx, outgoing_rx) = mpsc::channel(16);
     let config_manager = ConfigManager::new(
         config.codex_home.to_path_buf(),
@@ -272,7 +283,7 @@ pub(super) async fn build_test_processor(
         environment_manager: Arc::new(EnvironmentManager::default_for_tests()),
         feedback: CodexFeedback::new(),
         log_db: None,
-        state_db: None,
+        state_db,
         config_warnings: Vec::new(),
         session_source: SessionSource::VSCode,
         user_verification: Arc::new(crate::user_verification::Service::new(Arc::clone(
@@ -467,6 +478,11 @@ pub(super) async fn read_response_from<T: serde::de::DeserializeOwned>(
         };
         if connection_id != expected_connection_id {
             continue;
+        }
+        if let crate::outgoing_message::OutgoingMessage::Error(error) = &message
+            && error.id == RequestId::Integer(request_id)
+        {
+            panic!("request {request_id} returned an error instead of a response: {error:?}");
         }
         let crate::outgoing_message::OutgoingMessage::Response(response) = message else {
             continue;

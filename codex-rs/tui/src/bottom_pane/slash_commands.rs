@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Shared helpers for filtering and matching built-in and model service-tier slash commands.
 //!
 //! The same sandbox- and feature-gating rules are used by both the composer
@@ -343,6 +344,7 @@ mod tests {
                 SlashCommand::Copy,
                 SlashCommand::Export,
                 SlashCommand::Raw,
+                SlashCommand::Language,
                 SlashCommand::Diff,
                 SlashCommand::Mention,
                 SlashCommand::Status,
