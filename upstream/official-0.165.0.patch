@@ -20773,10 +20773,10 @@ index a1b113311..de3d51f7b 100644
 +mod passive_tests;
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..5362b729d
+index 000000000..ca32a5667
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
-@@ -0,0 +1,997 @@
+@@ -0,0 +1,1005 @@
 +//! New method contracts through the real initialized JSON-RPC dispatcher and listener.
 +use super::message_processor_tracing_tests::{build_test_processor, read_response_from};
 +use super::*;
@@ -20785,8 +20785,8 @@ index 000000000..5362b729d
 +use anyhow::Result;
 +use app_test_support::{MockResponsesConfig, create_mock_responses_server_sequence_unchecked};
 +use codex_app_server_protocol::{
-+    InitializeResponse, RequestId, ServerNotification, ThreadResumeResponse, ThreadStartResponse,
-+    TurnStartIfIdleResponse,
++    InitializeResponse, RequestId, ServerNotification, ServerNotificationEnvelope,
++    ThreadResumeResponse, ThreadStartResponse, TurnStartIfIdleResponse,
 +};
 +use codex_core::config::ConfigBuilder;
 +use core_test_support::responses;
@@ -20811,7 +20811,7 @@ index 000000000..5362b729d
 +        .await?;
 +    config.model_catalog = Some(codex_models_manager::bundled_models_response()?);
 +    let config = Arc::new(config);
-+    let auth = AuthManager::shared_from_config(&config, false).await?;
++    let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
 +    let (processor, rx) = build_test_processor(Arc::clone(&config), auth).await;
 +    Ok((home, config, processor, rx))
 +}
@@ -21027,7 +21027,10 @@ index 000000000..5362b729d
 +            ..
 +        }) = timeout(DEADLINE, rx.recv()).await?
 +        {
-+            if matches!(notification, ServerNotification::TurnCompleted(_)) {
++            if matches!(
++                notification.notification,
++                ServerNotification::TurnCompleted(_)
++            ) {
 +                break;
 +            }
 +        }
@@ -21214,7 +21217,7 @@ index 000000000..5362b729d
 +    let idle = Arc::new(AtomicUsize::new(0));
 +    let mut extensions = codex_extension_api::ExtensionRegistryBuilder::<Config>::new();
 +    extensions.thread_lifecycle_contributor(Arc::new(IdleRecorder(Arc::clone(&idle))));
-+    let auth = AuthManager::shared_from_config(&config, false).await?;
++    let auth = AuthManager::shared_from_config(config.as_ref(), false).await?;
 +    // Only the manager's extension registry differs; the production listener,
 +    // membership, outgoing callbacks and passive handler remain real.
 +    let manager = Arc::new(codex_core::ThreadManager::new(
@@ -21297,7 +21300,8 @@ index 000000000..5362b729d
 +            thread_id: created.thread_id.to_string(),
 +        },
 +    )
-+    .await?;
++    .await
++    .expect("existing loaded runtime must accept passive subscription");
 +    let response: ThreadResumeResponse = read_response_from(&mut rx, observer, 50).await;
 +    assert!(response.thread.turns.is_empty());
 +    let replay = timeout(DEADLINE, rx.recv())
@@ -21676,7 +21680,10 @@ index 000000000..5362b729d
 +        }) = timeout(DEADLINE, rx.recv()).await?
 +        {
 +            if connection_id == observer
-+                && matches!(notification, ServerNotification::TurnCompleted(_))
++                && matches!(
++                    notification.notification,
++                    ServerNotification::TurnCompleted(_)
++                )
 +            {
 +                break;
 +            }
@@ -21755,9 +21762,10 @@ index 000000000..5362b729d
 +                    assert_eq!(response.reasoning_effort, original.reasoning_effort);
 +                    response_seen = true;
 +                }
-+                OutgoingMessage::AppServerNotification(
-+                    ServerNotification::ThreadSettingsUpdated(update),
-+                ) if update.thread_id == thread.id => {
++                OutgoingMessage::AppServerNotification(ServerNotificationEnvelope {
++                    notification: ServerNotification::ThreadSettingsUpdated(update),
++                    ..
++                }) if update.thread_id == thread.id => {
 +                    assert!(
 +                        response_seen,
 +                        "same-thread settings must follow the passive snapshot response"

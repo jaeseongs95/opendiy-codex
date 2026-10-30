@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "df11ae498a34d193dc04ec84b82abe6d013e7fc9",
+  "sourceCommit": "acd529ffc1a75272cc7d23c9d932a19342f82609",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -13978,10 +13978,10 @@
     {
       "path": "codex-rs/app-server/src/message_processor_passive_tests.rs",
       "gitMode": "100644",
-      "gitBlob": "5362b729db7f7256bca582ed8452f5eecd0328bd",
-      "sourceSha256": "29dd91ed83beb8fc91df31e55d3ed908877e03e3da9df81d60841e6440d787c6",
-      "publishedSha256": "85da1051ac3c94f36146d9dccb6a3fbda3b19d18484892f31ab59cd8a62ad29b",
-      "bytes": 36137,
+      "gitBlob": "ca32a5667fbf3faaee2702935fc83cb80391e485",
+      "sourceSha256": "d6fb5f1005f753632d1c101b33359a2592ad3727d3370c78a769c11b5f9a2b21",
+      "publishedSha256": "39512a3c736c78efe77a36463623f733640574609db35473cc35f81452efa11f",
+      "bytes": 36448,
       "modified": true,
       "noticeOnly": true
     },
