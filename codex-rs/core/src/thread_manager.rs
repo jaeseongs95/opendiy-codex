@@ -439,6 +439,12 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
     pub(crate) client_mcp_extensions: Option<ClientMcpExtensions>,
 }
 
+/// Holds the loaded-runtime identity stable during a host's short subscription commit.
+/// Do not hold this guard over response delivery or other I/O.
+pub struct LoadedThreadReadGuard {
+    _registry: tokio::sync::OwnedRwLockReadGuard<HashMap<ThreadId, Arc<CodexThread>>>,
+}
+
 /// Shared, `Arc`-owned state for [`ThreadManager`]. This `Arc` is required to have a single
 /// `Arc` reference that can be downgraded to by `LocalAgentControl` while preventing every single
 /// function to require an `Arc<&Self>`.
@@ -982,6 +988,28 @@ impl ThreadManager {
 
     pub async fn get_thread(&self, thread_id: ThreadId) -> CodexResult<Arc<CodexThread>> {
         self.state.get_thread(thread_id).await
+    }
+
+    /// Validates a loaded runtime and pins its registry identity for a short host commit.
+    pub async fn lock_loaded_thread(
+        &self,
+        thread_id: ThreadId,
+        expected: &Arc<CodexThread>,
+    ) -> CodexResult<LoadedThreadReadGuard> {
+        let registry = Arc::clone(&self.state.threads).read_owned().await;
+        if !registry.get(&thread_id).is_some_and(|thread| {
+            Arc::ptr_eq(thread, expected)
+                && !thread.session_source.is_internal()
+                && thread.is_running()
+                && !thread.io.admission.is_closing()
+        }) {
+            return Err(CodexErr::InvalidRequest(
+                "thread runtime is not ready".into(),
+            ));
+        }
+        Ok(LoadedThreadReadGuard {
+            _registry: registry,
+        })
     }
 
     /// Board hosts may reach internal runtimes only through a matching explicit connection.

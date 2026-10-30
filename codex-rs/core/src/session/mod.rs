@@ -1161,7 +1161,17 @@ impl SessionIo {
                 "thread cleanup has closed input admission".into(),
             ));
         }
-        self.admission.touch();
+        // Strict idle input has not been accepted yet. Its commit path touches the
+        // revision after reservation and validation, so a declined probe is read-only.
+        if !matches!(
+            &sub.op,
+            Op::TurnInput {
+                mode: TurnInputMode::StartUserIfIdle,
+                ..
+            }
+        ) {
+            self.admission.touch();
+        }
         if sub.trace.is_none() {
             sub.trace = current_span_w3c_trace_context();
         }

@@ -41,6 +41,10 @@ pub(crate) type PendingThreadUnloads = Arc<Mutex<HashMap<ThreadId, watch::Sender
 
 pub(crate) struct PendingThreadResumeRequest {
     pub(crate) request_id: ConnectionRequestId,
+    /// Passive observation never emits resume lifecycle events or goal snapshots.
+    pub(crate) passive: bool,
+    /// Protects only this command from cleanup, never the resulting membership.
+    pub(crate) _activity_guard: Option<codex_core::ThreadActivityGuard>,
     pub(crate) history_items: Vec<RolloutItem>,
     /// Usage attribution already resolved while cold-loading a paginated child.
     pub(crate) cold_resume_token_usage_turn_id: Option<String>,
@@ -361,6 +365,9 @@ pub(crate) struct ConnectionCapabilities {
 #[derive(Clone, Default)]
 pub(crate) struct ThreadStateManager {
     state: Arc<Mutex<ThreadStateManagerInner>>,
+    #[cfg(test)]
+    passive_snapshot_barrier:
+        Arc<Mutex<Option<(ThreadId, oneshot::Sender<()>, oneshot::Receiver<()>)>>>,
     // Extension event sinks are synchronous, so they need an await-free way to
     // enqueue work on the active per-thread listener.
     listener_commands:
@@ -368,6 +375,33 @@ pub(crate) struct ThreadStateManager {
 }
 
 impl ThreadStateManager {
+    #[cfg(test)]
+    pub(crate) async fn pause_passive_snapshot_for_test(
+        &self,
+        thread_id: ThreadId,
+    ) -> (oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        *self.passive_snapshot_barrier.lock().await = Some((thread_id, entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_passive_snapshot_for_test(&self, thread_id: ThreadId) {
+        let barrier = {
+            let mut slot = self.passive_snapshot_barrier.lock().await;
+            if slot.as_ref().is_some_and(|(id, ..)| *id == thread_id) {
+                slot.take()
+            } else {
+                None
+            }
+        };
+        if let Some((_, entered, release)) = barrier {
+            let _ = entered.send(());
+            let _ = release.await;
+        }
+    }
+
     /// Coordinates goal edits with cold/path-based resume for just this thread.
     pub(crate) async fn lock_goal_resume(
         &self,
@@ -443,6 +477,18 @@ impl ThreadStateManager {
             .get(&thread_id)
             .map(|thread_entry| thread_entry.connection_ids.iter().copied().collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) async fn existing_thread_state(
+        &self,
+        thread_id: ThreadId,
+    ) -> Option<Arc<Mutex<ThreadState>>> {
+        self.state
+            .lock()
+            .await
+            .threads
+            .get(&thread_id)
+            .map(|entry| Arc::clone(&entry.state))
     }
 
     pub(crate) async fn thread_state(&self, thread_id: ThreadId) -> Arc<Mutex<ThreadState>> {

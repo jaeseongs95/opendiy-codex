@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 use crate::config::Constrained;
 use crate::session::step_settings::StepSettingsUpdate;
@@ -1135,6 +1136,235 @@ async fn steer_preserves_request_origin(
                 origin,
             },
         }]
+    );
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
+}
+
+/// The second mailbox check must reject without running mail/goal/queue idle hooks.
+#[tokio::test]
+async fn strict_user_idle_rejects_mail_arriving_during_reservation_without_waking_work() {
+    struct IdleRecorder(Arc<std::sync::atomic::AtomicUsize>);
+    impl codex_extension_api::ThreadLifecycleContributor<crate::config::Config> for IdleRecorder {
+        fn on_thread_idle<'a>(
+            &'a self,
+            _: codex_extension_api::ThreadIdleInput<'a>,
+        ) -> codex_extension_api::ExtensionFuture<'a, ()> {
+            Box::pin(async move {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+        }
+    }
+    let (mut session, _) = make_session_and_context().await;
+    let idle = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut extensions = codex_extension_api::ExtensionRegistryBuilder::new();
+    extensions.thread_lifecycle_contributor(Arc::new(IdleRecorder(Arc::clone(&idle))));
+    session.services.extensions = Arc::new(extensions.build());
+    let session = Arc::new(session);
+    let original = session.thread_settings_snapshot().await;
+    let revision = session.cleanup_admission.activity_revision();
+    // Poll until the held active-turn mutex blocks the reservation. All preceding
+    // reads are ready, so the first mailbox check has deterministically completed.
+    let active = session.active_turn.lock().await;
+    let pending = handle(
+        &session,
+        TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "must stay outside history".into(),
+            text_elements: vec![],
+        }])
+        .with_thread_settings(ThreadSettingsOverrides {
+            model: Some("must-not-be-applied".into()),
+            ..Default::default()
+        }),
+        TurnInputMode::StartUserIfIdle,
+        "strict-mail-race".into(),
+    );
+    tokio::pin!(pending);
+    assert!(futures::poll!(pending.as_mut()).is_pending());
+    session
+        .input_queue
+        .enqueue_mailbox_communication(
+            InterAgentCommunication::new(
+                AgentPath::root(),
+                AgentPath::root(),
+                Vec::new(),
+                "mail arrived after first check".into(),
+                true,
+            )
+            .into(),
+            Default::default(),
+        )
+        .await;
+    drop(active);
+    assert_eq!(
+        pending.await.unwrap(),
+        TurnInputSubmission::NotSubmitted {
+            reason: NotSubmittedReason::PendingTriggerTurn,
+        }
+    );
+    assert!(session.active_turn.lock().await.is_none());
+    assert!(session.input_queue.has_trigger_turn_mailbox_items().await);
+    assert_eq!(session.thread_settings_snapshot().await, original);
+    assert_eq!(session.cleanup_admission.activity_revision(), revision);
+    assert_eq!(idle.load(std::sync::atomic::Ordering::SeqCst), 0);
+    // Independent producer/scheduler ownership survives rejection: its existing
+    // admission can reserve the still-pending mail after the user reservation clears.
+    let (reservation, _) = session
+        .reserve_pending_work_turn()
+        .await
+        .expect("mail scheduler can progress");
+    session.clear_reserved_idle_turn(&reservation).await;
+}
+
+#[tokio::test]
+async fn strict_user_idle_busy_preserves_settings_input_and_cleanup_revision() {
+    let (session, context, _rx) = make_session_and_context_with_rx().await;
+    session
+        .spawn_task(
+            context,
+            Vec::new(),
+            NeverEndingTask {
+                kind: TaskKind::Regular,
+                listen_to_cancellation_token: true,
+            },
+        )
+        .await;
+    let original = session.thread_settings_snapshot().await;
+    let revision = session.cleanup_admission.activity_revision();
+    let result = handle(
+        &session,
+        TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "busy input must not steer".into(),
+            text_elements: vec![],
+        }])
+        .with_thread_settings(ThreadSettingsOverrides {
+            model: Some("busy-model-must-not-apply".into()),
+            approval_policy: Some(AskForApproval::Never),
+            ..Default::default()
+        }),
+        TurnInputMode::StartUserIfIdle,
+        "strict-busy".into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        result,
+        TurnInputSubmission::NotSubmitted {
+            reason: NotSubmittedReason::NotIdle
+        }
+    );
+    assert_eq!(session.thread_settings_snapshot().await, original);
+    assert_eq!(session.cleanup_admission.activity_revision(), revision);
+    assert!(
+        session
+            .input_queue
+            .get_pending_input(&session.active_turn)
+            .await
+            .0
+            .is_empty()
+    );
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
+}
+
+#[tokio::test]
+async fn strict_user_idle_rejects_internal_or_empty_input_and_closed_admission() {
+    let (session, _, _rx) = make_session_and_context_with_rx().await;
+    let revision = session.cleanup_admission.activity_revision();
+    for input in [
+        SubmittedTurnInput::ResponseItem(user_message("internal")),
+        SubmittedTurnInput::UserInput {
+            content: Vec::new(),
+            client_id: None,
+        },
+    ] {
+        assert!(
+            handle(
+                &session,
+                TurnInputRequest::new(input),
+                TurnInputMode::StartUserIfIdle,
+                "invalid-strict".into()
+            )
+            .await
+            .is_err()
+        );
+    }
+    session.cleanup_admission.close();
+    assert!(
+        handle(
+            &session,
+            TurnInputRequest::user_input(vec![UserInput::Text {
+                text: "closing".into(),
+                text_elements: vec![],
+            }]),
+            TurnInputMode::StartUserIfIdle,
+            "closed-strict".into()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(session.cleanup_admission.activity_revision(), revision);
+    assert!(session.active_turn.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn strict_user_idle_acceptance_touches_cleanup_fence_and_starts_user_input() {
+    let (session, _, _rx) = make_session_and_context_with_rx().await;
+    let revision = session.cleanup_admission.activity_revision();
+    let request = TurnInputRequest::user_input(vec![UserInput::Text {
+        text: "accepted explicit user".into(),
+        text_elements: Vec::new(),
+    }])
+    .with_thread_settings(ThreadSettingsOverrides {
+        approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+        ..Default::default()
+    })
+    .on_start(TurnStartOptions {
+        turn_trigger: Some("cron".into()),
+        ..Default::default()
+    });
+    let (first, second) = tokio::join!(
+        handle(
+            &session,
+            request.clone(),
+            TurnInputMode::StartUserIfIdle,
+            "accepted-strict-a".into()
+        ),
+        handle(
+            &session,
+            request,
+            TurnInputMode::StartUserIfIdle,
+            "accepted-strict-b".into()
+        ),
+    );
+    let outcomes = [first.unwrap(), second.unwrap()];
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|r| matches!(r, TurnInputSubmission::Started { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|r| matches!(
+                r,
+                TurnInputSubmission::NotSubmitted {
+                    reason: NotSubmittedReason::NotIdle
+                }
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(session.cleanup_admission.activity_revision(), revision + 1);
+    assert_eq!(
+        session
+            .state
+            .lock()
+            .await
+            .session_configuration
+            .step_settings
+            .approvals_reviewer,
+        ApprovalsReviewer::AutoReview
     );
     session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }

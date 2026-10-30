@@ -882,6 +882,20 @@ async fn cleanup_rejects_previous_generation_after_real_writer_reopen() {
     assert_eq!(reopened.thread_id, done.thread_id);
     assert_ne!(reopened.thread.io.admission.runtime_id, old.runtime_id);
     assert!(!Arc::ptr_eq(&reopened.thread, &done.thread));
+    // The passive subscription commit must reject an old Arc after a real
+    // shutdown/reopen, even though the public thread ID is unchanged.
+    assert!(
+        manager
+            .lock_loaded_thread(done.thread_id, &done.thread)
+            .await
+            .is_err()
+    );
+    drop(
+        manager
+            .lock_loaded_thread(reopened.thread_id, &reopened.thread)
+            .await
+            .unwrap(),
+    );
     complete(&reopened.thread).await;
     let mut stale_generation = selection(&manager, root.thread_id).await.pop().unwrap();
     // All fields describe the current eligible runtime except its execution generation.
@@ -1089,4 +1103,31 @@ async fn wait_for(notification: &tokio::sync::Notify) {
     tokio::time::timeout(std::time::Duration::from_secs(10), notification.notified())
         .await
         .expect("real owner did not reach the expected storage barrier");
+}
+
+#[tokio::test]
+async fn loaded_runtime_read_guard_linearizes_raw_removal_without_touching_activity() {
+    let (_home, manager, _, root) = fixture().await;
+    let revision = root.thread.io.admission.activity_revision();
+    let guard = manager
+        .lock_loaded_thread(root.thread_id, &root.thread)
+        .await
+        .unwrap();
+    let removal = manager.remove_thread(&root.thread_id);
+    tokio::pin!(removal);
+    assert!(
+        futures::poll!(removal.as_mut()).is_pending(),
+        "raw removal must await the subscription commit"
+    );
+    drop(guard);
+    let removed = removal.await.unwrap();
+    assert!(Arc::ptr_eq(&removed, &root.thread));
+    assert!(
+        manager
+            .lock_loaded_thread(root.thread_id, &root.thread)
+            .await
+            .is_err()
+    );
+    assert_eq!(root.thread.io.admission.activity_revision(), revision);
+    removed.shutdown_and_wait().await.unwrap();
 }

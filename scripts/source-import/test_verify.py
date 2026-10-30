@@ -83,6 +83,7 @@ class VerifierChecks(unittest.TestCase):
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubscribePassiveParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts',

@@ -1069,6 +1069,7 @@ impl MessageProcessor {
             ClientRequest::ThreadSample { .. }
             | ClientRequest::TurnStart { .. }
             | ClientRequest::TurnStartIfIdle { .. }
+            | ClientRequest::TurnStartUserIfIdle { .. }
             | ClientRequest::TurnSteer { .. }
             | ClientRequest::ReviewStart { .. }
             | ClientRequest::ThreadCompactStart { .. }
@@ -1375,6 +1376,11 @@ impl MessageProcessor {
                     session.mcp_event_streams.stop_thread(thread_id).await;
                 }
                 Ok(response)
+            }
+            ClientRequest::ThreadSubscribePassive { params, .. } => {
+                self.thread_processor
+                    .thread_subscribe_passive(request_id.clone(), params)
+                    .await
             }
             ClientRequest::ThreadResume { params, .. } => {
                 self.thread_processor
@@ -1746,6 +1752,11 @@ impl MessageProcessor {
                     .mock_experimental_method(params)
                     .await
             }
+            ClientRequest::TurnStartUserIfIdle { params, .. } => {
+                self.turn_processor
+                    .turn_start_user_if_idle(request_id.clone(), params)
+                    .await
+            }
             ClientRequest::TurnStartIfIdle { params, .. } => {
                 self.turn_processor
                     .turn_start_if_idle(
@@ -2047,3 +2058,7 @@ mod thread_lifecycle_tests;
 #[cfg(test)]
 #[path = "message_processor_workspace_routing_tests.rs"]
 mod workspace_routing_tests;
+
+#[cfg(test)]
+#[path = "message_processor_passive_tests.rs"]
+mod passive_tests;
