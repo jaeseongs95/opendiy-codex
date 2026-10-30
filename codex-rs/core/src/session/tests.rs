@@ -7111,6 +7111,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     };
 
     let session = Session {
+        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
         thread_id,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
         tx_event,
@@ -9402,6 +9403,7 @@ where
     };
 
     let session = Arc::new(Session {
+        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
         thread_id,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
         tx_event,

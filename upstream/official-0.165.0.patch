@@ -32731,7 +32731,7 @@ index 3e83bcead..34a1bd10b 100644
      let payload = rollout
          .raw_payloads
 diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
-index d4227af4b..fa9775ec9 100644
+index d4227af4b..7aaf09e1d 100644
 --- a/codex-rs/core/src/codex_delegate.rs
 +++ b/codex-rs/core/src/codex_delegate.rs
 @@ -211,6 +211,7 @@ pub(crate) fn forward_session_io(io: Arc<SessionIo>, cancel_token: CancellationT
@@ -32742,16 +32742,24 @@ index d4227af4b..fa9775ec9 100644
          tx_sub: tx_ops,
          rx_event: rx_sub,
          agent_status: io.agent_status.clone(),
-@@ -330,6 +331,7 @@ pub(crate) async fn run_codex_thread_one_shot(
+@@ -294,6 +295,7 @@ pub(crate) async fn run_codex_thread_one_shot(
+     let ops_tx = io.tx_sub.clone();
+     let agent_status = io.agent_status.clone();
+     let session_loop_termination = io.session_loop_termination.clone();
++    let admission = Arc::clone(&io.admission);
+     let io_for_bridge = io;
+     tokio::spawn(async move {
+         while let Ok(event) = io_for_bridge.next_event().await {
+@@ -330,6 +332,7 @@ pub(crate) async fn run_codex_thread_one_shot(
      Ok((
          session,
          SessionIo {
-+            admission: Arc::default(),
++            admission,
              rx_event: rx_bridge,
              tx_sub: tx_closed,
              agent_status,
 diff --git a/codex-rs/core/src/codex_delegate_tests.rs b/codex-rs/core/src/codex_delegate_tests.rs
-index 9b6c0aeca..f24cdf6e9 100644
+index 9b6c0aeca..37c0f983c 100644
 --- a/codex-rs/core/src/codex_delegate_tests.rs
 +++ b/codex-rs/core/src/codex_delegate_tests.rs
 @@ -43,6 +43,7 @@ async fn forward_events_filters_private_events_before_blocked_send_is_cancelled(
@@ -32770,6 +32778,100 @@ index 9b6c0aeca..f24cdf6e9 100644
          tx_sub,
          rx_event: rx_events,
          agent_status,
+@@ -191,6 +193,93 @@ async fn forward_ops_preserves_submission_trace_context() {
+         .expect("forward_ops join error");
+ }
+ 
++#[tokio::test]
++async fn one_shot_wrapper_shares_live_session_admission_and_rejects_closed_input() {
++    use core_test_support::responses;
++    use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
++
++    let (release, gate) = tokio::sync::oneshot::channel();
++    let (server, _) = start_streaming_sse_server(vec![vec![
++        StreamingSseChunk {
++            gate: None,
++            body: responses::sse(vec![responses::ev_response_created("one-shot")]),
++        },
++        StreamingSseChunk {
++            gate: Some(gate),
++            body: responses::sse(vec![responses::ev_completed("one-shot")]),
++        },
++    ]])
++    .await;
++    let mut provider = codex_model_provider_info::built_in_model_providers(None)["openai"].clone();
++    provider.base_url = Some(format!("{}/v1", server.uri()));
++    provider.supports_websockets = false;
++    let home = tempfile::tempdir().expect("isolated one-shot fixture home");
++    let (parent, context, _events) =
++        crate::session::tests::make_session_and_context_with_auth_config_home_and_rx(
++            codex_login::CodexAuth::from_api_key("test"),
++            Vec::new(),
++            home.path(),
++            move |config| {
++                config.model = Some("gpt-5.2".to_string());
++                config.model_provider = provider;
++            },
++        )
++        .await;
++    let mut config = context.config.as_ref().clone();
++    config.permissions.approval_policy = Constrained::allow_only(AskForApproval::Never);
++    let (session, io) = timeout(
++        Duration::from_secs(10),
++        run_codex_thread_one_shot(
++            config,
++            Arc::clone(&parent.services.auth_manager),
++            Arc::clone(&parent.services.models_manager),
++            vec![UserInput::Text {
++                text: "one-shot admission fixture".into(),
++                text_elements: Vec::new(),
++            }],
++            parent,
++            context,
++            CancellationToken::new(),
++            SubAgentSource::Review,
++            None,
++            None,
++        ),
++    )
++    .await
++    .expect("one-shot startup deadline")
++    .expect("one-shot should accept its initial input");
++    assert!(Arc::ptr_eq(&session.cleanup_admission, &io.admission));
++    timeout(Duration::from_secs(10), server.wait_for_request_count(1))
++        .await
++        .expect("initial input must reach only the local mock provider");
++    session.cleanup_admission.close();
++    let revision = session.cleanup_admission.activity_revision();
++    let error = io
++        .submit(Op::Interrupt)
++        .await
++        .expect_err("the returned wrapper must honor its live session's closed admission");
++    assert!(
++        matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
++        if message == "thread cleanup has closed input admission")
++    );
++    assert_eq!(session.cleanup_admission.activity_revision(), revision);
++    release.send(()).unwrap();
++    timeout(Duration::from_secs(10), async {
++        loop {
++            let event = io.next_event().await.expect("one-shot completion event");
++            if matches!(event.msg, EventMsg::TurnComplete(_)) {
++                break;
++            }
++        }
++        io.session_loop_termination.clone().await;
++    })
++    .await
++    .expect("the real one-shot bridge must finish its owned shutdown");
++    assert!(io.admission.shutdown_confirmed());
++    assert_eq!(server.requests().await.len(), 1);
++    server.shutdown().await;
++}
++
+ #[tokio::test]
+ async fn run_codex_thread_interactive_respects_pre_cancelled_spawn() {
+     for shutdown_requested in [false, true] {
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
 index 024eb7613..863e2c9fb 100644
 --- a/codex-rs/core/src/codex_thread.rs
@@ -33581,14 +33683,22 @@ index 163f6b60e..3c91ab018 100644
              rx_event: thread.io.rx_event.clone(),
              agent_status: thread.io.agent_status.clone(),
 diff --git a/codex-rs/core/src/guardian/review_session_tests.rs b/codex-rs/core/src/guardian/review_session_tests.rs
-index 6e71ad6b9..95bab41bb 100644
+index 6e71ad6b9..faba3791a 100644
 --- a/codex-rs/core/src/guardian/review_session_tests.rs
 +++ b/codex-rs/core/src/guardian/review_session_tests.rs
-@@ -153,6 +153,7 @@ async fn test_review_session() -> (
+@@ -142,6 +142,7 @@ async fn test_review_session() -> (
+     let (tx_sub, rx_sub) = async_channel::bounded(4);
+     let (tx_event, rx_event) = async_channel::unbounded();
+     let (_agent_status_tx, agent_status) = tokio::sync::watch::channel(AgentStatus::PendingInit);
++    let admission = Arc::clone(&session.cleanup_admission);
+     let reuse_key = GuardianReviewSessionReuseKey::from_spawn_config(
+         session.get_config().await.as_ref(),
+         session.inherited_instructions().await,
+@@ -153,6 +154,7 @@ async fn test_review_session() -> (
          GuardianReviewSession {
              session,
              io: SessionIo {
-+                admission: Arc::default(),
++                admission,
                  tx_sub,
                  rx_event,
                  agent_status,
@@ -34508,14 +34618,14 @@ index 927a28630..34a74218f 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/core/src/session/extension_interruption_tests.rs b/codex-rs/core/src/session/extension_interruption_tests.rs
-index 7e46b02e3..38fed707f 100644
+index 7e46b02e3..29d3e280e 100644
 --- a/codex-rs/core/src/session/extension_interruption_tests.rs
 +++ b/codex-rs/core/src/session/extension_interruption_tests.rs
 @@ -45,6 +45,7 @@ async fn interrupt_if_no_pending_input_handles_cancelled_submission() {
      let thread = CodexThread::new(
          Arc::clone(&session),
          SessionIo {
-+            admission: Arc::default(),
++            admission: Arc::clone(&session.cleanup_admission),
              tx_sub,
              rx_event,
              agent_status: watch::channel(AgentStatus::PendingInit).1,
@@ -35324,7 +35434,7 @@ index a61493af7..8a641e118 100644
      session: Arc<Session>,
      turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 182e03e58..06a178197 100644
+index 182e03e58..7a36b2290 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
 @@ -3359,6 +3359,7 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
@@ -35539,7 +35649,15 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7139,6 +7253,7 @@ async fn make_session_with_config_and_rx(
+@@ -6996,6 +7110,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+     };
+ 
+     let session = Session {
++        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
+         thread_id,
+         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+         tx_event,
+@@ -7139,6 +7254,7 @@ async fn make_session_with_config_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35547,7 +35665,7 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -7276,6 +7391,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
+@@ -7276,6 +7392,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35555,7 +35673,7 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -8128,6 +8244,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
+@@ -8128,6 +8245,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
      let (tx_sub, rx_sub) = async_channel::bounded(1);
      let (_tx_event, rx_event) = async_channel::unbounded();
      let io = SessionIo {
@@ -35563,7 +35681,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -8966,6 +9083,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
+@@ -8966,6 +9084,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
          tokio::time::sleep(StdDuration::from_millis(50)).await;
      });
      let io = Arc::new(SessionIo {
@@ -35571,7 +35689,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -9002,6 +9120,7 @@ async fn shutdown_and_wait_waits_when_shutdown_is_already_in_progress() {
+@@ -9002,6 +9121,7 @@ async fn shutdown_and_wait_waits_when_shutdown_is_already_in_progress() {
          let _ = shutdown_complete_rx.await;
      });
      let io = Arc::new(SessionIo {
@@ -35579,7 +35697,7 @@ index 182e03e58..06a178197 100644
          tx_sub,
          rx_event,
          agent_status: watch::channel(AgentStatus::PendingInit).1,
-@@ -9104,6 +9223,7 @@ where
+@@ -9104,6 +9224,7 @@ where
              approval_policy: config.permissions.approval_policy.clone(),
              approvals_reviewer: config.approvals_reviewer,
          }),
@@ -35587,7 +35705,15 @@ index 182e03e58..06a178197 100644
          model_info_overrides: config.to_models_manager_config().into(),
          developer_instructions: config.developer_instructions.clone(),
          base_instructions: config
-@@ -12799,6 +12919,7 @@ async fn set_total_token_usage(sess: &Session, total_token_usage: TokenUsage) {
+@@ -9281,6 +9402,7 @@ where
+     };
+ 
+     let session = Arc::new(Session {
++        cleanup_admission: Arc::new(crate::thread_manager::cleanup::RuntimeAdmission::default()),
+         thread_id,
+         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+         tx_event,
+@@ -12799,6 +12921,7 @@ async fn set_total_token_usage(sess: &Session, total_token_usage: TokenUsage) {
      let mut state = sess.state.lock().await;
      state.set_token_info(Some(TokenUsageInfo {
          total_token_usage,
@@ -35595,7 +35721,7 @@ index 182e03e58..06a178197 100644
          last_token_usage: TokenUsage::default(),
          model_context_window: None,
      }));
-@@ -13587,3 +13708,67 @@ async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replace
+@@ -13587,3 +13710,67 @@ async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replace
          "rejection must not permit same-name ordinary-auth replacement in this session"
      );
  }
