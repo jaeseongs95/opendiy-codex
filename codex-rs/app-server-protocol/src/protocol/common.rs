@@ -473,6 +473,67 @@ macro_rules! client_response_payload_from_impl {
     ($variant:ident, $response:ty, manual) => {};
 }
 
+#[cfg(test)]
+mod desktop_api_protocol_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn passive_subscription_rejects_resume_options_and_preserves_thread_scope() {
+        let request: ClientRequest = serde_json::from_value(json!({
+            "id":1,"method":"thread/subscribePassive","params":{"threadId":"loaded-thread"}
+        }))
+        .unwrap();
+        assert!(
+            matches!(request.serialization_scope(),Some(ClientRequestSerializationScope::Thread{thread_id}) if thread_id=="loaded-thread")
+        );
+        for extra in ["history", "path", "model", "excludeTurns"] {
+            let mut params = json!({"threadId":"loaded-thread"});
+            params[extra] = json!(null);
+            assert!(
+                serde_json::from_value::<ClientRequest>(json!({
+                    "id":1,"method":"thread/subscribePassive","params":params
+                }))
+                .is_err(),
+                "unknown option {extra} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_user_idle_reuses_full_turn_params_and_its_own_response_variant() {
+        let request: ClientRequest = serde_json::from_value(json!({
+            "id":2,"method":"turn/startUserIfIdle","params":{
+                "threadId":"loaded-thread","clientUserMessageId":"correlation-only",
+                "input":[{"type":"text","text":"explicit user","text_elements":[]}],
+                "model":"chosen-model","effort":"high","approvalPolicy":"on-request"
+            }
+        }))
+        .unwrap();
+        let ClientRequest::TurnStartUserIfIdle { params, .. } = request else {
+            panic!("new method must retain a distinct contract")
+        };
+        assert_eq!(params.model.as_deref(), Some("chosen-model"));
+        assert_eq!(
+            params.client_user_message_id.as_deref(),
+            Some("correlation-only")
+        );
+        assert_eq!(
+            params.effort,
+            Some(codex_protocol::openai_models::ReasoningEffort::High)
+        );
+        let payload =
+            ClientResponsePayload::TurnStartUserIfIdle(v2::TurnStartIfIdleResponse::SkippedBusy);
+        assert!(matches!(
+            payload.into_client_response(RequestId::Integer(2)),
+            Some(ClientResponse::TurnStartUserIfIdle {
+                response: v2::TurnStartIfIdleResponse::SkippedBusy,
+                ..
+            })
+        ));
+    }
+}
+
 /// Preserve explicit `undefined` accepted by the original stable usage request.
 ///
 /// A Rust-based TypeScript proxy retains dependency discovery; a raw `#[ts(type = ...)]`
@@ -554,6 +615,13 @@ client_request_definitions! {
         inspect_params: true,
         serialization: None,
         response: v2::ThreadStartResponse,
+    },
+    /// Observe only an already loaded runtime with an existing listener. Does not resume work.
+    ThreadSubscribePassive => "thread/subscribePassive" {
+        params: v2::ThreadSubscribePassiveParams,
+        serialization: thread_id(params.thread_id),
+        manual_payload_conversion: manual,
+        response: v2::ThreadResumeResponse,
     },
     ThreadResume => "thread/resume" {
         params: v2::ThreadResumeParams,
@@ -1099,6 +1167,15 @@ client_request_definitions! {
     TurnStartIfIdle => "turn/startIfIdle" {
         params: v2::TurnStartIfIdleParams,
         serialization: thread_id(params.thread_id),
+        response: v2::TurnStartIfIdleResponse,
+    },
+    /// Accept explicit user input only when idle. Never steers or wakes pending work on refusal.
+    /// A lost response leaves the outcome unknown; clientUserMessageId is not a deduplication key.
+    TurnStartUserIfIdle => "turn/startUserIfIdle" {
+        params: v2::TurnStartParams,
+        inspect_params: true,
+        serialization: thread_id(params.thread_id),
+        manual_payload_conversion: manual,
         response: v2::TurnStartIfIdleResponse,
     },
     TurnStart => "turn/start" {

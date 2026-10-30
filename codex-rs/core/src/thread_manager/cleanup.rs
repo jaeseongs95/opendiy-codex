@@ -132,6 +132,10 @@ impl RuntimeAdmission {
     pub(crate) fn is_closing(&self) -> bool {
         self.closing.load(Ordering::Acquire)
     }
+    #[cfg(test)]
+    pub(crate) fn activity_revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
+    }
     pub(crate) fn touch(&self) {
         self.revision.fetch_add(1, Ordering::AcqRel);
     }

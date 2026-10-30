@@ -40,6 +40,10 @@ pub(crate) type PendingThreadUnloads = Arc<Mutex<HashMap<ThreadId, watch::Sender
 
 pub(crate) struct PendingThreadResumeRequest {
     pub(crate) request_id: ConnectionRequestId,
+    /// Passive observation never emits resume lifecycle events or goal snapshots.
+    pub(crate) passive: bool,
+    /// Protects only this command from cleanup, never the resulting membership.
+    pub(crate) _activity_guard: Option<codex_core::ThreadActivityGuard>,
     pub(crate) history_items: Vec<RolloutItem>,
     /// Usage attribution already resolved while cold-loading a paginated child.
     pub(crate) cold_resume_token_usage_turn_id: Option<String>,
@@ -442,6 +446,18 @@ impl ThreadStateManager {
             .get(&thread_id)
             .map(|thread_entry| thread_entry.connection_ids.iter().copied().collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) async fn existing_thread_state(
+        &self,
+        thread_id: ThreadId,
+    ) -> Option<Arc<Mutex<ThreadState>>> {
+        self.state
+            .lock()
+            .await
+            .threads
+            .get(&thread_id)
+            .map(|entry| Arc::clone(&entry.state))
     }
 
     pub(crate) async fn thread_state(&self, thread_id: ThreadId) -> Arc<Mutex<ThreadState>> {

@@ -461,6 +461,30 @@ impl CodexThread {
         }
     }
 
+    /// Starts explicit user input only when idle. Rejection does not wake pending work.
+    /// Once queued, cancellation does not retract input; callers must not automatically retry.
+    pub async fn start_user_turn_if_idle(
+        &self,
+        request: impl Into<WithTurnExtensionData<TurnInputRequest>>,
+    ) -> CodexResult<StartIfIdleSubmission> {
+        match self
+            .submit_turn_input_with_mode(request, TurnInputMode::StartUserIfIdle)
+            .await?
+        {
+            TurnInputSubmission::Started {
+                turn_id,
+                root_turn_id,
+            } => Ok(StartIfIdleSubmission::Started {
+                turn_id,
+                root_turn_id,
+            }),
+            TurnInputSubmission::NotSubmitted { reason } => {
+                Ok(StartIfIdleSubmission::NotSubmitted { reason })
+            }
+            TurnInputSubmission::Steered { .. } => unreachable!("strict idle input cannot steer"),
+        }
+    }
+
     /// Starts a new internal continuation turn when idle, including in Plan mode.
     /// Rejects if a newer task has started, even if it has already finished.
     /// The input must be a response item; it is never treated as user authorization.

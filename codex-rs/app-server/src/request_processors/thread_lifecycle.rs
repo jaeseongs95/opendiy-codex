@@ -1,3 +1,4 @@
+use super::thread_input::can_accept_direct_input;
 use super::*;
 use crate::extensions::send_thread_warning;
 use codex_app_server_protocol::ThreadQueueChangedNotification;
@@ -309,6 +310,7 @@ pub(super) async fn ensure_listener_task_running(
                     handle_thread_listener_command(
                         conversation_id,
                         &conversation,
+                        &thread_manager,
                         codex_home.as_path(),
                         &thread_state_manager,
                         &thread_state,
@@ -627,6 +629,7 @@ pub(super) async fn unload_thread_without_subscribers(
 pub(super) async fn handle_thread_listener_command(
     conversation_id: ThreadId,
     conversation: &Arc<CodexThread>,
+    thread_manager: &ThreadManager,
     codex_home: &Path,
     thread_state_manager: &ThreadStateManager,
     thread_state: &Arc<Mutex<ThreadState>>,
@@ -643,6 +646,7 @@ pub(super) async fn handle_thread_listener_command(
             handle_pending_thread_resume_request(
                 conversation_id,
                 conversation,
+                thread_manager,
                 codex_home,
                 thread_state_manager,
                 thread_state,
@@ -721,6 +725,7 @@ pub(super) async fn handle_thread_listener_command(
 pub(super) async fn handle_pending_thread_resume_request(
     conversation_id: ThreadId,
     conversation: &Arc<CodexThread>,
+    thread_manager: &ThreadManager,
     _codex_home: &Path,
     thread_state_manager: &ThreadStateManager,
     thread_state: &Arc<Mutex<ThreadState>>,
@@ -729,6 +734,21 @@ pub(super) async fn handle_pending_thread_resume_request(
     pending_thread_unloads: &PendingThreadUnloads,
     mut pending: crate::thread_state::PendingThreadResumeRequest,
 ) {
+    if pending.passive {
+        let (snapshot, _) = conversation.resume_config_snapshot().await;
+        pending.thread_summary = super::thread_processor::build_thread_from_loaded_snapshot(
+            conversation_id,
+            &snapshot,
+            conversation,
+        );
+        apply_live_thread_settings(&mut pending.thread_summary, &snapshot);
+        pending.thread_summary.can_accept_direct_input = Some(can_accept_direct_input(
+            conversation.multi_agent_version(),
+            &snapshot.session_source,
+        ));
+        pending.config_snapshot = snapshot;
+        pending.instruction_sources = conversation.legacy_instruction_sources().await;
+    }
     let (active_turn_metadata, active_turn) = {
         let state = thread_state.lock().await;
         let items_view = if pending.include_turns {
@@ -850,17 +870,55 @@ pub(super) async fn handle_pending_thread_resume_request(
             outgoing
                 .send_error(
                     request_id,
-                    invalid_request(format!(
-                        "thread {conversation_id} is closing; retry thread/resume after the thread is closed"
-                    )),
+                    invalid_request(if pending.passive {
+                        format!("thread {conversation_id} is not ready: closing")
+                    } else {
+                        format!("thread {conversation_id} is closing; retry thread/resume after the thread is closed")
+                    }),
                 )
                 .await;
             return;
         }
+        // Lock order: pending unloads -> Core registry -> listener state -> membership.
+        // Only the short membership commit pins the registry; no snapshot or I/O does.
+        let runtime_guard = if pending.passive {
+            match thread_manager
+                .lock_loaded_thread(conversation_id, conversation)
+                .await
+            {
+                Ok(guard) => Some(guard),
+                Err(_) => {
+                    drop(pending_thread_unloads);
+                    outgoing
+                        .send_error(request_id, invalid_request("thread runtime is not ready"))
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let listener_guard = if pending.passive {
+            let state = thread_state.lock().await;
+            if !state.listener_matches(conversation) {
+                drop(state);
+                drop(runtime_guard);
+                drop(pending_thread_unloads);
+                outgoing
+                    .send_error(request_id, invalid_request("thread listener is not ready"))
+                    .await;
+                return;
+            }
+            Some(state)
+        } else {
+            None
+        };
         if !thread_state_manager
             .try_add_connection_to_thread(conversation_id, connection_id)
             .await
         {
+            drop(listener_guard);
+            drop(runtime_guard);
             tracing::debug!(
                 thread_id = %conversation_id,
                 connection_id = ?connection_id,
@@ -932,6 +990,11 @@ pub(super) async fn handle_pending_thread_resume_request(
         turns_backwards_cursor,
         items_backwards_cursor,
     };
+    let response = if pending.passive {
+        ClientResponsePayload::ThreadSubscribePassive(response)
+    } else {
+        ClientResponsePayload::ThreadResume(response)
+    };
     outgoing
         .send_response_with_thread_originator(request_id, response, originator)
         .await;
@@ -949,7 +1012,7 @@ pub(super) async fn handle_pending_thread_resume_request(
         )
         .await;
     }
-    if pending.emit_thread_goal_update {
+    if !pending.passive && pending.emit_thread_goal_update {
         if let Some(state_db) = pending.thread_goal_state_db {
             send_thread_goal_snapshot_notification(outgoing, conversation_id, &state_db).await;
         } else {
@@ -964,9 +1027,11 @@ pub(super) async fn handle_pending_thread_resume_request(
         .await;
     // App-server owns resume response and snapshot ordering, so wait until
     // replay completes before letting extensions react to the idle thread.
-    conversation
-        .emit_thread_idle_lifecycle_if_idle(ThreadIdleCause::Completed)
-        .await;
+    if !pending.passive {
+        conversation
+            .emit_thread_idle_lifecycle_if_idle(ThreadIdleCause::Completed)
+            .await;
+    }
 }
 
 pub(super) async fn send_thread_goal_snapshot_notification(

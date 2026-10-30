@@ -1179,6 +1179,23 @@ impl Session {
         Ok((turn_context, snapshot))
     }
 
+    /// Refreshes model metadata before committing strict user input settings.
+    /// After update_settings_if validates and commits, context construction is infallible.
+    pub(super) async fn new_user_turn_with_sub_id(
+        &self,
+        sub_id: String,
+        updates: SessionSettingsUpdate,
+        options: NewTurnContextOptions,
+    ) -> CodexResult<(Arc<TurnContext>, ThreadSettingsSnapshot)> {
+        let Some(context) = self
+            .new_turn_with_sub_id_if_inner(sub_id, updates, options, |_, _| true, true)
+            .await?
+        else {
+            unreachable!("unconditional user admission cannot decline valid settings")
+        };
+        Ok(context)
+    }
+
     /// Commits accepted settings atomically, then constructs the turn without holding
     /// the state lock. The caller owns admission policy.
     ///
@@ -1192,6 +1209,30 @@ impl Session {
         options: NewTurnContextOptions,
         should_start: impl FnOnce(&SessionConfiguration, &SessionConfiguration) -> bool + Send,
     ) -> CodexResult<Option<(Arc<TurnContext>, ThreadSettingsSnapshot)>> {
+        self.new_turn_with_sub_id_if_inner(sub_id, updates, options, should_start, false)
+            .await
+    }
+
+    async fn new_turn_with_sub_id_if_inner(
+        &self,
+        sub_id: String,
+        updates: SessionSettingsUpdate,
+        options: NewTurnContextOptions,
+        should_start: impl FnOnce(&SessionConfiguration, &SessionConfiguration) -> bool + Send,
+        strict_user: bool,
+    ) -> CodexResult<Option<(Arc<TurnContext>, ThreadSettingsSnapshot)>> {
+        if strict_user {
+            let configuration = self.state.lock().await.session_configuration.clone();
+            if !crate::guardian::is_basic_session_source(&configuration.session_source) {
+                self.services
+                    .models_manager
+                    .refresh_after_auth_change(
+                        self.build_effective_session_config(&configuration)
+                            .http_client_factory(),
+                    )
+                    .await;
+            }
+        }
         let service_tier_for_turn = updates.service_tier_for_turn.clone();
         let commit = match self.update_settings_if(updates, should_start).await {
             Ok(Some(commit)) => commit,
@@ -1215,7 +1256,8 @@ impl Session {
         if let Some(service_tier) = service_tier_for_turn {
             Arc::make_mut(&mut configuration.step_settings).service_tier = Some(service_tier);
         }
-        if !crate::guardian::is_basic_session_source(&configuration.session_source) {
+        if !strict_user && !crate::guardian::is_basic_session_source(&configuration.session_source)
+        {
             self.services
                 .models_manager
                 .refresh_after_auth_change(
@@ -1225,9 +1267,11 @@ impl Session {
                 .await;
         }
         // Auth refresh may replace model metadata after the settings commit was validated.
-        self.validate_context_window_override(&configuration)
-            .await
-            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+        if !strict_user {
+            self.validate_context_window_override(&configuration)
+                .await
+                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+        }
         let turn_environments = self.activate_turn_environments(&configuration).await;
         let turn_context = self
             .new_turn_from_configuration(sub_id, configuration, turn_environments, options)

@@ -142,6 +142,17 @@ impl PreparedTurnInputSettings {
         submission_id: String,
         kind: TurnStartKind,
     ) -> CodexResult<Option<Arc<TurnContext>>> {
+        self.apply_started_inner(session, submission_id, kind, false)
+            .await
+    }
+
+    async fn apply_started_inner(
+        self,
+        session: &Arc<Session>,
+        submission_id: String,
+        kind: TurnStartKind,
+        strict_user: bool,
+    ) -> CodexResult<Option<Arc<TurnContext>>> {
         let TurnStartOptions {
             turn_trigger,
             final_output_json_schema,
@@ -165,6 +176,11 @@ impl PreparedTurnInputSettings {
             cyber_access_program,
         };
         let turn_context = match kind {
+            TurnStartKind::User if strict_user => Some(
+                session
+                    .new_user_turn_with_sub_id(submission_id.clone(), updates, options)
+                    .await?,
+            ),
             TurnStartKind::User | TurnStartKind::Recovery => Some(
                 session
                     .new_turn_with_sub_id(submission_id.clone(), updates, options)
@@ -253,6 +269,33 @@ pub(super) async fn handle(
                 submission_id,
                 kind,
                 /*expected_previous_turn_id*/ None,
+                false,
+            )
+            .await
+        }
+        TurnInputMode::StartUserIfIdle => {
+            if !matches!(&request.request.input, SubmittedTurnInput::UserInput { content, .. } if !content.is_empty())
+            {
+                return Err(CodexErr::InvalidRequest(
+                    "strict idle start requires nonempty user input".into(),
+                ));
+            }
+            if request.request.start.parent_turn_id.is_some()
+                || request.request.start.root_turn_id.is_some()
+            {
+                return Err(CodexErr::InvalidRequest(
+                    "strict user input cannot supply parent/root lineage".into(),
+                ));
+            }
+            let mut request = request;
+            request.request.start.turn_trigger = Some("user".into());
+            start_if_idle(
+                session,
+                request,
+                submission_id,
+                TurnStartKind::User,
+                None,
+                true,
             )
             .await
         }
@@ -273,6 +316,7 @@ pub(super) async fn handle(
                 submission_id,
                 TurnStartKind::Recovery,
                 Some(expected_previous_turn_id),
+                false,
             )
             .await
         }
@@ -318,6 +362,7 @@ pub(super) async fn handle_recovery(
         submission_id,
         TurnStartKind::Recovery,
         /*expected_previous_turn_id*/ None,
+        false,
     )
     .await;
     if let Ok(TurnInputSubmission::Started { turn_id, .. }) = &result {
@@ -460,6 +505,7 @@ async fn start_if_idle(
     submission_id: String,
     kind: TurnStartKind,
     expected_previous_turn_id: Option<String>,
+    strict_user: bool,
 ) -> CodexResult<TurnInputSubmission> {
     let WithTurnExtensionData {
         request,
@@ -474,7 +520,11 @@ async fn start_if_idle(
         ..
     } = request;
     let origin = UserInputOrigin::from_turn_trigger(start.turn_trigger.as_deref());
-    if session.input_queue.has_trigger_turn_mailbox_items().await {
+    if if strict_user {
+        session.input_queue.has_pending_mailbox_items().await
+    } else {
+        session.input_queue.has_trigger_turn_mailbox_items().await
+    } {
         return Ok(TurnInputSubmission::NotSubmitted {
             reason: NotSubmittedReason::PendingTriggerTurn,
         });
@@ -517,7 +567,9 @@ async fn start_if_idle(
                 "thread cleanup has closed input admission".into(),
             ));
         }
-        session.cleanup_admission.touch();
+        if !strict_user {
+            session.cleanup_admission.touch();
+        }
         if active_turn.is_some() {
             return Ok(TurnInputSubmission::NotSubmitted {
                 reason: NotSubmittedReason::NotIdle,
@@ -534,9 +586,15 @@ async fn start_if_idle(
         Arc::clone(&active_turn.turn_state)
     };
 
-    if session.input_queue.has_trigger_turn_mailbox_items().await {
+    if if strict_user {
+        session.input_queue.has_pending_mailbox_items().await
+    } else {
+        session.input_queue.has_trigger_turn_mailbox_items().await
+    } {
         session.clear_reserved_idle_turn(&turn_state).await;
-        session.maybe_start_turn_for_pending_work().await;
+        if !strict_user {
+            session.maybe_start_turn_for_pending_work().await;
+        }
         return Ok(TurnInputSubmission::NotSubmitted {
             reason: NotSubmittedReason::PendingTriggerTurn,
         });
@@ -559,7 +617,7 @@ async fn start_if_idle(
         }
     };
     let turn_context = match settings
-        .apply_started(session, submission_id.clone(), kind)
+        .apply_started_inner(session, submission_id.clone(), kind, strict_user)
         .await
     {
         Ok(Some(turn_context)) => turn_context,
@@ -574,6 +632,9 @@ async fn start_if_idle(
             return Err(error);
         }
     };
+    if strict_user {
+        session.cleanup_admission.touch();
+    }
     turn_context
         .turn_metadata_state
         .update_responsesapi_client_metadata(responsesapi_client_metadata);
