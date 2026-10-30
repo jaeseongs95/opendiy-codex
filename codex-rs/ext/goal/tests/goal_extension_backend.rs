@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 #![recursion_limit = "256"]
 #![allow(clippy::expect_used)]
 
@@ -2102,4 +2102,81 @@ fn protocol_status(status: codex_state::ThreadGoalStatus) -> ThreadGoalStatus {
         codex_state::ThreadGoalStatus::BudgetLimited => ThreadGoalStatus::BudgetLimited,
         codex_state::ThreadGoalStatus::Complete => ThreadGoalStatus::Complete,
     }
+}
+
+#[tokio::test]
+async fn cleanup_guard_preserves_unfinished_goal_and_blocks_new_goal_mutation() -> anyhow::Result<()>
+{
+    let state = test_runtime().await?;
+    let id = test_thread_id()?;
+    seed_thread_metadata(state.as_ref(), id).await?;
+    let harness = GoalExtensionHarness::new(Arc::clone(&state), id).await?;
+    let service = Arc::clone(&harness.goal_service);
+    service
+        .set_thread_goal(
+            state.as_ref(),
+            GoalSetRequest {
+                thread_id: id,
+                objective: GoalObjectiveUpdate::Set("unfinished"),
+                status: None,
+                token_budget: GoalTokenBudgetUpdate::Keep,
+                max_goal_token_budget: None,
+            },
+            std::future::ready(Ok(())),
+        )
+        .await?;
+    assert!(
+        service
+            .cleanup_guard(Some(state.as_ref()), id)
+            .await?
+            .is_none()
+    );
+    service
+        .set_thread_goal(
+            state.as_ref(),
+            GoalSetRequest {
+                thread_id: id,
+                objective: GoalObjectiveUpdate::Keep,
+                status: Some(ThreadGoalStatus::Complete),
+                token_budget: GoalTokenBudgetUpdate::Keep,
+                max_goal_token_budget: None,
+            },
+            std::future::ready(Ok(())),
+        )
+        .await?;
+    let guard = service
+        .cleanup_guard(Some(state.as_ref()), id)
+        .await?
+        .expect("finished goal is reservable");
+    let mutation_service = Arc::clone(&service);
+    let mutation_state = Arc::clone(&state);
+    let mut mutation = tokio::spawn(async move {
+        mutation_service
+            .set_thread_goal(
+                mutation_state.as_ref(),
+                GoalSetRequest {
+                    thread_id: id,
+                    objective: GoalObjectiveUpdate::Set("new work"),
+                    status: Some(ThreadGoalStatus::Active),
+                    token_budget: GoalTokenBudgetUpdate::Keep,
+                    max_goal_token_budget: None,
+                },
+                std::future::ready(Ok(())),
+            )
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut mutation)
+            .await
+            .is_err()
+    );
+    drop(guard);
+    mutation.await??;
+    assert!(
+        service
+            .cleanup_guard(Some(state.as_ref()), id)
+            .await?
+            .is_none()
+    );
+    Ok(())
 }

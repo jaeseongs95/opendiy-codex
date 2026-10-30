@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 use super::*;
 use crate::backend_id::BackendId;
@@ -1774,7 +1774,7 @@ mod tests {
         for (id, arguments) in [
             (
                 "model-cron-add",
-                serde_json::json!({"action":"add","every":"10m","prompt":"주기 확인"}),
+                serde_json::json!({"action":"add","every":"5m","prompt":"주기 확인"}),
             ),
             ("model-cron-list", serde_json::json!({"action":"list"})),
         ] {
@@ -1845,7 +1845,12 @@ mod tests {
                     params: codex_app_server_protocol::TurnStartParams {
                         thread_id: caller.to_string(),
                         input: vec![codex_app_server_protocol::UserInput::Text {
-                            text: "예약을 확인해줘".into(),
+                            text: if round == 0 {
+                                "5분마다 주기 확인을 실행하도록 cron 걸어줘"
+                            } else {
+                                "등록된 예약 목록을 보여줘"
+                            }
+                            .into(),
                             text_elements: Vec::new(),
                         }],
                         ..Default::default()
@@ -1868,6 +1873,11 @@ mod tests {
             }).await??;
             assert_eq!(app.cron.scheduler.jobs.len(), 1);
             assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
+            assert_eq!(
+                app.cron.scheduler.jobs[0].interval,
+                Some(Duration::from_secs(300))
+            );
+            assert_eq!(app.cron.scheduler.jobs[0].prompt, "주기 확인");
         }
         let requests = model_server.received_requests().await.unwrap();
         let requests: Vec<_> = requests
@@ -1876,8 +1886,15 @@ mod tests {
             .collect();
         assert_eq!(requests.len(), 4);
         let first: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
+        assert!(
+            first["input"]
+                .to_string()
+                .contains("5분마다 주기 확인을 실행하도록 cron 걸어줘")
+        );
         let tools = first["tools"].to_string();
         assert!(tools.contains("cron"));
+        assert!(tools.contains("자연어로 '5분마다 확인해줘'"));
+        assert!(tools.contains("다른 스케줄러 등록으로 대체하지 마세요"));
         assert!(!tools.contains("list_threads"));
         let registered: serde_json::Value = serde_json::from_slice(&requests[1].body)?;
         assert!(registered["input"].to_string().contains("예약 #1 등록"));

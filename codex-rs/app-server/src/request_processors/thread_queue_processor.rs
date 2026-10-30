@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use crate::config_manager::ConfigManager;
 use std::sync::Arc;
 
@@ -349,4 +350,22 @@ fn api_queued_submission(value: QueuedItem) -> Result<QueuedSubmission, JSONRPCE
         client_user_message_id: client_id
             .ok_or_else(|| internal_error("queued submission is missing its client message id"))?,
     })
+}
+
+#[cfg(test)]
+mod cleanup_input_tests {
+    use super::*;
+
+    #[test]
+    fn unloaded_spawn_cannot_accept_direct_user_queue_input() {
+        let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            parent_thread_id: ThreadId::new(),
+            depth: 1,
+            agent_path: None,
+            agent_nickname: None,
+            agent_role: None,
+        });
+        assert!(ensure_direct_input_allowed(None, &source).is_err());
+        assert!(ensure_direct_input_allowed(None, &SessionSource::Cli).is_ok());
+    }
 }

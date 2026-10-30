@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -89,7 +90,37 @@ pub struct GoalService {
     runtimes: Mutex<HashMap<String, Weak<GoalRuntimeHandle>>>,
 }
 
+/// Owns the existing runtime mutation fence through the caller's cleanup operation.
+pub struct GoalCleanupGuard {
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
 impl GoalService {
+    pub async fn cleanup_guard(
+        &self,
+        state_db: Option<&codex_state::StateRuntime>,
+        thread_id: ThreadId,
+    ) -> Result<Option<GoalCleanupGuard>, GoalServiceError> {
+        if let Some(runtime) = self.runtime_for_thread(thread_id) {
+            return runtime
+                .cleanup_guard()
+                .await
+                .map(|permit| {
+                    permit.map(|permit| GoalCleanupGuard {
+                        _permit: Some(permit),
+                    })
+                })
+                .map_err(GoalServiceError::Internal);
+        }
+        if let Some(state_db) = state_db {
+            let goal = self.get_thread_goal(state_db, thread_id).await?;
+            if goal.is_some_and(|goal| goal.status != ThreadGoalStatus::Complete) {
+                return Ok(None);
+            }
+        }
+        Ok(Some(GoalCleanupGuard { _permit: None }))
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Width-specific layouts retained only for recently displayed conversation entries.
 //!
 //! Mutable cells refresh each frame, then share that frame's layout across measurement and paint.

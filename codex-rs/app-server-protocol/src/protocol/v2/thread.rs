@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::ActivePermissionProfile;
 use super::ApprovalsReviewer;
 use super::AskForApproval;
@@ -760,6 +760,46 @@ pub struct ThreadDeleteParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadDeleteResponse {}
+
+/// Read-only by default. Confirmation must echo the exact preview snapshots.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadCleanupCompletedParams {
+    pub parent_thread_id: String,
+    pub current_thread_id: String,
+    #[serde(default)]
+    pub confirmed: bool,
+    #[serde(default)]
+    pub selection: Vec<CompletedChildSnapshot>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct CompletedChildSnapshot {
+    pub thread_id: String,
+    pub runtime_id: String,
+    pub activity_revision: u64,
+    pub last_turn_id: String,
+    pub terminal_status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct CompletedChildCleanupResult {
+    pub thread_id: String,
+    pub outcome: String,
+    pub snapshot: Option<CompletedChildSnapshot>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadCleanupCompletedResponse {
+    pub results: Vec<CompletedChildCleanupResult>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

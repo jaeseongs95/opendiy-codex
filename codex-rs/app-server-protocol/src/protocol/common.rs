@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -585,6 +585,11 @@ client_request_definitions! {
         params: v2::ThreadArchiveParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadArchiveResponse,
+    },
+    ThreadCleanupCompleted => "thread/cleanupCompleted" {
+        params: v2::ThreadCleanupCompletedParams,
+        serialization: thread_id(params.parent_thread_id),
+        response: v2::ThreadCleanupCompletedResponse,
     },
     ThreadDelete => "thread/delete" {
         params: v2::ThreadDeleteParams,

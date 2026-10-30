@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 #[path = "connection_manager/network_policy_tests.rs"]
 mod network_policy_tests;
@@ -129,41 +129,6 @@ impl McpConnectionSet {
             ),
             trusted_access: None,
         }
-    }
-
-    pub(crate) fn insert_test_client(
-        &mut self,
-        name: impl Into<String>,
-        client: AsyncManagedClient,
-    ) {
-        let name = name.into();
-        self.servers.insert(
-            name,
-            McpServerView {
-                refresh_tool_list: true,
-                refresh_timeout: DEFAULT_STARTUP_TIMEOUT,
-                tool_filter: ToolFilter::default(),
-                protocol_mode: crate::McpProtocolMode::Legacy,
-                startup_readiness: Default::default(),
-                connection: Arc::new(McpServerConnection {
-                    identity: None,
-                    client,
-                    startup_timeout: DEFAULT_STARTUP_TIMEOUT,
-                    startup_trigger: None,
-                    _diagnostics_guard: LIVE_CONNECTIONS.track(),
-                }),
-                metadata: McpServerMetadata {
-                    environment_id: String::new(),
-                    pollutes_memory: true,
-                    origin: None,
-                    supports_parallel_tool_calls: false,
-                    default_tools_approval_mode: None,
-                    tool_approval_modes: HashMap::new(),
-                },
-                tool_timeout: None,
-                catalog_item_limit: crate::pagination::MAX_MCP_CATALOG_ITEMS,
-            },
-        );
     }
 
     fn test_client(&self, name: &str) -> &AsyncManagedClient {

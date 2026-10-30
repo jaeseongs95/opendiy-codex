@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Captures action-time parent context and starts or recovers its Guardian reviewer.
 //! Checkpoint recovery allows one fresh attempt under the original review deadline.
 //! Both attempts share captured context and use separate recovery flags.
@@ -194,6 +195,7 @@ impl PreparedGuardianContext {
                 .get_or_init(|| self.parent.get_tx_event());
         }
         let io = SessionIo {
+            admission: Arc::clone(&thread.io.admission),
             tx_sub: thread.io.tx_sub.clone(),
             rx_event: thread.io.rx_event.clone(),
             agent_status: thread.io.agent_status.clone(),

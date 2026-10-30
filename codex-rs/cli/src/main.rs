@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
@@ -53,6 +53,7 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
+mod cleanup_agents;
 mod cloud_config;
 mod config_override_args;
 mod daemon_install;
@@ -213,6 +214,9 @@ enum Subcommand {
 
     /// Queue a message for an existing session.
     Queue(QueueCommand),
+
+    /// 현재 부모 아래 종료된 서브에이전트를 미리 보거나 확인 후 정리합니다.
+    CleanupAgents(cleanup_agents::CleanupAgentsCommand),
 
     /// Archive a saved session by id or session name.
     Archive(SessionArchiveCommand),
@@ -1067,7 +1071,7 @@ async fn cli_main(
     arg0_paths: Arg0DispatchPaths,
     remote_control_disabled: bool,
 ) -> anyhow::Result<()> {
-    codex_tui::i18n::initialize_from_env().map_err(anyhow::Error::msg)?;
+    codex_tui::i18n::initialize()?;
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,
@@ -1639,6 +1643,14 @@ async fn cli_main(
                 command,
                 root_config_overrides,
                 loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?,
+            )
+            .await?;
+        }
+        Some(Subcommand::CleanupAgents(command)) => {
+            cleanup_agents::run(
+                command,
+                root_remote.clone(),
+                root_remote_auth_token_env.clone(),
             )
             .await?;
         }
@@ -2393,6 +2405,7 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::RemoteControl(remote_control)) => Some(remote_control.subcommand_name()),
         Some(Subcommand::Mcp(_)) => Some("mcp"),
         Some(Subcommand::Plugin(_)) => Some("plugin"),
+        Some(Subcommand::CleanupAgents(_)) => Some("cleanup-agents"),
         Some(Subcommand::MigrateRollouts(_)) => Some("migrate-rollouts"),
         Some(Subcommand::MigrateNfsDb(_)) => Some("migrate-nfs-db"),
         #[cfg(any(target_os = "macos", target_os = "windows"))]

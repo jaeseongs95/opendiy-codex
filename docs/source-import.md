@@ -1,6 +1,12 @@
 # Official 0.165.0 source snapshot
 
-The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `af098cef617d62fdfce51d5e1fbd0afb4533f75d`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs identify R29; root LICENSE/NOTICE are unchanged. [R29 검증 상태](TESTING.md)는 현재 소스의 시험 근거와 미완료 범위를 구분하며, [R28 검증](cli-r28-validation.md)은 이전 빌드의 이력이다. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `bc1db4b143893d981f82d87d00e00c04074c5289`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs identify the R30 candidate; root LICENSE/NOTICE are unchanged. [R30 검증 상태](TESTING.md)는 현재 소스의 시험 근거와 미완료 범위를 구분하며, [R28 검증](cli-r28-validation.md)은 이전 빌드의 이력이다. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.
+
+R30 고정 후보 `bc1db4b143893d981f82d87d00e00c04074c5289`는 공식 0.165.0 기반 R29 위에 정리 수명·자연어 예약 연결·세션별 `ultrafast`·전역 화면 언어 선택 코드를 더한 소스이며, 버전은 `0.165.0+native-r30.20261030`이다. 공식 0.166 전체 기반으로 전환한 소스가 아니다. R29 `af098ce` 이후 82파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 437파일이다. 실시간 작업트리의 미커밋 변경과 후속 공동 입력 인터페이스 작업은 이 고정 대상에 포함하지 않는다. 검증 중인 후보로, 실제 정리 효과·설치·모바일 동작 완료를 뜻하지 않는다.
+
+`1253c2014`의 통합 시험 컴파일은 TUI 시험의 비공개 필드 접근 2건으로 종료 코드 101이었다. 같은 컴파일에서 생성된 실행 파일로 스키마 시험 4개 통과·0개 실패·1개 무시와 CLI 정리 인자 시험 1개 통과·0개 실패를 확인했다. `bc1db4b14`는 해당 TUI 시험을 공개 입력 경계로 바꾼 후속 수정이며 이 소스 갱신 시점에는 재컴파일 전이다. `6855f4fd3`의 전역 언어 변경, `f120854c8`의 MCP 정리 경계 시험, 정리 수명 동적 시험, 후속 공동 입력 인터페이스·최종 독립감사·설치·모바일 검증은 미완료다. 앞선 R29 결과를 R30의 통과 근거로 재사용하지 않으며, 공개 사본의 제품 빌드·실행 결과를 주장하지 않는다.
+
+다음 문단은 이전 R29 소스 갱신 시점의 이력이다.
 
 R29 고정 소스 `af098cef617d62fdfce51d5e1fbd0afb4533f75d`는 공식 0.165.0 기반에 공식 0.166 변경 5개만 선별 이식한 후보다. 전체 0.166 기반으로 전환하지 않았으며 버전 표기는 `0.165.0+native-r29.20261030`이다. 이전 `67404f4` 이후 34파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 제품 로직의 마지막 변경은 `159017bd9`이며, 이후에는 `3fdd3c3`의 Windows 알림 시험과 `af098ce`의 버전 표기만 바뀌었다. `159017bd9`에서 단위시험 11그룹 802개 통과·0개 실패·프로토콜 무시 1개와 표적 통합시험 5개 통과·0개 실패를 확인했다. `3fdd3c3`에서 Windows 알림 경계 시험 1개 통과·0개 실패·무시 0개와 실행 전후 원본 입력 불변을 확인했다. 최종 `af098ce`에서는 버전 표기 168곳 치환과 오프라인 잠금 메타데이터 검사 종료 코드 0을 확인했다. 이 결과는 808개 시험을 최종 커밋에서 전량 재실행했다는 뜻이 아니다. 이번 소스 갱신 시점에는 최적화 빌드가 진행 중이며, 새 실행 파일의 검증·제품 독립감사·설치는 미완료다. 공개 사본의 새 빌드·실행 결과나 실제 캐시율·장기 부하 개선 측정 결과는 아니다.
 

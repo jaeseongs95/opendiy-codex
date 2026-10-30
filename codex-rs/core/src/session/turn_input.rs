@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Handles reply-bearing turn-input operations.
 //!
 //! This is the one place Core decides whether submitted input starts a turn,
@@ -513,6 +513,12 @@ async fn start_if_idle(
 
     let turn_state = {
         let mut active_turn = session.active_turn.lock().await;
+        if session.cleanup_admission.is_closing() {
+            return Err(CodexErr::InvalidRequest(
+                "thread cleanup has closed input admission".into(),
+            ));
+        }
+        session.cleanup_admission.touch();
         if active_turn.is_some() {
             return Ok(TurnInputSubmission::NotSubmitted {
                 reason: NotSubmittedReason::NotIdle,
@@ -701,7 +707,7 @@ impl Session {
         &self,
     ) -> Option<(Arc<tokio::sync::Mutex<TurnState>>, TurnStartOptions)> {
         let mut active_turn = self.active_turn.lock().await;
-        if active_turn.is_some() {
+        if self.cleanup_admission.is_closing() || active_turn.is_some() {
             return None;
         }
         let has_trigger_turn = self.input_queue.has_trigger_turn_mailbox_items().await;
@@ -738,6 +744,10 @@ impl Session {
         // Discovery can outlive an interrupt or a settings update. Keep cancellation
         // atomic with admission so newly arriving mail can retry a rejected wake.
         let mut active = self.active_turn.lock().await;
+        if self.cleanup_admission.is_closing() {
+            *active = None;
+            return None;
+        }
         if active
             .as_ref()
             .is_none_or(|turn| !Arc::ptr_eq(&turn.turn_state, turn_state))

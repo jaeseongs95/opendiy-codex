@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CompletedChildCleanupResult": {
+      "properties": {
+        "outcome": {
+          "type": "string"
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CompletedChildSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcome",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "CompletedChildSnapshot": {
+      "properties": {
+        "activityRevision": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lastTurnId": {
+          "type": "string"
+        },
+        "runtimeId": {
+          "type": "string"
+        },
+        "terminalStatus": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "activityRevision",
+        "lastTurnId",
+        "runtimeId",
+        "terminalStatus",
+        "threadId"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "results": {
+      "items": {
+        "$ref": "#/definitions/CompletedChildCleanupResult"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "results"
+  ],
+  "title": "ThreadCleanupCompletedResponse",
+  "type": "object"
+}

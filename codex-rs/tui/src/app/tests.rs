@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! App-level orchestration tests for the TUI.
 
 #[path = "tests/terminal_size_telemetry_tests.rs"]

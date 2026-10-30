@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Targeted reload never retargets a queued command or falls back to global config mutation.
 
 use super::session_lifecycle_requests::{

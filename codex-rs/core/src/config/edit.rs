@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use crate::path_utils::resolve_symlink_write_paths;
 use crate::path_utils::write_atomically;
 use anyhow::Context;
@@ -829,6 +830,16 @@ impl ConfigEditsBuilder {
 
     pub fn set_service_tier(mut self, service_tier: Option<String>) -> Self {
         self.edits.push(ConfigEdit::SetServiceTier { service_tier });
+        self
+    }
+
+    /// Set only the local display preference; callers must use `new(codex_home)`
+    /// so profiles or alternate user layers cannot redirect this global setting.
+    pub fn set_ui_language(mut self, language: codex_config::ui_language::UiLanguage) -> Self {
+        self.edits.push(ConfigEdit::SetPath {
+            segments: vec!["ui_language".to_string()],
+            value: value(language.as_str()),
+        });
         self
     }
 

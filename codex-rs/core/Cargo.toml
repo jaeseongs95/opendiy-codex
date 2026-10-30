@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 [package]
 edition.workspace = true
 license.workspace = true
@@ -147,6 +148,7 @@ assert_matches = { workspace = true }
 codex-exec-server-test-support = { workspace = true }
 codex-image-generation-extension = { workspace = true }
 codex-home = { workspace = true }
+codex-mcp = { workspace = true, features = ["test-support"] }
 codex-mcp-extension = { workspace = true }
 codex-otel = { workspace = true }
 codex-protocol-test-support = { workspace = true }

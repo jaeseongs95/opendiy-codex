@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
@@ -1345,6 +1345,9 @@ pub(crate) enum AppEvent {
     PersistRealtimeVoiceSelection {
         voice: codex_protocol::protocol::RealtimeVoice,
     },
+
+    /// Save the local user's global display preference, effective on the next launch.
+    PersistUiLanguage(codex_config::ui_language::UiLanguage),
 
     /// Persist the selected service tier to the appropriate config.
     PersistServiceTierSelection {
