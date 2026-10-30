@@ -120,11 +120,7 @@ async fn assert_session_tier_selection(command: &str, tier: &str) -> Result<()> 
         requests.lock().unwrap().clear();
         let previous = app.chat_widget.configured_service_tier();
         if command == "ultrafast" {
-            app.chat_widget.bottom_pane.set_composer_text(
-                format!("/{command}"),
-                Vec::new(),
-                Vec::new(),
-            );
+            app.chat_widget.apply_external_edit(format!("/{command}"));
             app.chat_widget.handle_key_event(KeyCode::Enter.into());
         } else {
             Box::pin(app.handle_tui_event(
@@ -263,11 +259,7 @@ async fn assert_failed_session_tier_selection(command: &str) -> Result<()> {
             app.chat_widget.set_model(model);
             app.chat_widget
                 .set_feature_enabled(Feature::UltrafastMode, true);
-            app.chat_widget.bottom_pane.set_composer_text(
-                format!("/{command}"),
-                Vec::new(),
-                Vec::new(),
-            );
+            app.chat_widget.apply_external_edit(format!("/{command}"));
             app.chat_widget.handle_key_event(KeyCode::Enter.into());
         } else {
             app.chat_widget.toggle_fast_mode_from_ui();
