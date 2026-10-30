@@ -52428,7 +52428,7 @@ index 000000000..fb4b723df
 +    }
 +}
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 6687d053b..231944db5 100644
+index 6687d053b..00927200a 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -91,6 +91,10 @@ impl App {
@@ -52493,18 +52493,15 @@ index 6687d053b..231944db5 100644
              AppEvent::InsertHistoryCell(cell) => {
                  self.insert_history_cell(tui, cell);
              }
-@@ -925,8 +949,20 @@ impl App {
+@@ -925,8 +949,17 @@ impl App {
                      .thread_id()
                      .is_some_and(|thread_id| app_server.has_older_history(thread_id));
                  if tui.is_owned_screen() {
 -                    self.transcript_view.history = if self.scrollback_has_older_history { TranscriptHistoryState::Partial } else { TranscriptHistoryState::Complete };
-+                    self.transcript_view.history = if self.chat_widget.thread_id().is_some_and(|thread_id| app_server.has_incomplete_history(thread_id)) {
-+                        TranscriptHistoryState::Failed
-+                    } else if self.scrollback_has_older_history {
-+                        TranscriptHistoryState::Partial
-+                    } else {
-+                        TranscriptHistoryState::Complete
-+                    };
++                    self.transcript_view.history = self.chat_widget.thread_id().map_or(
++                        TranscriptHistoryState::Complete,
++                        |thread_id| app_server.transcript_history_state(thread_id),
++                    );
                  }
 +                if let Some(thread_id) = self.chat_widget.thread_id() {
 +                    for error in app_server.take_history_errors(thread_id) {
@@ -52515,7 +52512,7 @@ index 6687d053b..231944db5 100644
                  self.finish_initial_history_replay_buffer(tui);
              }
              AppEvent::ConsolidateAgentMessage {
-@@ -981,6 +1017,7 @@ impl App {
+@@ -981,6 +1014,7 @@ impl App {
  
                      self.maybe_finish_stream_reflow(tui)?;
                  }
@@ -52523,7 +52520,7 @@ index 6687d053b..231944db5 100644
                  self.chat_widget.note_stream_consolidation_completed();
                  self.insert_pending_usage_output_after_stream_shutdown(tui);
              }
-@@ -2676,6 +2713,24 @@ impl App {
+@@ -2676,6 +2710,24 @@ impl App {
              AppEvent::PersistRealtimeVoiceSelection { voice } => {
                  self.persist_realtime_voice(app_server, voice).await;
              }
@@ -53466,10 +53463,10 @@ index 6e340c424..4995cd788 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
-index 7c43e1799..381091f8b 100644
+index 7c43e1799..5d4713c6e 100644
 --- a/codex-rs/tui/src/app/owned_transcript.rs
 +++ b/codex-rs/tui/src/app/owned_transcript.rs
-@@ -705,7 +705,32 @@ impl App {
+@@ -705,7 +705,30 @@ impl App {
          tui: &mut tui::Tui,
          app_server: &mut AppServerSession,
      ) {
@@ -53492,12 +53489,10 @@ index 7c43e1799..381091f8b 100644
 +            }
 +        }
          if !self.scrollback_has_older_history {
-+            if self
-+                .chat_widget
-+                .thread_id()
-+                .is_some_and(|thread_id| app_server.has_incomplete_history(thread_id))
++            if let Some(thread_id) = self.chat_widget.thread_id()
++                && app_server.has_incomplete_history(thread_id)
 +            {
-+                self.transcript_view.history = TranscriptHistoryState::Failed;
++                self.transcript_view.history = app_server.transcript_history_state(thread_id);
 +            }
              return;
          }
@@ -54835,7 +54830,7 @@ index b9ccf3fce..024ad84bd 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/tests/history_hydration_tests.rs b/codex-rs/tui/src/app/tests/history_hydration_tests.rs
-index 9fd420d28..f2b8124cf 100644
+index 9fd420d28..ca589691a 100644
 --- a/codex-rs/tui/src/app/tests/history_hydration_tests.rs
 +++ b/codex-rs/tui/src/app/tests/history_hydration_tests.rs
 @@ -225,6 +225,8 @@ async fn history_hydration_metadata_tracks_missing_turns_and_stale_completions_k
@@ -54847,7 +54842,7 @@ index 9fd420d28..f2b8124cf 100644
                  thread_id: target.thread_id,
                  cursor: old_cursor.clone(),
                  result,
-@@ -331,3 +333,752 @@ async fn history_hydration_archived_retry_uses_first_attempt_runtime_settings()
+@@ -331,3 +333,806 @@ async fn history_hydration_archived_retry_uses_first_attempt_runtime_settings()
      }
      Ok(())
  }
@@ -55337,27 +55332,58 @@ index 9fd420d28..f2b8124cf 100644
 +            }
 +            app.handle_event(&mut tui, &mut server, event).await?;
 +        }
-+        assert!(displayed_errors.contains("not materialized yet"));
++        assert!(
++            displayed_errors.is_empty(),
++            "정상 저장 대기는 오류 셀을 만들지 않는다"
++        );
 +        assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
-+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(
++            app.transcript_view.history,
++            TranscriptHistoryState::Complete
++        );
 +        assert!(
 +            server.has_incomplete_history(thread_id),
-+            "displaying the error must not clear unknown history"
++            "저장 대기는 미조회 이력의 보호를 유지한다"
 +        );
 +        assert!(
 +            server.take_history_errors(thread_id).is_empty(),
-+            "the original error was displayed once"
++            "정상 저장 대기는 표시할 오류를 남기지 않는다"
 +        );
 +
 +        let history_requests_before_home = recorded_params(&requests, "thread/items/list").len();
 +        assert_eq!(app.active_thread_id, Some(thread_id));
 +        assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &home)?);
-+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(
++            app.transcript_view.history,
++            TranscriptHistoryState::Complete
++        );
 +        assert_eq!(
 +            recorded_params(&requests, "thread/items/list").len(),
 +            history_requests_before_home,
 +            "Home must not invent a retry without a cursor"
 +        );
++        let footer = app
++            .transcript_view
++            .footer_with_navigation(100, crate::motion::MotionMode::Reduced, "")
++            .expect("저장 대기 안내")
++            .text
++            .to_string();
++        assert!(footer.contains("Waiting for history to be saved"));
++        assert!(!footer.contains("Retry"));
++        app.transcript_view.begin_search();
++        app.transcript_view.paste_search("missing history");
++        assert!(!app.transcript_view.advance_search(&app.transcript_cells));
++        let search_footer = app
++            .transcript_view
++            .footer_with_navigation(100, crate::motion::MotionMode::Reduced, "")
++            .expect("검색의 저장 대기 안내")
++            .text
++            .to_string();
++        assert!(search_footer.contains("Waiting for history to be saved"));
++        assert!(!search_footer.contains("Retry"));
++        app.transcript_view.jump_to_latest();
 +
 +        let approval_policy = app.config.permissions.approval_policy.value();
 +        let permission_profile = app.config.permissions.permission_profile().clone();
@@ -55506,7 +55532,11 @@ index 9fd420d28..f2b8124cf 100644
 +            server.has_incomplete_history(thread_id),
 +            "live events do not prove earlier history complete"
 +        );
-+        assert_eq!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
++        assert_ne!(
++            app.transcript_view.history,
++            TranscriptHistoryState::Complete
++        );
 +        assert_eq!(server.backend_id(), backend_id);
 +        assert_eq!(
 +            server.thread_read(thread_id, false).await?.session_id,
@@ -55528,6 +55558,18 @@ index 9fd420d28..f2b8124cf 100644
 +            )
 +            .await?;
 +        assert!(!server.has_incomplete_history(thread_id));
++        assert!(server.take_history_errors(thread_id).is_empty());
++        app.store_active_thread_receiver().await;
++        app.clear_active_thread().await;
++        app.enqueue_primary_thread_session(rehydrated.session.clone(), rehydrated.turns.clone())
++            .await?;
++        while let Ok(event) = events.try_recv() {
++            app.handle_event(&mut tui, &mut server, event).await?;
++        }
++        assert_eq!(
++            app.transcript_view.history,
++            TranscriptHistoryState::Complete
++        );
 +        assert!(rehydrated.turns.iter().flat_map(|turn| &turn.items).any(|item|
 +            matches!(item, ThreadItem::UserMessage { content, .. } if content.iter().any(|input|
 +                matches!(input, UserInput::Text { text, .. } if text == "First real input")))));
@@ -55539,6 +55581,13 @@ index 9fd420d28..f2b8124cf 100644
 +
 +#[tokio::test]
 +async fn generic_projection_unavailable_survives_resume_and_error_display() -> Result<()> {
++    for reason in [None, Some("unknown"), Some("deleted")] {
++        check_projection_unavailable_error_display(reason).await?;
++    }
++    Ok(())
++}
++
++async fn check_projection_unavailable_error_display(reason: Option<&'static str>) -> Result<()> {
 +    use super::session_lifecycle_requests::HistoryCapabilities;
 +    use super::session_lifecycle_requests::start_recording_app_server_with_history;
 +    use crate::app_server_session::ResumeModelSettings;
@@ -55549,7 +55598,7 @@ index 9fd420d28..f2b8124cf 100644
 +    app.local_settings.transcript_mode = TranscriptMode::Owned;
 +    let (mut server, _, proxy) = start_recording_app_server_with_history(
 +        &app.config,
-+        HistoryCapabilities::ItemsProjectionUnavailable,
++        HistoryCapabilities::ItemsProjectionUnavailable(reason),
 +        None,
 +        None,
 +        crate::app_server_session::ThreadParamsMode::Remote,
@@ -56204,7 +56253,7 @@ index 000000000..359b88dfe
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 787c7e086..10924475b 100644
+index 787c7e086..0be6edd98 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -366,11 +366,14 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
@@ -56212,7 +56261,7 @@ index 787c7e086..10924475b 100644
  pub(super) enum HistoryCapabilities {
      Current,
 +    ForwardLiveEvents,
-+    ItemsProjectionUnavailable,
++    ItemsProjectionUnavailable(Option<&'static str>),
      LegacyOnly,
      LegacyOnlyUnsupportedVariant,
      LegacyDynamicToolsAndHistory,
@@ -56259,7 +56308,7 @@ index 787c7e086..10924475b 100644
                      let request_id = request.id.clone();
                      let params = request.params.as_ref();
                      let requires_pagination = match request.method.as_str() {
-@@ -611,6 +628,29 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
+@@ -611,6 +628,34 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                              id: request_id,
                              result: serde_json::json!({}),
                          })
@@ -56274,22 +56323,27 @@ index 787c7e086..10924475b 100644
 +                                message: "live resume unavailable".to_string(),
 +                            },
 +                        })
-+                    } else if history_capabilities
-+                        == HistoryCapabilities::ItemsProjectionUnavailable
++                    } else if let HistoryCapabilities::ItemsProjectionUnavailable(reason) =
++                        history_capabilities
 +                        && request.method == "thread/items/list"
 +                    {
++                        let mut data =
++                            serde_json::json!({ "kind": "historyProjectionUnavailable" });
++                        if let Some(reason) = reason {
++                            data["reason"] = reason.into();
++                        }
 +                        JSONRPCMessage::Error(JSONRPCError {
 +                            id: request_id,
 +                            error: JSONRPCErrorError {
-+                                code: -32603,
-+                                data: Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
++                                code: if reason.is_some() { -32600 } else { -32603 },
++                                data: Some(data),
 +                                message: "display history projection is unavailable; retry after history persistence".to_string(),
 +                            },
 +                        })
                      } else if (matches!(
                          history_capabilities,
                          HistoryCapabilities::ItemsListFails
-@@ -647,6 +687,68 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
+@@ -647,6 +692,68 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                                  message: "unknown variant `config/read`".to_string(),
                              },
                          })
@@ -56358,7 +56412,7 @@ index 787c7e086..10924475b 100644
                      } else if history_capabilities == HistoryCapabilities::ConfigReadFails
                          && request.method == "config/read"
                      {
-@@ -1235,17 +1337,31 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
+@@ -1235,17 +1342,31 @@ async fn external_transport_registers_dynamic_tools_and_finds_task_mentions() ->
          assert_eq!(params["dynamicTools"][0]["name"], "codex_tui");
          assert_eq!(
              params["dynamicTools"][0]["tools"].as_array().map(Vec::len),
@@ -56399,7 +56453,7 @@ index 787c7e086..10924475b 100644
      }
      let target_id = started.session.thread_id;
      app_server
-@@ -1535,7 +1651,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+@@ -1535,7 +1656,8 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
          .find(|server| server.name == "codex_tui")
          .expect("local daemon must connect to the TUI MCP server")
          .tools;
@@ -56409,7 +56463,7 @@ index 787c7e086..10924475b 100644
      for tool in crate::dynamic_tools::DELEGATION_TOOLS {
          assert!(tools.contains_key(tool));
      }
-@@ -1678,7 +1795,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
+@@ -1678,7 +1800,11 @@ async fn local_daemon_registers_approval_gated_mcp_tools_for_both_start_paths_sc
      drop(events);
      let mut events = new_rx;
      assert!(app.app_event_tx.app_event_tx.is_closed());
@@ -56422,7 +56476,7 @@ index 787c7e086..10924475b 100644
      let previous = std::mem::replace(
          &mut app_server,
          replacement.with_thread_tool_transport(transport),
-@@ -1869,7 +1990,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
+@@ -1869,7 +1995,7 @@ async fn local_mcp_respects_configured_servers_and_managed_requirements() -> Res
          } else {
              assert_eq!(
                  start["dynamicTools"][0]["tools"].as_array().map(Vec::len),
@@ -56431,7 +56485,7 @@ index 787c7e086..10924475b 100644
              );
              assert!(start["config"]["mcp_servers.codex_tui"].is_null());
          }
-@@ -5265,6 +5386,47 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -5265,6 +5391,47 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
              LoaderOverrides::default(),
          )
          .await?;
@@ -56479,7 +56533,7 @@ index 787c7e086..10924475b 100644
          app.app_server_target = AppServerTarget::LocalDaemon {
              allow_embedded_fallback: true,
              endpoint: crate::resolve_remote_addr("ws://127.0.0.1:4500")?,
-@@ -5355,7 +5517,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
+@@ -5355,7 +5522,9 @@ async fn command_center_read_only_open_requests_and_failure_preservation() -> Re
                  assert!(!recorded_params(&requests, "thread/items/list").is_empty());
                  assert_eq!(
                      turns.iter().map(|turn| turn.id.clone()).collect::<Vec<_>>(),
@@ -57918,7 +57972,7 @@ index 143f09d35..386093b31 100644
          let request_id = self.next_request_id();
          let _: ConfigWriteResponse = self
 diff --git a/codex-rs/tui/src/app_server_session/history.rs b/codex-rs/tui/src/app_server_session/history.rs
-index 55ce6daf3..30c80a337 100644
+index 55ce6daf3..b217821d6 100644
 --- a/codex-rs/tui/src/app_server_session/history.rs
 +++ b/codex-rs/tui/src/app_server_session/history.rs
 @@ -10,10 +10,12 @@ use crate::resize_reflow_cap::resize_reflow_max_rows;
@@ -58040,7 +58094,7 @@ index 55ce6daf3..30c80a337 100644
  }
  
  #[derive(Clone, Debug, Default)]
-@@ -130,12 +205,403 @@ pub(crate) struct ThreadHistoryPagination {
+@@ -130,12 +205,421 @@ pub(crate) struct ThreadHistoryPagination {
      pub(super) history_mode: ThreadHistoryMode,
      next_turn_cursor: Option<String>,
      next_item_cursor: Option<String>,
@@ -58062,6 +58116,7 @@ index 55ce6daf3..30c80a337 100644
 +    oldest_item: Option<(String, String)>,
 +    errors: Vec<String>,
 +    incomplete: bool,
++    deferred: bool,
 +}
 +
 +pub(super) fn is_unmaterialized_history_error(error: &color_eyre::Report) -> bool {
@@ -58088,6 +58143,19 @@ index 55ce6daf3..30c80a337 100644
 +            .is_some_and(|state| state.incomplete)
 +    }
 +
++    pub(crate) fn transcript_history_state(
++        &self,
++        thread_id: ThreadId,
++    ) -> crate::pager_overlay::TranscriptHistoryState {
++        use crate::pager_overlay::TranscriptHistoryState;
++        match self.history_pagination.get(&thread_id) {
++            Some(state) if state.incomplete && state.deferred => TranscriptHistoryState::Deferred,
++            Some(state) if state.incomplete => TranscriptHistoryState::Failed,
++            _ if self.has_older_history(thread_id) => TranscriptHistoryState::Partial,
++            _ => TranscriptHistoryState::Complete,
++        }
++    }
++
 +    pub(super) fn mark_initial_history_unavailable(
 +        &mut self,
 +        thread_id: ThreadId,
@@ -58097,7 +58165,11 @@ index 55ce6daf3..30c80a337 100644
 +        let state = self.history_pagination.entry(thread_id).or_default();
 +        state.history_mode = history_mode;
 +        state.incomplete = true;
-+        state.errors.push(format!("{error:#}"));
++        state.deferred = is_unmaterialized_history_error(error);
++        // 성공한 재개 뒤의 저장 대기는 빈 이력의 증거도 사용자 오류도 아니다.
++        if !state.deferred {
++            state.errors.push(format!("{error:#}"));
++        }
 +    }
 +
 +    pub(crate) fn take_history_errors(&mut self, thread_id: ThreadId) -> Vec<String> {
@@ -58446,7 +58518,7 @@ index 55ce6daf3..30c80a337 100644
      pub(crate) async fn revert_thread(
          &mut self,
          thread_id: ThreadId,
-@@ -174,7 +640,7 @@ impl AppServerSession {
+@@ -174,7 +658,7 @@ impl AppServerSession {
      pub(crate) fn has_older_history(&self, thread_id: ThreadId) -> bool {
          self.history_pagination
              .get(&thread_id)
@@ -58455,7 +58527,7 @@ index 55ce6daf3..30c80a337 100644
      }
  
      pub(crate) fn begin_older_history_page(&mut self, thread_id: ThreadId) -> Option<String> {
-@@ -184,21 +650,32 @@ impl AppServerSession {
+@@ -184,21 +668,32 @@ impl AppServerSession {
          }
          let cursor = page.next_item_cursor.clone()?;
          page.loading_older = true;
@@ -58490,7 +58562,7 @@ index 55ce6daf3..30c80a337 100644
          }
      }
  
-@@ -215,10 +692,32 @@ impl AppServerSession {
+@@ -215,10 +710,33 @@ impl AppServerSession {
          let Some(mut state) = self.history_pagination.get(&thread_id).cloned() else {
              return Ok(Vec::new());
          };
@@ -58519,11 +58591,12 @@ index 55ce6daf3..30c80a337 100644
 +        state.loading_token = None;
 +        if state.direction == HistoryDirection::Latest {
 +            state.incomplete = false;
++            state.deferred = false;
 +        }
          self.history_pagination.insert(thread_id, state);
          Ok(items)
      }
-@@ -245,6 +744,17 @@ impl AppServerSession {
+@@ -245,6 +763,17 @@ impl AppServerSession {
          thread_id: ThreadId,
          cursor: Option<String>,
          limit: u32,
@@ -58541,7 +58614,7 @@ index 55ce6daf3..30c80a337 100644
      ) -> Result<ThreadTurnsListResponse> {
          let request_id = self.next_request_id();
          self.client
-@@ -254,7 +764,7 @@ impl AppServerSession {
+@@ -254,7 +783,7 @@ impl AppServerSession {
                      thread_id: thread_id.to_string(),
                      cursor,
                      limit: Some(limit),
@@ -58550,7 +58623,7 @@ index 55ce6daf3..30c80a337 100644
                      items_view: Some(TurnItemsView::NotLoaded),
                  },
              })
-@@ -269,11 +779,35 @@ impl AppServerSession {
+@@ -269,11 +798,35 @@ impl AppServerSession {
          state: &mut ThreadHistoryPagination,
          turns: &mut Vec<Turn>,
      ) -> Result<Vec<ThreadItem>> {
@@ -58588,7 +58661,7 @@ index 55ce6daf3..30c80a337 100644
          let mut missing_turn_ids = page
              .data
              .iter()
-@@ -283,41 +817,79 @@ impl AppServerSession {
+@@ -283,41 +836,79 @@ impl AppServerSession {
          let mut items = Vec::new();
          for entry in page.data {
              while !turns.iter().any(|turn| turn.id == entry.turn_id) {
@@ -58677,19 +58750,18 @@ index 55ce6daf3..30c80a337 100644
      pub(crate) async fn hydrate_initial_thread_history(
          &mut self,
          thread: &mut Thread,
-@@ -335,7 +907,10 @@ impl AppServerSession {
+@@ -335,7 +926,9 @@ impl AppServerSession {
                      .await?
                      .turns;
              }
 -            self.history_pagination.entry(thread_id).or_default();
-+            self.history_pagination
-+                .entry(thread_id)
-+                .or_default()
-+                .incomplete = false;
++            let state = self.history_pagination.entry(thread_id).or_default();
++            state.incomplete = false;
++            state.deferred = false;
              return Ok(());
          }
  
-@@ -344,25 +919,75 @@ impl AppServerSession {
+@@ -344,25 +937,75 @@ impl AppServerSession {
              .await?;
          thread.turns = page.data.into_iter().rev().collect();
          let mut state = ThreadHistoryPagination {
@@ -58769,7 +58841,7 @@ index 55ce6daf3..30c80a337 100644
                  state.next_item_cursor = None;
                  break;
 diff --git a/codex-rs/tui/src/app_server_session/history_tests.rs b/codex-rs/tui/src/app_server_session/history_tests.rs
-index 0f12c95a8..3f81a829f 100644
+index 0f12c95a8..915063759 100644
 --- a/codex-rs/tui/src/app_server_session/history_tests.rs
 +++ b/codex-rs/tui/src/app_server_session/history_tests.rs
 @@ -1,3 +1,4 @@
@@ -58790,7 +58862,7 @@ index 0f12c95a8..3f81a829f 100644
      assert_eq!(
          advancing_cursor(
              /*current*/ None,
-@@ -92,3 +92,82 @@ async fn owned_initial_history_stops_after_viewport_or_scan_budget() {
+@@ -92,3 +92,115 @@ async fn owned_initial_history_stops_after_viewport_or_scan_budget() {
          );
      }
  }
@@ -58850,6 +58922,39 @@ index 0f12c95a8..3f81a829f 100644
 +        (-32603, Some(data.clone()), false),
 +        (-32000, Some(data), false),
 +        (-32600, None, false),
++        (-32600, Some(serde_json::json!("unmaterialized")), false),
++        (
++            -32600,
++            Some(serde_json::json!([
++                "historyProjectionUnavailable",
++                "unmaterialized"
++            ])),
++            false,
++        ),
++        (
++            -32600,
++            Some(
++                serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": "unknown" }),
++            ),
++            false,
++        ),
++        (
++            -32600,
++            Some(
++                serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": "deleted" }),
++            ),
++            false,
++        ),
++        (
++            -32600,
++            Some(serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": 1 })),
++            false,
++        ),
++        (
++            -32600,
++            Some(serde_json::json!({ "kind": "unknown", "reason": "unmaterialized" })),
++            false,
++        ),
 +        (
 +            -32600,
 +            Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
@@ -64098,10 +64203,10 @@ index 000000000..f80e68e25
 +}
 diff --git a/codex-rs/tui/src/i18n.rs b/codex-rs/tui/src/i18n.rs
 new file mode 100644
-index 000000000..52d8b0e76
+index 000000000..0fc418388
 --- /dev/null
 +++ b/codex-rs/tui/src/i18n.rs
-@@ -0,0 +1,805 @@
+@@ -0,0 +1,808 @@
 +//! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
 +//! slash command tokens, paths, or text supplied by the user or a server.
 +//!
@@ -64259,6 +64364,9 @@ index 000000000..52d8b0e76
 +        "Yes, provide the requested info" => "예, 요청한 정보 제공",
 +        "No, but continue without it" => "아니요, 정보 없이 계속",
 +        "Cancel this request" => "이 요청 취소",
++        "Waiting for history to be saved" => "이력 저장 대기 중",
++        "Waiting for history to be saved.  " => "이력 저장 대기 중.  ",
++        "Waiting for save" => "저장 대기 중",
 +        "Working" => "작업 중",
 +        " to interrupt)" => " 중단)",
 +        " for agents" => " 에이전트",
@@ -65914,6 +66022,31 @@ index 9c9e7b8f1..de1811e44 100644
          ]));
  
          Paragraph::new(lines)
+diff --git a/codex-rs/tui/src/pager_overlay.rs b/codex-rs/tui/src/pager_overlay.rs
+index d77247cb7..f60bb796d 100644
+--- a/codex-rs/tui/src/pager_overlay.rs
++++ b/codex-rs/tui/src/pager_overlay.rs
+@@ -401,6 +401,7 @@ pub(crate) enum TranscriptHistoryState {
+     LoadingOlder,
+     LoadingBeginning,
+     Partial,
++    Deferred,
+     Failed,
+     Complete,
+ }
+@@ -409,7 +410,11 @@ impl TranscriptHistoryState {
+     pub(crate) fn has_unloaded_history(self) -> bool {
+         matches!(
+             self,
+-            Self::LoadingOlder | Self::LoadingBeginning | Self::Partial | Self::Failed
++            Self::LoadingOlder
++                | Self::LoadingBeginning
++                | Self::Partial
++                | Self::Deferred
++                | Self::Failed
+         )
+     }
+ }
 diff --git a/codex-rs/tui/src/pager_overlay/transcript.rs b/codex-rs/tui/src/pager_overlay/transcript.rs
 index 44097d451..13682fa6f 100644
 --- a/codex-rs/tui/src/pager_overlay/transcript.rs
@@ -67022,6 +67155,107 @@ index 5b6194e5f..6c50188c7 100644
      let older = older.as_any().downcast_ref::<ExecCell>()?;
      let newer = newer.as_any().downcast_ref::<ExecCell>()?;
      let items = adjacent_items(older, newer, turns)?;
+diff --git a/codex-rs/tui/src/transcript_view/footer.rs b/codex-rs/tui/src/transcript_view/footer.rs
+index 191e339ec..1867a6536 100644
+--- a/codex-rs/tui/src/transcript_view/footer.rs
++++ b/codex-rs/tui/src/transcript_view/footer.rs
+@@ -52,7 +52,11 @@ impl TranscriptView {
+                 is_interactive: true,
+             });
+         }
+-        let pending = self.is_loading_history() || self.history == TranscriptHistoryState::Failed;
++        let pending = self.is_loading_history()
++            || matches!(
++                self.history,
++                TranscriptHistoryState::Deferred | TranscriptHistoryState::Failed
++            );
+         if has_selected_text {
+             return Some(TranscriptFooter {
+                 text: if self.tail_visible && !pending {
+@@ -121,6 +125,8 @@ impl TranscriptView {
+                     let mut spans = vec!["Retry: ".dim()];
+                     spans.extend(key_label_spans(&JumpTarget::Beginning.hint_label()));
+                     Line::from(spans)
++                } else if self.history == TranscriptHistoryState::Deferred {
++                    Line::from(crate::i18n::text("Waiting for history to be saved")).dim()
+                 } else if navigation.is_empty() {
+                     Line::from("New activity").dim()
+                 } else if self.unseen_activity {
+@@ -182,6 +188,9 @@ impl TranscriptView {
+                 spans
+             }
+             TranscriptHistoryState::Partial => vec!["Earlier messages available.  ".dim()],
++            TranscriptHistoryState::Deferred => {
++                vec![crate::i18n::text("Waiting for history to be saved.  ").dim()]
++            }
+             TranscriptHistoryState::LoadingOlder
+             | TranscriptHistoryState::LoadingBeginning
+             | TranscriptHistoryState::Complete
+diff --git a/codex-rs/tui/src/transcript_view/footer_tests.rs b/codex-rs/tui/src/transcript_view/footer_tests.rs
+index 309403b83..ca5ea284e 100644
+--- a/codex-rs/tui/src/transcript_view/footer_tests.rs
++++ b/codex-rs/tui/src/transcript_view/footer_tests.rs
+@@ -13,6 +13,60 @@ use pretty_assertions::assert_eq;
+ use std::sync::atomic::AtomicUsize;
+ use std::sync::atomic::Ordering;
+ 
++#[test]
++fn deferred_history_footer_uses_selected_ui_language_without_translating_query() {
++    use crate::i18n::Locale;
++    use unicode_width::UnicodeWidthStr;
++
++    for (locale, waiting, compact, other) in [
++        (
++            Locale::English,
++            "Waiting for history to be saved",
++            "Waiting for save",
++            "이력 저장 대기 중",
++        ),
++        (
++            Locale::Korean,
++            "이력 저장 대기 중",
++            "저장 대기 중",
++            "Waiting for history to be saved",
++        ),
++    ] {
++        crate::i18n::with_locale(locale, || {
++            let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
++                "visible history".into(),
++            ]))];
++            let mut view = TranscriptView::default();
++            render(&mut view, &cells);
++            view.history = TranscriptHistoryState::Deferred;
++            let full = view
++                .footer(100, MotionMode::Reduced)
++                .unwrap()
++                .text
++                .to_string();
++            assert!(full.contains(waiting));
++            assert!(!full.contains(other));
++            assert!(!full.contains("Retry"));
++            let narrow = view
++                .footer(waiting.width() as u16, MotionMode::Reduced)
++                .unwrap();
++            assert_eq!(narrow.text.to_string(), waiting);
++
++            view.begin_search();
++            let query = "Waiting for history to be saved";
++            view.paste_search(query);
++            assert!(!view.advance_search(&cells));
++            let full = view.footer(100, MotionMode::Reduced).unwrap();
++            assert!(full.text.lines[0].to_string().contains(query));
++            assert!(full.text.lines[1].to_string().contains(waiting));
++            assert!(!full.text.lines[1].to_string().contains(other));
++            let narrow = view.footer(30, MotionMode::Reduced).unwrap();
++            assert!(narrow.text.lines[1].to_string().contains(compact));
++            assert!(narrow.text.lines[1].width() <= 30);
++        });
++    }
++}
++
+ #[test]
+ fn selection_at_bottom_restores_footer_without_resuming_following() {
+     let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
 diff --git a/codex-rs/tui/src/transcript_view/layout.rs b/codex-rs/tui/src/transcript_view/layout.rs
 index dd81a3804..2b5344432 100644
 --- a/codex-rs/tui/src/transcript_view/layout.rs
@@ -67037,6 +67271,33 @@ index dd81a3804..2b5344432 100644
              && (self.entries.len() > MAX_CACHED_ENTRIES || bytes > MAX_CACHED_LAYOUT_BYTES)
          {
              bytes -= retained_bytes(&self.entries.remove(/*index*/ 0));
+diff --git a/codex-rs/tui/src/transcript_view/search.rs b/codex-rs/tui/src/transcript_view/search.rs
+index b69e3c536..4f2533282 100644
+--- a/codex-rs/tui/src/transcript_view/search.rs
++++ b/codex-rs/tui/src/transcript_view/search.rs
+@@ -639,6 +639,7 @@ impl TranscriptView {
+                     TranscriptHistoryState::LoadingOlder
+                         | TranscriptHistoryState::LoadingBeginning
+                         | TranscriptHistoryState::Partial
++                        | TranscriptHistoryState::Deferred
+                         | TranscriptHistoryState::Failed
+                 ) =>
+             {
+diff --git a/codex-rs/tui/src/transcript_view/search_footer.rs b/codex-rs/tui/src/transcript_view/search_footer.rs
+index 23f4bc635..99f8aad37 100644
+--- a/codex-rs/tui/src/transcript_view/search_footer.rs
++++ b/codex-rs/tui/src/transcript_view/search_footer.rs
+@@ -61,6 +61,10 @@ impl Search {
+             Progress::Idle if !self.editor.is_empty() => (next_hint.as_str(), "enter accept"),
+             Progress::Idle => ("Type to find", "Type to find"),
+             Progress::Restart | Progress::Scanning(_) => ("Searching…", "Searching…"),
++            Progress::AwaitingHistory if history == TranscriptHistoryState::Deferred => (
++                crate::i18n::text("Waiting for history to be saved"),
++                crate::i18n::text("Waiting for save"),
++            ),
+             Progress::AwaitingHistory if history == TranscriptHistoryState::Failed => {
+                 (unavailable_hint.as_str(), retry_hint.as_str())
+             }
 diff --git a/codex-rs/tui/src/transcript_view/snapshot.rs b/codex-rs/tui/src/transcript_view/snapshot.rs
 index 5073db24a..50f24c5e8 100644
 --- a/codex-rs/tui/src/transcript_view/snapshot.rs

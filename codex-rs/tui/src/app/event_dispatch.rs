@@ -950,13 +950,10 @@ impl App {
                     .thread_id()
                     .is_some_and(|thread_id| app_server.has_older_history(thread_id));
                 if tui.is_owned_screen() {
-                    self.transcript_view.history = if self.chat_widget.thread_id().is_some_and(|thread_id| app_server.has_incomplete_history(thread_id)) {
-                        TranscriptHistoryState::Failed
-                    } else if self.scrollback_has_older_history {
-                        TranscriptHistoryState::Partial
-                    } else {
-                        TranscriptHistoryState::Complete
-                    };
+                    self.transcript_view.history = self.chat_widget.thread_id().map_or(
+                        TranscriptHistoryState::Complete,
+                        |thread_id| app_server.transcript_history_state(thread_id),
+                    );
                 }
                 if let Some(thread_id) = self.chat_widget.thread_id() {
                     for error in app_server.take_history_errors(thread_id) {
