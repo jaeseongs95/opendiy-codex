@@ -832,6 +832,16 @@ impl ConfigEditsBuilder {
         self
     }
 
+    /// Set only the local display preference; callers must use `new(codex_home)`
+    /// so profiles or alternate user layers cannot redirect this global setting.
+    pub fn set_ui_language(mut self, language: codex_config::ui_language::UiLanguage) -> Self {
+        self.edits.push(ConfigEdit::SetPath {
+            segments: vec!["ui_language".to_string()],
+            value: value(language.as_str()),
+        });
+        self
+    }
+
     pub fn set_hide_full_access_warning(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideFullAccessWarning(acknowledged));

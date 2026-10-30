@@ -2,6 +2,55 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
+async fn language_query_reports_the_active_ui_without_saving_or_submitting() {
+    let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
+    crate::i18n::with_locale(crate::i18n::Locale::Korean, || {
+        chat.dispatch_command(SlashCommand::Language);
+    });
+    let rendered = drain_insert_history(&mut events)
+        .into_iter()
+        .flatten()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("현재 표시 언어: ko"), "{rendered}");
+    assert!(rendered.contains("프로젝트·프로필·원격 설정"), "{rendered}");
+    assert!(operations.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn language_command_routes_only_valid_local_preferences_without_model_or_permission_changes()
+{
+    use codex_config::ui_language::UiLanguage;
+    let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
+    let model = chat.config.model.clone();
+    let approval = chat.config.permissions.approval_policy.value();
+    let permissions = chat.config.permissions.clone();
+    for (args, expected) in [("ko", UiLanguage::Korean), ("en", UiLanguage::English)] {
+        chat.dispatch_command_with_args(SlashCommand::Language, args.into(), Vec::new());
+        let selected = std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|event| match event {
+                AppEvent::PersistUiLanguage(language) => Some(language),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![expected]);
+        assert!(operations.try_recv().is_err());
+    }
+    for invalid in ["kr", "KO", "en ko", ""] {
+        chat.dispatch_command_with_args(SlashCommand::Language, invalid.into(), Vec::new());
+        assert!(
+            !std::iter::from_fn(|| events.try_recv().ok())
+                .any(|event| matches!(event, AppEvent::PersistUiLanguage(_)))
+        );
+        assert!(operations.try_recv().is_err());
+    }
+    assert_eq!(chat.config.model, model);
+    assert_eq!(chat.config.permissions.approval_policy.value(), approval);
+    assert_eq!(chat.config.permissions, permissions);
+}
+
+#[tokio::test]
 async fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
     let mut rendered = Vec::new();
     for active_mcp in [false, true] {

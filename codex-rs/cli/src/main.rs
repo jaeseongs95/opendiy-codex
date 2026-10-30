@@ -1070,7 +1070,7 @@ async fn cli_main(
     arg0_paths: Arg0DispatchPaths,
     remote_control_disabled: bool,
 ) -> anyhow::Result<()> {
-    codex_tui::i18n::initialize_from_env().map_err(anyhow::Error::msg)?;
+    codex_tui::i18n::initialize()?;
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,

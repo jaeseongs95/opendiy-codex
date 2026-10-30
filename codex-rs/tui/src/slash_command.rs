@@ -54,6 +54,7 @@ pub enum SlashCommand {
     Export,
     Raw,
     Tui,
+    Language,
     Diff,
     Mention,
     Status,
@@ -122,6 +123,9 @@ impl SlashCommand {
             SlashCommand::Export => "export the conversation as markdown",
             SlashCommand::Raw => "toggle raw scrollback mode for copy-friendly terminal selection",
             SlashCommand::Tui => "choose the TUI mode for the next launch",
+            SlashCommand::Language => {
+                "save the global UI language for the next launch: /language ko|en"
+            }
             SlashCommand::Diff => "show git diff (including untracked files)",
             SlashCommand::Mention => "mention a file",
             SlashCommand::Skills => "use skills to improve how Codex performs specific tasks",
@@ -186,6 +190,7 @@ impl SlashCommand {
             self,
             SlashCommand::Review
                 | SlashCommand::Model
+                | SlashCommand::Language
                 | SlashCommand::Permissions
                 | SlashCommand::Title
                 | SlashCommand::Statusline
@@ -219,6 +224,7 @@ impl SlashCommand {
         matches!(
             self,
             SlashCommand::Copy
+                | SlashCommand::Language
                 | SlashCommand::Agents
                 | SlashCommand::Export
                 | SlashCommand::Raw
@@ -244,6 +250,7 @@ impl SlashCommand {
         matches!(
             self,
             SlashCommand::New
+                | SlashCommand::Language
                 | SlashCommand::Clear
                 | SlashCommand::Resume
                 | SlashCommand::Agents
@@ -285,6 +292,7 @@ impl SlashCommand {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate => false,
             SlashCommand::Diff
+            | SlashCommand::Language
             | SlashCommand::Archive
             | SlashCommand::Resume
             | SlashCommand::Model
@@ -357,6 +365,18 @@ mod tests {
     use std::str::FromStr;
 
     use super::SlashCommand;
+
+    #[test]
+    fn language_command_is_local_and_available_without_a_writable_thread() {
+        assert_eq!(
+            SlashCommand::from_str("language"),
+            Ok(SlashCommand::Language)
+        );
+        assert!(SlashCommand::Language.supports_inline_args());
+        assert!(SlashCommand::Language.available_during_task());
+        assert!(SlashCommand::Language.available_when_thread_unavailable());
+        assert!(SlashCommand::Language.available_in_side_conversation());
+    }
 
     #[test]
     fn stop_command_is_canonical_name() {

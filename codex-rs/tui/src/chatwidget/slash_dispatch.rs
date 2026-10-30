@@ -520,6 +520,10 @@ impl ChatWidget {
                 self.emit_raw_output_mode_changed(enabled);
             }
             SlashCommand::Tui => self.show_tui_mode_picker(),
+            SlashCommand::Language => self.add_info_message(
+                format!("{} {}\n{}\n{}", crate::i18n::text("Current UI language:"), crate::i18n::locale().as_str(), crate::i18n::text("Usage: /language ko|en (saved globally; applies on the next launch; CODEX_UI_LANGUAGE takes precedence)"), crate::i18n::text("Project, profile and remote settings do not control UI language.")),
+                None,
+            ),
             SlashCommand::Diff => {
                 self.add_diff_in_progress();
                 let tx = self.app_event_tx.clone();
@@ -838,6 +842,10 @@ impl ChatWidget {
             return;
         }
         match cmd {
+            SlashCommand::Language => match codex_config::ui_language::UiLanguage::parse(trimmed) {
+                Ok(language) => self.app_event_tx.send(AppEvent::PersistUiLanguage(language)),
+                Err(_) => self.add_error_message(crate::i18n::text("Usage: /language ko|en (saved globally; applies on the next launch; CODEX_UI_LANGUAGE takes precedence)").into()),
+            },
             SlashCommand::Model if !trimmed.is_empty() => {
                 self.handle_model_command_args(trimmed);
                 self.app_event_tx.send(AppEvent::SettingsSelectionClosed);
@@ -1354,6 +1362,7 @@ impl ChatWidget {
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::Cron
+            | SlashCommand::Language
             | SlashCommand::Context
             | SlashCommand::Memories
             | SlashCommand::MemoryDrop

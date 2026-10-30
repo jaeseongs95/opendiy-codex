@@ -1,9 +1,11 @@
 //! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
 //! slash command tokens, paths, or text supplied by the user or a server.
 //!
-//! `CODEX_UI_LANGUAGE=ko|en`로 표시 언어를 선택하며, 미지정 시 원래 영어를 유지한다.
+//! `CODEX_UI_LANGUAGE=ko|en` overrides the saved base user `ui_language`; default is English.
 //! Before startup initialization, library callers retain the original English strings.
 
+use std::io;
+use std::path::Path;
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +15,13 @@ pub enum Locale {
 }
 
 impl Locale {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Korean => "ko",
+            Self::English => "en",
+        }
+    }
+
     pub fn from_setting(setting: Option<&str>) -> Result<Self, &'static str> {
         match setting {
             Some("ko") => Ok(Self::Korean),
@@ -25,23 +34,43 @@ impl Locale {
 static LOCALE: OnceLock<Locale> = OnceLock::new();
 
 /// Call before constructing CLI help or TUI views. This never changes configuration files.
-pub fn initialize_from_env() -> Result<(), &'static str> {
+pub fn initialize() -> io::Result<()> {
+    // CLI and TUI startup can both call this in one process. A later global file
+    // edit is for the next process and must not invalidate this launch's locale.
+    if LOCALE.get().is_some() {
+        return Ok(());
+    }
     let setting = match std::env::var("CODEX_UI_LANGUAGE") {
         Ok(value) => Some(value),
         Err(std::env::VarError::NotPresent) => None,
         Err(std::env::VarError::NotUnicode(_)) => {
-            return Err("CODEX_UI_LANGUAGE must contain Unicode ko or en");
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "CODEX_UI_LANGUAGE must contain Unicode ko or en",
+            ));
         }
     };
-    let locale = Locale::from_setting(setting.as_deref())?;
-    if let Some(current) = LOCALE.get() {
-        if *current != locale {
-            return Err("CODEX_UI_LANGUAGE cannot change after UI initialization");
-        }
-    } else if LOCALE.set(locale).is_err() && LOCALE.get() != Some(&locale) {
-        return Err("CODEX_UI_LANGUAGE initialization conflicted with another caller");
-    }
+    let home = codex_utils_home_dir::find_codex_home()?;
+    let locale = locale_from_user_settings(home.as_path(), setting.as_deref())?;
+    // A concurrent initializer keeps the first successful selection for this process.
+    let _ = LOCALE.set(locale);
     Ok(())
+}
+
+fn locale_from_user_settings(
+    home: &Path,
+    environment_override: Option<&str>,
+) -> io::Result<Locale> {
+    if environment_override.is_some() {
+        return Locale::from_setting(environment_override)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error));
+    }
+    Ok(
+        match codex_config::ui_language::read_user_ui_language(home)? {
+            codex_config::ui_language::UiLanguage::Korean => Locale::Korean,
+            codex_config::ui_language::UiLanguage::English => Locale::English,
+        },
+    )
 }
 
 pub fn locale() -> Locale {
@@ -62,6 +91,20 @@ pub fn text_for(locale: Locale, original: &str) -> &str {
         return original;
     }
     match original {
+        "Current UI language:" => "현재 표시 언어:",
+        "Project, profile and remote settings do not control UI language." => {
+            "프로젝트·프로필·원격 설정은 표시 언어에 적용되지 않습니다."
+        }
+        "save the global UI language for the next launch: /language ko|en" => {
+            "전역 표시 언어 저장: /language ko|en (다음 실행부터 적용)"
+        }
+        "Usage: /language ko|en (saved globally; applies on the next launch; CODEX_UI_LANGUAGE takes precedence)" => {
+            "사용법: /language ko|en (전역 저장·다음 실행부터 적용·CODEX_UI_LANGUAGE 우선)"
+        }
+        "UI language saved globally. It applies on the next launch. CODEX_UI_LANGUAGE takes precedence." => {
+            "표시 언어를 전역으로 저장했습니다. 다음 실행부터 적용하며 CODEX_UI_LANGUAGE가 우선합니다."
+        }
+        "Failed to save UI language:" => "표시 언어를 저장하지 못했습니다:",
         "Press " => "키: ",
         " to confirm or " => " 확인 / ",
         " to go back" => " 돌아가기",
@@ -668,6 +711,49 @@ pub(crate) fn with_locale<T>(locale: Locale, f: impl FnOnce() -> T) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_language_controls_ui_and_environment_override_never_writes_configuration() {
+        use crate::legacy_core::config::edit::ConfigEditsBuilder;
+        use codex_config::ui_language::UiLanguage;
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(
+            locale_from_user_settings(home.path(), None).unwrap(),
+            Locale::English
+        );
+        for (saved, expected, rendered) in [
+            (UiLanguage::Korean, Locale::Korean, "작업 중"),
+            (UiLanguage::English, Locale::English, "Working"),
+        ] {
+            ConfigEditsBuilder::new(home.path())
+                .set_ui_language(saved)
+                .apply_blocking()
+                .unwrap();
+            assert_eq!(
+                locale_from_user_settings(home.path(), None).unwrap(),
+                expected
+            );
+            assert_eq!(
+                text_for(
+                    locale_from_user_settings(home.path(), None).unwrap(),
+                    "Working"
+                ),
+                rendered
+            );
+            let path = home.path().join("config.toml");
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(
+                locale_from_user_settings(home.path(), Some("en")).unwrap(),
+                Locale::English
+            );
+            assert_eq!(
+                locale_from_user_settings(home.path(), Some("ko")).unwrap(),
+                Locale::Korean
+            );
+            assert!(locale_from_user_settings(home.path(), Some("kr")).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+    }
 
     #[test]
     fn language_selection_defaults_to_english_and_rejects_unknown_values() {

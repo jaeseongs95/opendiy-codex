@@ -14,6 +14,89 @@ use tempfile::tempdir;
 use toml::Value as TomlValue;
 
 #[test]
+fn ui_language_persists_across_fresh_reads_without_changing_other_global_settings() {
+    use codex_config::ui_language::UiLanguage;
+    use codex_config::ui_language::read_user_ui_language;
+    let home = tempdir().unwrap();
+    let path = home.path().join(CONFIG_TOML_FILE);
+    let original = "# keep this comment and formatting\nmodel = 'existing-model'\napproval_policy = 'on-request'\nsandbox_mode = 'read-only'\nui_language = \"en\"\n\n[profiles.work]\nmodel = 'profile-model'\n\n[tui]\nnotifications = false\n";
+    std::fs::write(&path, original).unwrap();
+    let original_values: TomlValue = toml::from_str(original).unwrap();
+    for language in [UiLanguage::Korean, UiLanguage::English] {
+        ConfigEditsBuilder::new(home.path())
+            .set_ui_language(language)
+            .apply_blocking()
+            .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        // All bytes outside the edited value, including comments, remain unchanged.
+        assert_eq!(
+            saved,
+            original.replace(
+                "ui_language = \"en\"",
+                &format!("ui_language = \"{}\"", language.as_str())
+            )
+        );
+        let values: TomlValue = toml::from_str(&saved).unwrap();
+        for key in [
+            "model",
+            "approval_policy",
+            "sandbox_mode",
+            "profiles",
+            "tui",
+        ] {
+            assert_eq!(values[key], original_values[key]);
+        }
+        // A new file read is independent of the old UI's OnceLock and survives restart.
+        assert_eq!(read_user_ui_language(home.path()).unwrap(), language);
+        assert_eq!(read_user_ui_language(home.path()).unwrap(), language);
+    }
+    let unchanged = std::fs::read(&path).unwrap();
+    for invalid in ["", "KO", "kr", "en ko"] {
+        assert!(UiLanguage::parse(invalid).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), unchanged);
+    }
+}
+
+#[test]
+fn ui_language_saves_to_base_user_file_and_ignores_project_profile_and_named_layers() {
+    use codex_config::ui_language::UiLanguage;
+    use codex_config::ui_language::read_user_ui_language;
+    let home = tempdir().unwrap();
+    let project = tempdir().unwrap();
+    let project_config = project.path().join("config.toml");
+    let named_config = home.path().join("work.config.toml");
+    let non_global = "ui_language = 'ko'\nmodel = 'leave-this-alone'\n";
+    std::fs::write(&project_config, non_global).unwrap();
+    std::fs::write(&named_config, non_global).unwrap();
+    std::fs::write(
+        home.path().join(CONFIG_TOML_FILE),
+        "[profiles.work]\nui_language = 'ko'\n",
+    )
+    .unwrap();
+    ConfigEditsBuilder::new(home.path())
+        .set_ui_language(UiLanguage::English)
+        .apply_blocking()
+        .unwrap();
+    assert_eq!(
+        read_user_ui_language(home.path()).unwrap(),
+        UiLanguage::English
+    );
+    assert_eq!(
+        std::fs::read_to_string(&project_config).unwrap(),
+        non_global
+    );
+    assert_eq!(std::fs::read_to_string(&named_config).unwrap(), non_global);
+    let global: TomlValue =
+        toml::from_str(&std::fs::read_to_string(home.path().join(CONFIG_TOML_FILE)).unwrap())
+            .unwrap();
+    assert_eq!(global["ui_language"].as_str(), Some("en"));
+    assert_eq!(
+        global["profiles"]["work"]["ui_language"].as_str(),
+        Some("ko")
+    );
+}
+
+#[test]
 fn blocking_set_model_top_level() {
     let tmp = tempdir().expect("tmpdir");
     let codex_home = tmp.path();

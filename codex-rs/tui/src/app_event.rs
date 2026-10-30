@@ -1345,6 +1345,9 @@ pub(crate) enum AppEvent {
         voice: codex_protocol::protocol::RealtimeVoice,
     },
 
+    /// Save the local user's global display preference, effective on the next launch.
+    PersistUiLanguage(codex_config::ui_language::UiLanguage),
+
     /// Persist the selected service tier to the appropriate config.
     PersistServiceTierSelection {
         service_tier: Option<String>,
