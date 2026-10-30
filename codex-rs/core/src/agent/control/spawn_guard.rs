@@ -16,6 +16,7 @@ pub(super) struct PendingSpawn {
     state: Arc<ThreadManagerState>,
     pending: Option<(ThreadId, AgentTreeMembership)>,
     edge_write: Option<JoinHandle<()>>,
+    cleanup_admission: Option<crate::thread_manager::cleanup::CleanupOperation>,
 }
 
 impl PendingSpawn {
@@ -23,11 +24,13 @@ impl PendingSpawn {
         state: Arc<ThreadManagerState>,
         child: ThreadId,
         membership: AgentTreeMembership,
+        cleanup_admission: crate::thread_manager::cleanup::CleanupOperation,
     ) -> Self {
         Self {
             state,
             pending: Some((child, membership)),
             edge_write: None,
+            cleanup_admission: Some(cleanup_admission),
         }
     }
 
@@ -61,7 +64,11 @@ impl Drop for PendingSpawn {
         let state = Arc::clone(&self.state);
         let teardown = membership.into_teardown_guard("child_spawn_cleanup", Some(child));
         let edge_write = self.edge_write.take();
+        let cleanup_admission = self.cleanup_admission.take();
         drop(tokio::spawn(async move {
+            // Cancellation transfers ownership: keep the parent pinned through the
+            // pending Open write and the final Closed write, not just child startup.
+            let _cleanup_admission = cleanup_admission;
             if let Some(thread) = state.remove_thread(&child).await {
                 if let Err(error) = thread.shutdown_and_wait().await {
                     teardown
@@ -101,5 +108,35 @@ impl Drop for PendingSpawn {
             }
             teardown.complete();
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn successful_spawn_handoff_releases_one_parent_cleanup_pin() {
+        let home = tempfile::tempdir().unwrap();
+        let config = crate::config::test_config().await;
+        let manager = crate::ThreadManager::with_models_provider_and_home_for_tests(
+            codex_login::CodexAuth::from_api_key("dummy"),
+            config.model_provider,
+            home.path().to_path_buf(),
+            Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        );
+        let control = manager.agent_control();
+        let state = control.runtime.upgrade().unwrap();
+        let baseline = Arc::strong_count(&state.cleanup_admission);
+        let pin = state.cleanup_admission.admit([ThreadId::new()]).unwrap();
+        let membership = control.runtime.admit_start().unwrap();
+        let pending = PendingSpawn::new(Arc::clone(&state), ThreadId::new(), membership, pin);
+        assert_eq!(Arc::strong_count(&state.cleanup_admission), baseline + 1);
+        let membership = pending.disarm();
+        // This is the real successful owner handoff. It must release its pin even
+        // while the returned tree membership is still alive, and must not spawn rollback.
+        assert_eq!(Arc::strong_count(&state.cleanup_admission), baseline);
+        drop(membership);
+        assert_eq!(Arc::strong_count(&state.cleanup_admission), baseline);
     }
 }
