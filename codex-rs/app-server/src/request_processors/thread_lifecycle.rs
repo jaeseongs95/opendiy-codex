@@ -1,5 +1,7 @@
 use super::thread_input::can_accept_direct_input;
 use super::*;
+use crate::error_code::passive_runtime_unavailable;
+use crate::error_code::passive_subscription_unavailable;
 use crate::extensions::send_thread_warning;
 use codex_app_server_protocol::ThreadQueueChangedNotification;
 use codex_core::ThreadEvictionOutcome;
@@ -874,11 +876,11 @@ pub(super) async fn handle_pending_thread_resume_request(
             outgoing
                 .send_error(
                     request_id,
-                    invalid_request(if pending.passive {
-                        format!("thread {conversation_id} is not ready: closing")
+                    if pending.passive {
+                        passive_subscription_unavailable("closing")
                     } else {
-                        format!("thread {conversation_id} is closing; retry thread/resume after the thread is closed")
-                    }),
+                        invalid_request(format!("thread {conversation_id} is closing; retry thread/resume after the thread is closed"))
+                    },
                 )
                 .await;
             return;
@@ -891,10 +893,10 @@ pub(super) async fn handle_pending_thread_resume_request(
                 .await
             {
                 Ok(guard) => Some(guard),
-                Err(_) => {
+                Err(reason) => {
                     drop(pending_thread_unloads);
                     outgoing
-                        .send_error(request_id, invalid_request("thread runtime is not ready"))
+                        .send_error(request_id, passive_runtime_unavailable(reason))
                         .await;
                     return;
                 }
@@ -909,7 +911,10 @@ pub(super) async fn handle_pending_thread_resume_request(
                 drop(runtime_guard);
                 drop(pending_thread_unloads);
                 outgoing
-                    .send_error(request_id, invalid_request("thread listener is not ready"))
+                    .send_error(
+                        request_id,
+                        passive_subscription_unavailable("listenerNotReady"),
+                    )
                     .await;
                 return;
             }

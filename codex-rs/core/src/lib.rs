@@ -162,6 +162,7 @@ pub use thread_manager::AgentTreeShutdownReport;
 pub use thread_manager::ForkSnapshot;
 pub use thread_manager::InternalSessionParent;
 pub use thread_manager::LoadedThreadReadGuard;
+pub use thread_manager::LoadedThreadUnavailable;
 pub use thread_manager::NewThread;
 pub use thread_manager::PromptCacheKey;
 pub use thread_manager::StartThreadOptions;
