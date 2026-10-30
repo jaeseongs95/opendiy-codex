@@ -346,6 +346,17 @@ pub(crate) fn set_fast_mode_test_catalog(chat: &mut ChatWidget) {
     set_fast_mode_test_catalog_for_models(chat, "gpt-5.4", "gpt-5.2");
 }
 
+pub(crate) fn set_ultrafast_mode_test_catalog(chat: &mut ChatWidget, model: &str) {
+    set_fast_mode_test_catalog_for_models(chat, model, "unsupported-service-tier-model");
+    Arc::make_mut(&mut chat.model_catalog).models[0]
+        .service_tiers
+        .push(codex_protocol::openai_models::ModelServiceTier {
+            id: "ultrafast".into(),
+            name: "Ultrafast".into(),
+            description: "초고속 처리 시험용 등급".into(),
+        });
+}
+
 pub(crate) fn set_fast_mode_test_catalog_for_models(
     chat: &mut ChatWidget,
     fast_model: &str,

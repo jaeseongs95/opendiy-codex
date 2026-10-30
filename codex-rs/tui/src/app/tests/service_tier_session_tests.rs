@@ -6,6 +6,7 @@ use super::session_lifecycle_requests::{
 };
 use super::*;
 use crate::app_server_session::{ResumeModelSettings, ThreadParamsMode};
+use crate::chatwidget::tests::helpers::set_ultrafast_mode_test_catalog;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use pretty_assertions::assert_eq;
 
@@ -49,13 +50,30 @@ fn assert_no_global_or_turn_mutations(
 
 #[tokio::test]
 async fn fast_selection_preserves_global_defaults_other_threads_and_permissions() -> Result<()> {
+    assert_session_tier_selection("fast", ServiceTier::Fast.request_value()).await
+}
+
+#[tokio::test]
+async fn ultrafast_selection_preserves_global_defaults_other_threads_and_permissions() -> Result<()>
+{
+    assert_session_tier_selection("ultrafast", "ultrafast").await
+}
+
+async fn assert_session_tier_selection(command: &str, tier: &str) -> Result<()> {
     let (mut app, mut events, _) = make_test_app_with_channels().await;
-    app.config.model = Some("gpt-5.4".into());
+    let model = if command == "ultrafast" {
+        "gpt-6.1-sol"
+    } else {
+        "gpt-5.4"
+    };
+    app.config.model = Some(model.into());
     app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Medium);
     app.config.service_tier = Some("flex".into());
     let file = app.config.codex_home.join("config.toml");
-    let original = "# Explicit defaults must survive a session selection.\nmodel = 'gpt-5.4'\nmodel_reasoning_effort = 'medium'\nservice_tier = 'flex'\n";
-    std::fs::write(&file, original)?;
+    let original = format!(
+        "# Explicit defaults must survive a session selection.\nmodel = '{model}'\nmodel_reasoning_effort = 'medium'\nservice_tier = 'flex'\n"
+    );
+    std::fs::write(&file, &original)?;
     let (mut server, requests, proxy) = start_recording_app_server_with_history(
         &app.config,
         HistoryCapabilities::Current,
@@ -82,6 +100,12 @@ async fn fast_selection_preserves_global_defaults_other_threads_and_permissions(
     app.enqueue_primary_thread_session(selected.session, selected.turns)
         .await?;
     prepare_fast_widget(&mut app);
+    if command == "ultrafast" {
+        set_ultrafast_mode_test_catalog(&mut app.chat_widget, model);
+        app.chat_widget.set_model(model);
+        app.chat_widget
+            .set_feature_enabled(Feature::UltrafastMode, true);
+    }
     let permissions = RuntimePermissionProfileOverride::from_config(app.chat_widget.config_ref());
     app.keymap.app.toggle_fast_mode = vec![
         crate::key_hint::ctrl(KeyCode::Char('f')),
@@ -89,18 +113,27 @@ async fn fast_selection_preserves_global_defaults_other_threads_and_permissions(
     ];
     let mut tui = crate::tui::test_support::make_test_tui()?;
     for (modifiers, expected_tier) in [
-        (KeyModifiers::CONTROL, ServiceTier::Fast.request_value()),
+        (KeyModifiers::CONTROL, tier),
         (KeyModifiers::ALT, SERVICE_TIER_DEFAULT_REQUEST_VALUE),
     ] {
         while events.try_recv().is_ok() {}
         requests.lock().unwrap().clear();
         let previous = app.chat_widget.configured_service_tier();
-        Box::pin(app.handle_tui_event(
-            &mut tui,
-            &mut server,
-            TuiEvent::Key(KeyEvent::new(KeyCode::Char('f'), modifiers)),
-        ))
-        .await?;
+        if command == "ultrafast" {
+            app.chat_widget.bottom_pane.set_composer_text(
+                format!("/{command}"),
+                Vec::new(),
+                Vec::new(),
+            );
+            app.chat_widget.handle_key_event(KeyCode::Enter.into());
+        } else {
+            Box::pin(app.handle_tui_event(
+                &mut tui,
+                &mut server,
+                TuiEvent::Key(KeyEvent::new(KeyCode::Char('f'), modifiers)),
+            ))
+            .await?;
+        }
         assert_eq!(
             app.chat_widget.configured_service_tier(),
             previous,
