@@ -367,7 +367,7 @@ async fn same_thread_retry_keeps_subscription_and_restores_draft() -> Result<()>
 pub(super) enum HistoryCapabilities {
     Current,
     ForwardLiveEvents,
-    ItemsProjectionUnavailable,
+    ItemsProjectionUnavailable(Option<&'static str>),
     LegacyOnly,
     LegacyOnlyUnsupportedVariant,
     LegacyDynamicToolsAndHistory,
@@ -639,15 +639,20 @@ pub(super) async fn start_recording_app_server_with_realtime_speech(
                                 message: "live resume unavailable".to_string(),
                             },
                         })
-                    } else if history_capabilities
-                        == HistoryCapabilities::ItemsProjectionUnavailable
+                    } else if let HistoryCapabilities::ItemsProjectionUnavailable(reason) =
+                        history_capabilities
                         && request.method == "thread/items/list"
                     {
+                        let mut data =
+                            serde_json::json!({ "kind": "historyProjectionUnavailable" });
+                        if let Some(reason) = reason {
+                            data["reason"] = reason.into();
+                        }
                         JSONRPCMessage::Error(JSONRPCError {
                             id: request_id,
                             error: JSONRPCErrorError {
-                                code: -32603,
-                                data: Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
+                                code: if reason.is_some() { -32600 } else { -32603 },
+                                data: Some(data),
                                 message: "display history projection is unavailable; retry after history persistence".to_string(),
                             },
                         })

@@ -148,6 +148,39 @@ fn unmaterialized_history_recovery_requires_exact_structured_contract() {
         (-32603, Some(data.clone()), false),
         (-32000, Some(data), false),
         (-32600, None, false),
+        (-32600, Some(serde_json::json!("unmaterialized")), false),
+        (
+            -32600,
+            Some(serde_json::json!([
+                "historyProjectionUnavailable",
+                "unmaterialized"
+            ])),
+            false,
+        ),
+        (
+            -32600,
+            Some(
+                serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": "unknown" }),
+            ),
+            false,
+        ),
+        (
+            -32600,
+            Some(
+                serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": "deleted" }),
+            ),
+            false,
+        ),
+        (
+            -32600,
+            Some(serde_json::json!({ "kind": "historyProjectionUnavailable", "reason": 1 })),
+            false,
+        ),
+        (
+            -32600,
+            Some(serde_json::json!({ "kind": "unknown", "reason": "unmaterialized" })),
+            false,
+        ),
         (
             -32600,
             Some(serde_json::json!({ "kind": "historyProjectionUnavailable" })),
