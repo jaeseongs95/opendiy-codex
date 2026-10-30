@@ -35,6 +35,16 @@ pub(crate) struct ThreadGoalRequestProcessor {
 }
 
 impl ThreadGoalRequestProcessor {
+    pub(super) async fn cleanup_guard(
+        &self,
+        id: ThreadId,
+    ) -> Result<Option<codex_goal_extension::GoalCleanupGuard>, JSONRPCErrorError> {
+        self.goal_service
+            .cleanup_guard(self.state_db.as_deref(), id)
+            .await
+            .map_err(goal_service_error)
+    }
+
     pub(crate) fn new(
         thread_manager: Arc<ThreadManager>,
         outgoing: Arc<OutgoingMessageSender>,

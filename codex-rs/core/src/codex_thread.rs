@@ -239,6 +239,14 @@ pub struct BackgroundTerminalInfo {
 /// Conduit for the bidirectional stream of messages that compose a thread
 /// (formerly called a conversation) in Codex.
 impl CodexThread {
+    pub(crate) async fn cleanup_is_idle(&self) -> bool {
+        self.session.active_turn.lock().await.is_none()
+            && !self.session.has_outstanding_durable_sleep()
+            && !self.session.input_queue.has_pending_mailbox_items().await
+            && self.list_background_terminals().await.is_empty()
+            && self.out_of_band_elicitations.lock().await.count == 0
+    }
+
     pub(crate) fn new(
         session: Arc<Session>,
         io: SessionIo,
@@ -248,8 +256,8 @@ impl CodexThread {
     ) -> Self {
         Self {
             session,
+            residency_gate: Arc::clone(&io.admission.gate),
             io,
-            residency_gate: Arc::default(),
             session_source,
             startup_metadata,
             rollout_path,
@@ -544,8 +552,7 @@ impl CodexThread {
         // cancellation, persistence, or writer shutdown halfway through a handoff.
         let (reply, result) = oneshot::channel();
         self.io
-            .tx_sub
-            .send(Submission {
+            .submit_with_id(Submission {
                 id: new_submission_id(),
                 op: Op::SuspendTurnAndShutdown { reply },
                 turn_extension_init: None,
@@ -1275,6 +1282,13 @@ impl CodexThread {
     }
 
     pub async fn increment_out_of_band_elicitation_count(&self) -> CodexResult<i64> {
+        let _admission = Arc::clone(&self.residency_gate).read_owned().await;
+        if self.io.admission.is_closing() {
+            return Err(CodexErr::InvalidRequest(
+                "thread is closing for cleanup".into(),
+            ));
+        }
+        self.io.admission.touch();
         let mut elicitations = self.out_of_band_elicitations.lock().await;
         let incremented = elicitations.count.checked_add(1).ok_or_else(|| {
             CodexErr::Fatal("out-of-band elicitation count overflowed".to_string())

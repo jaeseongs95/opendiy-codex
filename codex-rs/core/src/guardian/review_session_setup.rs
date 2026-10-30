@@ -194,6 +194,7 @@ impl PreparedGuardianContext {
                 .get_or_init(|| self.parent.get_tx_event());
         }
         let io = SessionIo {
+            admission: Arc::clone(&thread.io.admission),
             tx_sub: thread.io.tx_sub.clone(),
             rx_event: thread.io.rx_event.clone(),
             agent_status: thread.io.agent_status.clone(),

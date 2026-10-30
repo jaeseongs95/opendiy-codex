@@ -585,6 +585,11 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadArchiveResponse,
     },
+    ThreadCleanupCompleted => "thread/cleanupCompleted" {
+        params: v2::ThreadCleanupCompletedParams,
+        serialization: thread_id(params.parent_thread_id),
+        response: v2::ThreadCleanupCompletedResponse,
+    },
     ThreadDelete => "thread/delete" {
         params: v2::ThreadDeleteParams,
         serialization: thread_id(params.thread_id),

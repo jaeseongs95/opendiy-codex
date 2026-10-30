@@ -511,3 +511,63 @@ async fn board_counts(pool: &sqlx::SqlitePool) -> Result<(i64, i64, i64)> {
     .fetch_one(pool)
     .await?)
 }
+
+#[tokio::test]
+async fn cleanup_completed_preview_is_read_only_and_current_thread_is_protected() -> Result<()> {
+    use codex_app_server_protocol::CompletedChildSnapshot;
+    use codex_app_server_protocol::ThreadCleanupCompletedParams;
+    use codex_app_server_protocol::ThreadCleanupCompletedResponse;
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri()).write(home.path())?;
+    let mut app = TestAppServer::builder()
+        .with_codex_home(home.path())
+        .build_initialized()
+        .await?;
+    let started: ThreadStartResponse = app
+        .request(|request_id| ClientRequest::ThreadStart {
+            request_id,
+            params: ThreadStartParams::default(),
+        })
+        .await?;
+    let id = started.thread.id;
+    let preview: ThreadCleanupCompletedResponse = app
+        .request(|request_id| ClientRequest::ThreadCleanupCompleted {
+            request_id,
+            params: ThreadCleanupCompletedParams {
+                parent_thread_id: id.clone(),
+                current_thread_id: id.clone(),
+                confirmed: false,
+                selection: Vec::new(),
+            },
+        })
+        .await?;
+    assert!(preview.results.is_empty());
+    let result: ThreadCleanupCompletedResponse = app
+        .request(|request_id| ClientRequest::ThreadCleanupCompleted {
+            request_id,
+            params: ThreadCleanupCompletedParams {
+                parent_thread_id: id.clone(),
+                current_thread_id: id.clone(),
+                confirmed: true,
+                selection: vec![CompletedChildSnapshot {
+                    thread_id: id.clone(),
+                    runtime_id: "forged".into(),
+                    activity_revision: 0,
+                    last_turn_id: "forged".into(),
+                    terminal_status: "completed".into(),
+                }],
+            },
+        })
+        .await?;
+    assert_eq!(result.results[0].outcome, "protected");
+    let loaded: ThreadLoadedListResponse = app
+        .request(|request_id| ClientRequest::ThreadLoadedList {
+            request_id,
+            params: ThreadLoadedListParams::default(),
+        })
+        .await?;
+    assert!(loaded.data.contains(&id));
+    app.shutdown_gracefully().await?;
+    Ok(())
+}

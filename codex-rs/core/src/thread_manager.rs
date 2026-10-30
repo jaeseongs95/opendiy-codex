@@ -1,3 +1,4 @@
+pub mod cleanup;
 mod managed;
 mod shared_instructions;
 mod shutdown;
@@ -443,6 +444,7 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
 pub(crate) struct ThreadManagerState {
     // Eviction updates this registry and residency together, locking the registry first.
     pub(crate) threads: Arc<RwLock<HashMap<ThreadId, Arc<CodexThread>>>>,
+    pub(crate) cleanup_admission: Arc<cleanup::CleanupAdmission>,
     shared_thread_instructions: shared_instructions::SharedThreadInstructionsProviders,
     thread_created_tx: broadcast::Sender<ThreadId>,
     thread_id_generator: ThreadIdGenerator,
@@ -615,6 +617,7 @@ impl ThreadManager {
         Self {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
+                cleanup_admission: Arc::default(),
                 shared_thread_instructions: Default::default(),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
@@ -803,6 +806,7 @@ impl ThreadManager {
         Self {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
+                cleanup_admission: Arc::default(),
                 shared_thread_instructions: Default::default(),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
@@ -2116,6 +2120,19 @@ impl ThreadManagerState {
 
     /// Spawn a new thread with optional history and register it with the manager.
     async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
+        let mut protected = Vec::new();
+        if let InitialHistory::Resumed(history) = &request.options.initial_history {
+            protected.push(history.conversation_id);
+        }
+        protected.extend(request.parent_thread_id);
+        protected.extend(
+            request
+                .options
+                .session_source
+                .as_ref()
+                .and_then(SessionSource::parent_thread_id),
+        );
+        let _cleanup_admission = self.cleanup_admission.admit(protected)?;
         let cancellation = request
             .options
             .config
@@ -2136,6 +2153,7 @@ impl ThreadManagerState {
                 .get_or_insert_with(|| Arc::new(SessionStartup::default())),
         );
         startup_state.hold_membership(membership);
+        startup_state.hold_cleanup_admission(_cleanup_admission);
         let startup_guard =
             owns_startup.then(|| SessionStartupGuard::new(Arc::clone(&startup_state)));
         let ThreadSpawnRequest {

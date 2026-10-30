@@ -1104,3 +1104,35 @@ async fn resumed_idle_dispatches_input_without_a_loaded_manager() -> anyhow::Res
     assert!(service.list(thread_id).await?.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn cleanup_guard_preserves_pending_queue_and_serializes_only_its_thread() -> anyhow::Result<()>
+{
+    let (queue, _home) = test_queue().await?;
+    let service = Arc::new(QueuedItemService::new(
+        queue,
+        Weak::new(),
+        Arc::new(NoopExtensionEventSink),
+    ));
+    let target = ThreadId::new();
+    let other = ThreadId::new();
+    let guard = service
+        .cleanup_guard(target)
+        .await?
+        .expect("empty queue is reservable");
+    let enqueue_service = Arc::clone(&service);
+    let mut enqueue =
+        tokio::spawn(async move { enqueue_service.enqueue(target, user_input("keep me")).await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut enqueue)
+            .await
+            .is_err()
+    );
+    service.enqueue(other, user_input("unrelated")).await?;
+    drop(guard);
+    let item = enqueue.await??;
+    assert!(service.cleanup_guard(target).await?.is_none());
+    assert_eq!(service.list(target).await?, vec![item]);
+    assert_eq!(service.list(other).await?.len(), 1);
+    Ok(())
+}

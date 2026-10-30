@@ -52,6 +52,7 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
+mod cleanup_agents;
 mod cloud_config;
 mod config_override_args;
 mod daemon_install;
@@ -212,6 +213,9 @@ enum Subcommand {
 
     /// Queue a message for an existing session.
     Queue(QueueCommand),
+
+    /// 현재 부모 아래 종료된 서브에이전트를 미리 보거나 확인 후 정리합니다.
+    CleanupAgents(cleanup_agents::CleanupAgentsCommand),
 
     /// Archive a saved session by id or session name.
     Archive(SessionArchiveCommand),
@@ -1641,6 +1645,14 @@ async fn cli_main(
             )
             .await?;
         }
+        Some(Subcommand::CleanupAgents(command)) => {
+            cleanup_agents::run(
+                command,
+                root_remote.clone(),
+                root_remote_auth_token_env.clone(),
+            )
+            .await?;
+        }
         Some(Subcommand::Unarchive(cmd)) => {
             let output = run_session_archive_cli_command(
                 codex_tui::SessionArchiveAction::Unarchive,
@@ -2392,6 +2404,7 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::RemoteControl(remote_control)) => Some(remote_control.subcommand_name()),
         Some(Subcommand::Mcp(_)) => Some("mcp"),
         Some(Subcommand::Plugin(_)) => Some("plugin"),
+        Some(Subcommand::CleanupAgents(_)) => Some("cleanup-agents"),
         Some(Subcommand::MigrateRollouts(_)) => Some("migrate-rollouts"),
         Some(Subcommand::MigrateNfsDb(_)) => Some("migrate-nfs-db"),
         #[cfg(any(target_os = "macos", target_os = "windows"))]

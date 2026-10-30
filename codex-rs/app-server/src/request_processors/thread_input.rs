@@ -35,3 +35,27 @@ pub(super) async fn ensure_direct_input_allowed(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod cleanup_input_tests {
+    use super::*;
+
+    #[test]
+    fn loaded_v2_spawn_cannot_accept_direct_user_queue_input() {
+        let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            parent_thread_id: codex_protocol::ThreadId::new(),
+            depth: 1,
+            agent_path: None,
+            agent_nickname: None,
+            agent_role: None,
+        });
+        assert!(!can_accept_direct_input(
+            Some(MultiAgentVersion::V2),
+            &source
+        ));
+        assert!(can_accept_direct_input(
+            Some(MultiAgentVersion::V2),
+            &SessionSource::Cli
+        ));
+    }
+}

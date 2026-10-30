@@ -516,7 +516,7 @@ impl MessageProcessor {
             Arc::clone(&thread_store),
             outgoing.clone(),
             config_manager.clone(),
-            queue_service,
+            queue_service.clone(),
         );
         let project_processor = ProjectRequestProcessor::new(
             Arc::clone(&thread_store),
@@ -536,6 +536,7 @@ impl MessageProcessor {
             thread_watch_manager.clone(),
             Arc::clone(&thread_list_state_permit),
             thread_goal_processor.clone(),
+            queue_service,
             state_db.clone(),
             log_db,
             Arc::clone(&skills_watcher),
@@ -1062,6 +1063,7 @@ impl MessageProcessor {
             | ClientRequest::ThreadSettingsUpdate { .. }
             | ClientRequest::TurnSettingsUpdate { .. }
             | ClientRequest::ThreadDelete { .. }
+            | ClientRequest::ThreadCleanupCompleted { .. }
             | ClientRequest::ThreadArchive { .. } => (Some(self.turn_admission.admit()?), false),
             ClientRequest::ThreadSample { .. }
             | ClientRequest::TurnStart { .. }
@@ -1412,6 +1414,11 @@ impl MessageProcessor {
             ClientRequest::ThreadArchive { params, .. } => {
                 self.thread_processor
                     .thread_archive(request_id.clone(), params)
+                    .await
+            }
+            ClientRequest::ThreadCleanupCompleted { params, .. } => {
+                self.thread_processor
+                    .thread_cleanup_completed(request_id.clone(), params)
                     .await
             }
             ClientRequest::ThreadDelete { params, .. } => {

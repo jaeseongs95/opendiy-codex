@@ -153,6 +153,7 @@ async fn test_review_session() -> (
         GuardianReviewSession {
             session,
             io: SessionIo {
+                admission: Arc::default(),
                 tx_sub,
                 rx_event,
                 agent_status,

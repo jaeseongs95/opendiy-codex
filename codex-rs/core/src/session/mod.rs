@@ -429,6 +429,7 @@ pub(crate) enum TokenUsageContext {
 #[derive(Clone)]
 pub(crate) struct SessionIo {
     pub(crate) tx_sub: Sender<Submission>,
+    pub(crate) admission: Arc<crate::thread_manager::cleanup::RuntimeAdmission>,
     pub(crate) rx_event: Receiver<Event>,
     // Last known status of the agent.
     pub(crate) agent_status: watch::Receiver<AgentStatus>,
@@ -1080,15 +1081,20 @@ impl Session {
             .as_ref()
             .and_then(|startup| startup.session_teardown(thread_id));
         let session_for_loop = Arc::clone(&session);
+        let loop_admission = Arc::clone(&session.cleanup_admission);
         let session_loop_handle = tokio::spawn(Box::pin(storage_originator.scope(async move {
             submission_loop(session_for_loop, configured_config, rx_sub)
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
+            loop_admission
+                .loop_completed
+                .store(true, std::sync::atomic::Ordering::Release);
             if let Some(tree_teardown) = tree_teardown {
                 tree_teardown.complete();
             }
         })));
         let io = SessionIo {
+            admission: Arc::clone(&session.cleanup_admission),
             tx_sub,
             rx_event,
             agent_status: agent_status_rx,
@@ -1146,6 +1152,15 @@ impl SessionIo {
 
     /// Use sparingly: prefer `submit()` so submission IDs are generated consistently.
     pub(crate) async fn submit_with_id(&self, mut sub: Submission) -> CodexResult<()> {
+        if sub.residency_guard.is_none() {
+            sub.residency_guard = Some(Arc::clone(&self.admission.gate).read_owned().await);
+        }
+        if self.admission.is_closing() {
+            return Err(CodexErr::InvalidRequest(
+                "thread cleanup has closed input admission".into(),
+            ));
+        }
+        self.admission.touch();
         if sub.trace.is_none() {
             sub.trace = current_span_w3c_trace_context();
         }
@@ -1215,6 +1230,28 @@ impl SessionIo {
         })
         .await?;
         reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+    }
+
+    pub(crate) async fn shutdown_for_cleanup(
+        &self,
+        _owner: &tokio::sync::OwnedRwLockWriteGuard<()>,
+    ) -> CodexResult<()> {
+        let sub = Submission {
+            id: new_submission_id(),
+            op: Op::Shutdown,
+            turn_extension_init: None,
+            trace: None,
+            parent_turn_id: None,
+            root_turn_id: None,
+            residency_guard: None,
+            message_delivery: None,
+        };
+        self.tx_sub
+            .send(sub)
+            .await
+            .map_err(|_| CodexErr::InternalAgentDied)?;
+        self.session_loop_termination.clone().await;
+        Ok(())
     }
 
     pub(crate) async fn shutdown_and_wait(&self) -> CodexResult<()> {

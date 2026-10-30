@@ -4,6 +4,165 @@ use super::thread_processor::unsupported_thread_store_operation;
 use super::*;
 
 impl ThreadRequestProcessor {
+    pub(crate) async fn thread_cleanup_completed(
+        &self,
+        request_id: ConnectionRequestId,
+        params: codex_app_server_protocol::ThreadCleanupCompletedParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let parent = ThreadId::from_string(&params.parent_thread_id)
+            .map_err(|error| invalid_request(format!("invalid parent thread: {error}")))?;
+        let current = ThreadId::from_string(&params.current_thread_id)
+            .map_err(|error| invalid_request(format!("invalid current thread: {error}")))?;
+        if !params.confirmed && !params.selection.is_empty() {
+            return Err(invalid_request(
+                "cleanup selection requires explicit confirmation",
+            ));
+        }
+        let selection: Vec<codex_core::CompletedChildSnapshot> = params
+            .selection
+            .into_iter()
+            .map(|item| {
+                Ok(codex_core::CompletedChildSnapshot {
+                    thread_id: ThreadId::from_string(&item.thread_id).map_err(|error| {
+                        invalid_request(format!("invalid selected thread: {error}"))
+                    })?,
+                    runtime_id: item.runtime_id,
+                    activity_revision: item.activity_revision,
+                    last_turn_id: item.last_turn_id,
+                    terminal_status: item.terminal_status,
+                })
+            })
+            .collect::<Result<_, JSONRPCErrorError>>()?;
+        let manager = Arc::clone(&self.thread_manager);
+        let permit = Arc::clone(&self.thread_list_state_permit)
+            .acquire_owned()
+            .await
+            .map_err(|error| internal_error(format!("failed to reserve thread list: {error}")))?;
+        let outgoing = self.outgoing.clone();
+        let processor = self.clone();
+        // Keep the metadata permit and notifications with the owner on cancellation.
+        let results = tokio::spawn(async move {
+            let _permit = permit;
+            let mut results = manager.preview_completed_children(parent, current).await?;
+            let mut candidates = if params.confirmed {
+                selection
+            } else {
+                results
+                    .iter()
+                    .filter_map(|result| result.snapshot.clone())
+                    .collect()
+            };
+            candidates.sort_by_key(|item| item.thread_id.to_string());
+            if candidates
+                .windows(2)
+                .any(|pair| pair[0].thread_id == pair[1].thread_id)
+            {
+                return Err(codex_protocol::error::CodexErr::InvalidRequest(
+                    "duplicate cleanup selection".into(),
+                ));
+            }
+            let mut queue_guards = Vec::new();
+            let mut goal_resume_guards = Vec::new();
+            let mut goal_guards = Vec::new();
+            let mut accepted = Vec::new();
+            let mut blocked = Vec::new();
+            for candidate in candidates {
+                let id = candidate.thread_id;
+                if id == parent || id == current {
+                    blocked.push((id, "protected"));
+                    continue;
+                }
+                let queue_guard = if let Some(service) = &processor.cleanup_queue_service {
+                    match service.cleanup_guard(id).await.map_err(|error| {
+                        codex_protocol::error::CodexErr::InvalidRequest(error.to_string())
+                    })? {
+                        Some(guard) => Some(guard),
+                        None => {
+                            blocked.push((id, "pending_user_queue"));
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let goal_resume_guard = processor.thread_state_manager.lock_goal_resume(id).await;
+                let Some(goal_guard) = processor
+                    .thread_goal_processor
+                    .cleanup_guard(id)
+                    .await
+                    .map_err(|error| {
+                        codex_protocol::error::CodexErr::InvalidRequest(error.message)
+                    })?
+                else {
+                    blocked.push((id, "unfinished_goal"));
+                    continue;
+                };
+                queue_guards.push(queue_guard);
+                goal_resume_guards.push(goal_resume_guard);
+                goal_guards.push(goal_guard);
+                accepted.push(candidate);
+            }
+            if params.confirmed {
+                results = manager
+                    .cleanup_completed_children(parent, current, accepted)
+                    .await?;
+                results.extend(blocked.into_iter().map(|(id, reason)| {
+                    codex_core::CompletedChildCleanupResult {
+                        thread_id: id,
+                        outcome: reason.into(),
+                        snapshot: None,
+                    }
+                }));
+            } else {
+                for (id, reason) in blocked {
+                    if let Some(result) = results.iter_mut().find(|result| result.thread_id == id) {
+                        result.outcome = reason.into();
+                        result.snapshot = None;
+                    }
+                }
+            }
+            // These per-thread service fences outlive Core's writer shutdown and storage deletion.
+            drop((queue_guards, goal_resume_guards, goal_guards));
+            for result in &results {
+                if result.outcome == "deleted" {
+                    outgoing
+                        .send_server_notification(ServerNotification::ThreadDeleted(
+                            ThreadDeletedNotification {
+                                thread_id: result.thread_id.to_string(),
+                            },
+                        ))
+                        .await;
+                }
+            }
+            Ok::<_, codex_protocol::error::CodexErr>(results)
+        })
+        .await
+        .map_err(|error| internal_error(format!("cleanup owner failed: {error}")))?
+        .map_err(|error| invalid_request(format!("cleanup could not be confirmed: {error}")))?;
+        let response = codex_app_server_protocol::ThreadCleanupCompletedResponse {
+            results: results
+                .into_iter()
+                .map(
+                    |item| codex_app_server_protocol::CompletedChildCleanupResult {
+                        thread_id: item.thread_id.to_string(),
+                        outcome: item.outcome,
+                        snapshot: item.snapshot.map(|item| {
+                            codex_app_server_protocol::CompletedChildSnapshot {
+                                thread_id: item.thread_id.to_string(),
+                                runtime_id: item.runtime_id,
+                                activity_revision: item.activity_revision,
+                                last_turn_id: item.last_turn_id,
+                                terminal_status: item.terminal_status,
+                            }
+                        }),
+                    },
+                )
+                .collect(),
+        };
+        self.outgoing.send_response(request_id, response).await;
+        Ok(None)
+    }
+
     pub(crate) async fn thread_delete(
         &self,
         request_id: ConnectionRequestId,

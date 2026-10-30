@@ -262,6 +262,33 @@ impl QueuedItemService {
         self.dispatch_lock(thread_id).lock_owned().await
     }
 
+    /// Holds the existing per-thread dispatch fence only while the durable queue is empty.
+    pub async fn cleanup_guard(
+        &self,
+        thread_id: ThreadId,
+    ) -> Result<Option<OwnedMutexGuard<()>>, QueueServiceError> {
+        let guard = self.dispatch_guard(thread_id).await;
+        if self.queue.list_page(thread_id, 0, 1).await?.is_empty() {
+            Ok(Some(guard))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn activity_guard(
+        &self,
+        thread_id: ThreadId,
+    ) -> Result<Option<codex_core::ThreadActivityGuard>, QueueServiceError> {
+        self.thread_manager
+            .upgrade()
+            .map(|manager| {
+                manager
+                    .admit_thread_activity(thread_id)
+                    .map_err(QueueServiceError::CoreSubmissionError)
+            })
+            .transpose()
+    }
+
     pub async fn enqueue(
         &self,
         thread_id: ThreadId,
@@ -271,6 +298,7 @@ impl QueuedItemService {
         let payload = serde_json::to_string(&input)?;
         let item = {
             let _dispatch_guard = self.dispatch_guard(thread_id).await;
+            let _activity = self.activity_guard(thread_id)?;
             let item = queued_item_from_record(self.queue.enqueue(thread_id, payload).await?)?;
             self.emit_changed(thread_id);
             item
@@ -305,6 +333,7 @@ impl QueuedItemService {
         mut input: TurnInput,
     ) -> Result<Option<QueuedItem>, QueueServiceError> {
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
+        let _activity = self.activity_guard(thread_id)?;
         if let TurnInput::UserInput { client_id, .. } = &mut input {
             *client_id = self
                 .list(thread_id)
@@ -338,6 +367,7 @@ impl QueuedItemService {
         queued_item_id: String,
     ) -> Result<bool, QueueServiceError> {
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
+        let _activity = self.activity_guard(thread_id)?;
         self.delete_locked(thread_id, queued_item_id).await
     }
 
@@ -359,6 +389,7 @@ impl QueuedItemService {
         ordered_ids: Vec<String>,
     ) -> Result<(), QueueServiceError> {
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
+        let _activity = self.activity_guard(thread_id)?;
         self.queue.reorder(thread_id, ordered_ids).await?;
         self.emit_changed(thread_id);
         Ok(())
@@ -373,6 +404,7 @@ impl QueuedItemService {
     ) -> Result<StartIfIdleSubmission, QueueServiceError> {
         let thread_id = thread.startup_metadata().thread_id;
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
+        let _activity = self.activity_guard(thread_id)?;
         let item = self
             .list(thread_id)
             .await?
@@ -403,6 +435,7 @@ impl QueuedItemService {
     }
 
     async fn dispatch_if_idle(&self, thread_id: ThreadId) -> Result<(), QueueServiceError> {
+        let _activity = self.activity_guard(thread_id)?;
         let Some(manager) = self.thread_manager.upgrade() else {
             return Ok(());
         };

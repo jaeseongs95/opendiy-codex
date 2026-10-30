@@ -60,7 +60,7 @@ impl ThreadManagerState {
         tokio::spawn(async move {
             let _residency_guard = residency_guard;
             thread.ensure_rollout_materialized().await;
-            if let Err(err) = thread.shutdown_and_wait().await {
+            if let Err(err) = thread.io.shutdown_for_cleanup(&_residency_guard).await {
                 teardown.record_shutdown_failure("stop_resident", CodexErrKind::from(&err).into());
                 teardown.complete();
                 return Err(err);
@@ -280,7 +280,7 @@ impl V2Residency {
         touch_resident(&mut state.residents, thread_id);
     }
 
-    fn remove(&self, thread_id: ThreadId) {
+    pub(super) fn remove(&self, thread_id: ThreadId) {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

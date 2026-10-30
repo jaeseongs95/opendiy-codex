@@ -56,7 +56,7 @@ struct GoalRuntimeInner {
     enabled: AtomicBool,
     tools_available_for_thread: bool,
     tools_visible_for_thread: bool,
-    goal_state_lock: Semaphore,
+    goal_state_lock: Arc<Semaphore>,
 }
 
 pub(crate) struct AccountedGoalProgress {
@@ -110,7 +110,7 @@ impl GoalRuntimeHandle {
                 enabled: AtomicBool::new(config.enabled),
                 tools_available_for_thread: config.tools_available_for_thread,
                 tools_visible_for_thread: config.tools_visible_for_thread,
-                goal_state_lock: Semaphore::new(/*permits*/ 1),
+                goal_state_lock: Arc::new(Semaphore::new(/*permits*/ 1)),
             }),
         }
     }
@@ -151,6 +151,39 @@ impl GoalRuntimeHandle {
             return;
         };
         thread.thread_extension_data().remove::<TurnStartOptions>();
+    }
+
+    pub(crate) async fn cleanup_guard(
+        &self,
+    ) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, String> {
+        let permit = Arc::clone(&self.inner.goal_state_lock)
+            .acquire_owned()
+            .await
+            .map_err(|error| error.to_string())?;
+        if self.inner.accounting_state.current_turn_id().is_some() {
+            return Ok(None);
+        }
+        if self
+            .inner
+            .state_dbs
+            .thread_goals()
+            .has_thread_goal_continuation_deferral(self.thread_id())
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            return Ok(None);
+        }
+        let goal = self
+            .inner
+            .state_dbs
+            .thread_goals()
+            .get_thread_goal(self.thread_id())
+            .await
+            .map_err(|error| error.to_string())?;
+        if goal.is_some_and(|goal| goal.status != codex_state::ThreadGoalStatus::Complete) {
+            return Ok(None);
+        }
+        Ok(Some(permit))
     }
 
     pub(crate) async fn goal_state_permit(&self) -> Result<SemaphorePermit<'_>, String> {
