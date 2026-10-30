@@ -213,6 +213,16 @@ async fn assert_session_tier_selection(command: &str, tier: &str) -> Result<()> 
 #[tokio::test]
 async fn fast_selection_failure_unsupported_queue_ack_and_lost_reply_preserve_local_state()
 -> Result<()> {
+    assert_failed_session_tier_selection("fast").await
+}
+
+#[tokio::test]
+async fn ultrafast_selection_failure_unsupported_queue_ack_and_lost_reply_preserve_local_state()
+-> Result<()> {
+    assert_failed_session_tier_selection("ultrafast").await
+}
+
+async fn assert_failed_session_tier_selection(command: &str) -> Result<()> {
     for capability in [
         HistoryCapabilities::ThreadSettingsUpdateUnsupported,
         HistoryCapabilities::ThreadSettingsUpdateFails,
@@ -222,7 +232,12 @@ async fn fast_selection_failure_unsupported_queue_ack_and_lost_reply_preserve_lo
         HistoryCapabilities::ThreadSettingsUpdateMalformed,
     ] {
         let (mut app, mut events, _) = make_test_app_with_channels().await;
-        app.config.model = Some("gpt-5.4".into());
+        let model = if command == "ultrafast" {
+            "gpt-6.1-sol"
+        } else {
+            "gpt-5.4"
+        };
+        app.config.model = Some(model.into());
         app.config.service_tier = Some("flex".into());
         let file = app.config.codex_home.join("config.toml");
         let original = "service_tier = 'flex'\n";
@@ -243,7 +258,20 @@ async fn fast_selection_failure_unsupported_queue_ack_and_lost_reply_preserve_lo
         let cache_before = app.primary_session_configured.clone();
         while events.try_recv().is_ok() {}
         requests.lock().unwrap().clear();
-        app.chat_widget.toggle_fast_mode_from_ui();
+        if command == "ultrafast" {
+            set_ultrafast_mode_test_catalog(&mut app.chat_widget, model);
+            app.chat_widget.set_model(model);
+            app.chat_widget
+                .set_feature_enabled(Feature::UltrafastMode, true);
+            app.chat_widget.bottom_pane.set_composer_text(
+                format!("/{command}"),
+                Vec::new(),
+                Vec::new(),
+            );
+            app.chat_widget.handle_key_event(KeyCode::Enter.into());
+        } else {
+            app.chat_widget.toggle_fast_mode_from_ui();
+        }
         app.chat_widget
             .apply_external_edit("follow-up after tier selection".into());
         app.chat_widget.handle_key_event(KeyCode::Enter.into());
