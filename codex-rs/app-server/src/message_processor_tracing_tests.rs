@@ -248,7 +248,7 @@ pub(super) async fn build_test_processor(
 pub(super) async fn build_test_processor_with_state_db(
     config: Arc<Config>,
     auth_manager: Arc<AuthManager>,
-    state_db: Option<StateDbHandle>,
+    state_db: Option<codex_core::StateDbHandle>,
 ) -> (
     Arc<MessageProcessor>,
     mpsc::Receiver<crate::outgoing_message::OutgoingEnvelope>,
