@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Status output and setup controls for `ChatWidget`.
 //!
 //! Rendering details live in `status_surfaces`; this module owns the mutable

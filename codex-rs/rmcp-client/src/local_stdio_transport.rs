@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Protocol framing and child lifetime for locally spawned MCP servers.
 //!
 //! Process creation is platform-specific; protocol selection and shutdown are shared.

@@ -7008,6 +7008,13 @@
       },
       "type": "object"
     },
+    "UiLanguage": {
+      "enum": [
+        "ko",
+        "en"
+      ],
+      "type": "string"
+    },
     "UpdatePlanToolConfig": {
       "additionalProperties": false,
       "properties": {
@@ -8383,6 +8390,14 @@
         }
       ],
       "description": "Collection of settings that are specific to the TUI."
+    },
+    "ui_language": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/UiLanguage"
+        }
+      ],
+      "description": "Client display language. Only the base $CODEX_HOME/config.toml value is used;\nproject, profile, CLI and remote values shown by merged config inspection are ignored.\nDefaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process."
     },
     "web_search": {
       "allOf": [

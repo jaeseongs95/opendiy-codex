@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use crate::TurnInputRequest;
 use crate::TurnInputSubmission;
 use crate::TurnStartOptions;
@@ -264,6 +265,7 @@ impl LocalAgentControl {
         context: AgentCommunicationContext,
         start_options: TurnStartOptions,
     ) -> CodexResult<String> {
+        let _cleanup_admission = state.cleanup_admission.admit([agent_id])?;
         let observers = state.extensions.message_lifecycle_contributors();
         let delivery = (!observers.is_empty()).then(|| {
             let message_id = communication

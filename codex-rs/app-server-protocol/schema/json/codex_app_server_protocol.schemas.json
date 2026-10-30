@@ -253,6 +253,31 @@
           "type": "object"
         },
         {
+          "description": "Observe only an already loaded runtime with an existing listener. Does not resume work.",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subscribePassive"
+              ],
+              "title": "Thread/subscribePassiveRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/ThreadSubscribePassiveParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subscribePassiveRequest",
+          "type": "object"
+        },
+        {
           "properties": {
             "id": {
               "$ref": "#/definitions/v2/RequestId"
@@ -322,6 +347,30 @@
             "params"
           ],
           "title": "Thread/archiveRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/cleanupCompleted"
+              ],
+              "title": "Thread/cleanupCompletedRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/ThreadCleanupCompletedParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/cleanupCompletedRequest",
           "type": "object"
         },
         {
@@ -1764,6 +1813,31 @@
             "params"
           ],
           "title": "Turn/startIfIdleRequest",
+          "type": "object"
+        },
+        {
+          "description": "Accept explicit user input only when idle. Never steers or wakes pending work on refusal. A lost response leaves the outcome unknown; clientUserMessageId is not a deduplication key.",
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "turn/startUserIfIdle"
+              ],
+              "title": "Turn/startUserIfIdleRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/TurnStartParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Turn/startUserIfIdleRequest",
           "type": "object"
         },
         {
@@ -9344,6 +9418,60 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "CompletedChildCleanupResult": {
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/CompletedChildSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "threadId"
+        ],
+        "type": "object"
+      },
+      "CompletedChildSnapshot": {
+        "properties": {
+          "activityRevision": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "lastTurnId": {
+            "type": "string"
+          },
+          "runtimeId": {
+            "type": "string"
+          },
+          "terminalStatus": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "activityRevision",
+          "lastTurnId",
+          "runtimeId",
+          "terminalStatus",
+          "threadId"
         ],
         "type": "object"
       },
@@ -21847,6 +21975,51 @@
         "title": "ThreadAttachmentUpdatedNotification",
         "type": "object"
       },
+      "ThreadCleanupCompletedParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Read-only by default. Confirmation must echo the exact preview snapshots.",
+        "properties": {
+          "confirmed": {
+            "default": false,
+            "type": "boolean"
+          },
+          "currentThreadId": {
+            "type": "string"
+          },
+          "parentThreadId": {
+            "type": "string"
+          },
+          "selection": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/CompletedChildSnapshot"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "currentThreadId",
+          "parentThreadId"
+        ],
+        "title": "ThreadCleanupCompletedParams",
+        "type": "object"
+      },
+      "ThreadCleanupCompletedResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/definitions/v2/CompletedChildCleanupResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "ThreadCleanupCompletedResponse",
+        "type": "object"
+      },
       "ThreadClosedNotification": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
@@ -25589,6 +25762,21 @@
           "threadId"
         ],
         "title": "ThreadStatusChangedNotification",
+        "type": "object"
+      },
+      "ThreadSubscribePassiveParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "description": "Observe an already loaded thread with an existing listener, without resuming work.",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ],
+        "title": "ThreadSubscribePassiveParams",
         "type": "object"
       },
       "ThreadTimelineEntry": {

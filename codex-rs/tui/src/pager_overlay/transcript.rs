@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Standalone transcript chrome around the same viewport used by the main conversation.
 //!
 //! Inline Ctrl+T and the resume preview own their cells here. The viewport exclusively owns

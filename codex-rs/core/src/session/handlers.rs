@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::Submission;
 use crate::WithTurnExtensionData;
 use crate::realtime_conversation::handle_audio as handle_realtime_conversation_audio;
@@ -301,7 +301,9 @@ pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
     if let Some(startup_prewarm) = startup_prewarm {
         startup_prewarm.abort().await;
     }
-    let _ = sess.conversation.shutdown().await;
+    if sess.conversation.shutdown().await.is_err() {
+        sess.cleanup_admission.shutdown_failed();
+    }
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
     super::async_compaction::shutdown(sess).await;
     let shell_snapshot_prewarm = sess.state.lock().await.shell_snapshot_prewarm.take();
@@ -317,6 +319,7 @@ pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
         .terminate_all_processes()
         .await;
     if let Err(err) = sess.services.code_mode_service.shutdown().await {
+        sess.cleanup_admission.shutdown_failed();
         sess.services.local_agent_runtime.record_shutdown_failure(
             AgentTreeShutdownFailure::operation_failed(
                 "session_shutdown",
@@ -332,6 +335,7 @@ pub(super) async fn shutdown_session_runtime(sess: &Arc<Session>) {
         let _refresh = sess.mcp_refresh.acquire().await;
         sess.mcp_refresh.close();
         if let Err(error) = sess.services.mcp_runtime.shutdown().await {
+            sess.cleanup_admission.shutdown_failed();
             sess.services.local_agent_runtime.record_shutdown_failure(
                 AgentTreeShutdownFailure::operation_failed(
                     "session_shutdown",
@@ -380,6 +384,7 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     if let Some(live_thread) = sess.live_thread()
         && let Err(e) = live_thread.shutdown().await
     {
+        sess.cleanup_admission.shutdown_failed();
         sess.services.local_agent_runtime.record_shutdown_failure(
             AgentTreeShutdownFailure::operation_failed(
                 "session_shutdown",
@@ -400,6 +405,7 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
         sess.send_event_raw(event).await;
     }
 
+    sess.cleanup_admission.shutdown_finished();
     let event = Event {
         id: sub_id,
         msg: EventMsg::ShutdownComplete,
@@ -776,6 +782,7 @@ pub(super) async fn submission_loop(
         if let Some(live_thread) = sess.live_thread()
             && let Err(err) = live_thread.shutdown().await
         {
+            sess.cleanup_admission.shutdown_failed();
             sess.services.local_agent_runtime.record_shutdown_failure(
                 AgentTreeShutdownFailure::operation_failed(
                     "session_shutdown",

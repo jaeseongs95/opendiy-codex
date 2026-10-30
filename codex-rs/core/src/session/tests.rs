@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use crate::agent::LocalAgentControl;
 #[path = "notification_tests.rs"]
 mod notification_tests;
@@ -8245,6 +8245,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
     let (tx_sub, rx_sub) = async_channel::bounded(1);
     let (_tx_event, rx_event) = async_channel::unbounded();
     let io = SessionIo {
+        admission: Arc::default(),
         tx_sub,
         rx_event,
         agent_status: watch::channel(AgentStatus::PendingInit).1,
@@ -9083,6 +9084,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
         tokio::time::sleep(StdDuration::from_millis(50)).await;
     });
     let io = Arc::new(SessionIo {
+        admission: Arc::default(),
         tx_sub,
         rx_event,
         agent_status: watch::channel(AgentStatus::PendingInit).1,
@@ -9119,6 +9121,7 @@ async fn shutdown_and_wait_waits_when_shutdown_is_already_in_progress() {
         let _ = shutdown_complete_rx.await;
     });
     let io = Arc::new(SessionIo {
+        admission: Arc::default(),
         tx_sub,
         rx_event,
         agent_status: watch::channel(AgentStatus::PendingInit).1,
@@ -13705,4 +13708,68 @@ async fn rejected_mcp_refresh_then_corrected_user_config_blocks_ordinary_replace
             .is_some_and(|server| server.enabled),
         "rejection must not permit same-name ordinary-auth replacement in this session"
     );
+}
+
+#[tokio::test]
+async fn strict_idle_submission_io_does_not_touch_revision_before_acceptance() {
+    let (tx_sub, rx_sub) = async_channel::bounded(1);
+    drop(rx_sub);
+    let (_tx_event, rx_event) = async_channel::unbounded();
+    let io = SessionIo {
+        admission: Arc::default(),
+        tx_sub,
+        rx_event,
+        agent_status: watch::channel(AgentStatus::PendingInit).1,
+        session_loop_termination: completed_session_loop_termination(),
+    };
+    let before = io.admission.activity_revision();
+    assert!(
+        io.submit_turn_input(
+            codex_protocol::turn_input::TurnInputRequest::user_input(vec![UserInput::Text {
+                text: "unavailable".into(),
+                text_elements: Vec::new(),
+            }]),
+            codex_protocol::turn_input::TurnInputMode::StartUserIfIdle,
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(io.admission.activity_revision(), before);
+    // Existing submit behavior remains unchanged for ordinary idle starts.
+    assert!(
+        io.submit_turn_input(
+            codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
+            codex_protocol::turn_input::TurnInputMode::StartIfIdle,
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(io.admission.activity_revision(), before + 1);
+}
+
+#[tokio::test]
+async fn strict_context_commit_validates_before_publishing_any_settings() {
+    let (session, _, _rx) = make_session_and_context_with_rx().await;
+    let before = session.thread_settings_snapshot().await;
+    let revision = session.cleanup_admission.activity_revision();
+    // This calls the actual strict context owner, including its pre-commit
+    // metadata refresh and update_settings_if validation, not a mock verdict.
+    let result = session
+        .new_user_turn_with_sub_id(
+            "invalid-strict-context".into(),
+            SessionSettingsUpdate {
+                model_context_window: Some(Some(i64::MAX)),
+                step_settings: StepSettingsUpdate {
+                    approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Default::default(),
+        )
+        .await;
+    assert!(result.is_err());
+    assert_eq!(session.thread_settings_snapshot().await, before);
+    assert_eq!(session.cleanup_admission.activity_revision(), revision);
+    assert!(session.active_turn.lock().await.is_none());
 }

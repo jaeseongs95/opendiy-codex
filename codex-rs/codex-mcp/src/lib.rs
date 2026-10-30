@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 pub use binding::McpBinding;
 pub use binding::PreparedMcpCall;
 pub use client_capabilities::client_mcp_extensions;
@@ -32,6 +32,8 @@ pub use runtime::McpRuntimeInput;
 pub use runtime::McpStartupPolicy;
 pub use runtime::McpToolCallResult;
 pub use runtime::apply_http_headers_helper;
+#[cfg(feature = "test-support")]
+pub use runtime::test_support;
 pub use sandbox_metadata::MCP_SANDBOX_LAUNCHER_META_KEY;
 pub use sandbox_metadata::MCP_SANDBOX_STATE_CAPABILITY;
 pub use sandbox_metadata::MCP_SANDBOX_STATE_META_CAPABILITY;

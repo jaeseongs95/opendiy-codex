@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 mod application_requirements;
 mod application_storage_requirements;
 mod auth_policy;
@@ -54,6 +54,7 @@ mod tui_keymap;
 mod tui_mouse_scroll;
 mod tui_rendering;
 pub mod types;
+pub mod ui_language;
 
 pub const CONFIG_TOML_FILE: &str = "config.toml";
 

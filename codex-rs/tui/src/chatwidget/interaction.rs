@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Key routing and composer-adjacent UI interaction for `ChatWidget`.
 
 use super::clipboard::PendingCopy;

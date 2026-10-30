@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::responses_error::parse_failed_response;
 use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseEvent;

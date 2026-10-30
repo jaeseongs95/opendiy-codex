@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use codex_agent_extension::AgentInvocation;
@@ -147,6 +147,13 @@ struct ThreadSettingsBuildParams {
     personality: Option<Personality>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TurnStartMode {
+    StartOrSteer,
+    IfIdle,
+    UserIfIdle,
+}
+
 impl TurnRequestProcessor {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -193,7 +200,7 @@ impl TurnRequestProcessor {
                 params,
                 app_server_client_name,
                 app_server_client_version,
-                false,
+                TurnStartMode::StartOrSteer,
             )
             .await?
         {
@@ -222,10 +229,32 @@ impl TurnRequestProcessor {
             },
             app_server_client_name,
             app_server_client_version,
-            true,
+            TurnStartMode::IfIdle,
         )
         .await
         .map(|response| Some(response.into()))
+    }
+
+    pub(crate) async fn turn_start_user_if_idle(
+        &self,
+        request_id: ConnectionRequestId,
+        mut params: TurnStartParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        if params.tool_output.is_some() || params.input.is_empty() {
+            return Err(invalid_request(
+                "turn/startUserIfIdle requires nonempty user input and rejects toolOutput",
+            ));
+        }
+        if params.parent_turn_id.is_some() || params.root_turn_id.is_some() {
+            return Err(invalid_request(
+                "turn/startUserIfIdle cannot supply parent/root lineage",
+            ));
+        }
+        validate_user_input_image_urls(&params.input)?;
+        params.turn_trigger = Some("user".into());
+        self.turn_start_inner(request_id, params, None, None, TurnStartMode::UserIfIdle)
+            .await
+            .map(|response| Some(ClientResponsePayload::TurnStartUserIfIdle(response)))
     }
 
     pub(crate) async fn thread_inject_items(
@@ -564,7 +593,7 @@ impl TurnRequestProcessor {
         params: TurnStartParams,
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
-        only_if_idle: bool,
+        mode: TurnStartMode,
     ) -> Result<TurnStartIfIdleResponse, JSONRPCErrorError> {
         let (thread_id, thread) =
             self.load_thread(&params.thread_id)
@@ -617,15 +646,17 @@ impl TurnRequestProcessor {
             );
             return Err(error);
         }
-        Self::set_app_server_client_info(
-            thread.as_ref(),
-            app_server_client_name,
-            app_server_client_version,
-        )
-        .await
-        .inspect_err(|error| {
-            self.track_error_response(&request_id, error, /*error_type*/ None);
-        })?;
+        if mode != TurnStartMode::UserIfIdle {
+            Self::set_app_server_client_info(
+                thread.as_ref(),
+                app_server_client_name,
+                app_server_client_version,
+            )
+            .await
+            .inspect_err(|error| {
+                self.track_error_response(&request_id, error, /*error_type*/ None);
+            })?;
+        }
         let runtime_workspace_roots = params
             .runtime_workspace_roots
             .map(resolve_runtime_workspace_roots);
@@ -711,22 +742,24 @@ impl TurnRequestProcessor {
             .with_responses_metadata(params.responsesapi_client_metadata)
             .with_responses_metadata_patch(params.responsesapi_client_metadata_patch)
             .with_trace(self.request_trace_context(&request_id).await);
-        let submission = if only_if_idle {
-            thread
-                .start_turn_if_idle(input_request)
-                .await
-                .map(|submission| match submission {
-                    StartIfIdleSubmission::Started {
-                        turn_id,
-                        root_turn_id,
-                    } => TurnInputSubmission::Started {
-                        turn_id,
-                        root_turn_id,
-                    },
-                    StartIfIdleSubmission::NotSubmitted { reason } => {
-                        TurnInputSubmission::NotSubmitted { reason }
-                    }
-                })
+        let submission = if mode != TurnStartMode::StartOrSteer {
+            let submission = if mode == TurnStartMode::UserIfIdle {
+                thread.start_user_turn_if_idle(input_request).await
+            } else {
+                thread.start_turn_if_idle(input_request).await
+            };
+            submission.map(|submission| match submission {
+                StartIfIdleSubmission::Started {
+                    turn_id,
+                    root_turn_id,
+                } => TurnInputSubmission::Started {
+                    turn_id,
+                    root_turn_id,
+                },
+                StartIfIdleSubmission::NotSubmitted { reason } => {
+                    TurnInputSubmission::NotSubmitted { reason }
+                }
+            })
         } else {
             thread.start_or_steer_turn(input_request).await
         }
@@ -745,7 +778,7 @@ impl TurnRequestProcessor {
                 root_turn_id,
             } => (turn_id, root_turn_id, false),
             TurnInputSubmission::NotSubmitted { reason } => {
-                if only_if_idle {
+                if mode != TurnStartMode::StartOrSteer {
                     return Ok(match reason {
                         NotSubmittedReason::NotIdle | NotSubmittedReason::PendingTriggerTurn => {
                             TurnStartIfIdleResponse::SkippedBusy

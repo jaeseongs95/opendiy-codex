@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 use async_channel::bounded;
 use codex_extension_api::ExtensionFuture;
@@ -43,6 +44,7 @@ async fn forward_events_filters_private_events_before_blocked_send_is_cancelled(
     let (tx_sub, rx_sub) = bounded(SUBMISSION_CHANNEL_CAPACITY);
     let (_agent_status_tx, agent_status) = watch::channel(AgentStatus::PendingInit);
     let io = Arc::new(SessionIo {
+        admission: Arc::default(),
         tx_sub,
         rx_event: rx_events,
         agent_status,
@@ -141,6 +143,7 @@ async fn forward_ops_preserves_submission_trace_context() {
     let (_tx_events, rx_events) = bounded(SUBMISSION_CHANNEL_CAPACITY);
     let (_agent_status_tx, agent_status) = watch::channel(AgentStatus::PendingInit);
     let io = Arc::new(SessionIo {
+        admission: Arc::default(),
         tx_sub,
         rx_event: rx_events,
         agent_status,

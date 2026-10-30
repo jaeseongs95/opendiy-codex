@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Queue native terminal output behind unfinished dynamic tools.
 //! Fullscreen rendering reads retained cells directly and never queues terminal output.
 //!

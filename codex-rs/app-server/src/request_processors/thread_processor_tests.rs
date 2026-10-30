@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_thread_store::ThreadStoreError;
 use pretty_assertions::assert_eq;

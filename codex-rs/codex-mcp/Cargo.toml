@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 [package]
 edition.workspace = true
 license.workspace = true
@@ -11,6 +12,9 @@ doctest = false
 
 [lints]
 workspace = true
+
+[features]
+test-support = []
 
 [dependencies]
 anyhow = { workspace = true }

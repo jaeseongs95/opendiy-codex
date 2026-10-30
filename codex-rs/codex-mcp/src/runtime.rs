@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Runtime support for Model Context Protocol (MCP) servers.
 //!
 //! This module contains the thread-owned MCP runtime and data that describes the
@@ -105,6 +105,10 @@ pub struct McpRuntimeInput {
     pub elicitation_reviewer: Option<ElicitationReviewerHandle>,
     pub elicitation_lifecycle: Option<ElicitationLifecycle>,
 }
+
+#[cfg(feature = "test-support")]
+#[path = "runtime/test_support.rs"]
+pub mod test_support;
 
 /// Owns all mutable MCP state for one Codex thread.
 ///

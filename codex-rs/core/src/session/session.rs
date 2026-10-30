@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::input_queue::InputQueue;
 use super::mcp_refresh::McpRefresh;
 use super::retained_context::CodeModeMessageTasks;
@@ -59,6 +59,7 @@ type McpToolApprovalMetadataMap =
 ///
 /// A session has at most 1 running task at a time, and can be interrupted by user input.
 pub(crate) struct Session {
+    pub(crate) cleanup_admission: Arc<crate::thread_manager::cleanup::RuntimeAdmission>,
     pub(crate) thread_id: ThreadId,
     pub(crate) installation_id: String,
     pub(super) tx_event: Sender<Event>,
@@ -695,6 +696,19 @@ async fn warm_plugins_and_skills_for_session_init(
 }
 
 impl Session {
+    pub(crate) async fn cleanup_last_started_turn(&self) -> Option<String> {
+        self.state.lock().await.last_started_turn_id.clone()
+    }
+    pub(crate) async fn close_for_cleanup(&self) -> bool {
+        let active = self.active_turn.lock().await;
+        if active.is_some() || self.cleanup_admission.is_closing() {
+            return false;
+        }
+        self.cleanup_admission.close();
+        self.state.lock().await.shutting_down = true;
+        true
+    }
+
     pub(super) async fn effective_thread_config_snapshot(
         &self,
         configuration: &SessionConfiguration,
@@ -1916,6 +1930,7 @@ impl Session {
                 .then(|| Mutex::new(Default::default())),
                 active_turn: Mutex::new(None),
                 async_hook_results,
+                cleanup_admission: Arc::default(),
                 input_queue: InputQueue::with_controller(
                     thread_id,
                     Arc::clone(&services.agent_control),

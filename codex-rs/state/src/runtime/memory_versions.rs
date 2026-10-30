@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Creates isolated v2 memory state on demand while sharing the source thread catalog.
 //! Legacy reset and thread deletion cover all existing global versions.
 //! Project stores own their pools without a process-wide scope cache.

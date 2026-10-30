@@ -1,8 +1,16 @@
 # Official 0.165.0 local modifications
 
-OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `af098cef617d62fdfce51d5e1fbd0afb4533f75d`. The source version is `0.165.0+native-r29.20261030`. Upstream LICENSE, NOTICE and third-party notices are retained.
+OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `acd529ffc1a75272cc7d23c9d932a19342f82609`. The source version is `0.165.0+native-r30.20261030`. Upstream LICENSE, NOTICE and third-party notices are retained.
 
-## R29 선별 이식 후보
+## R30 고정 후보 — 검증 중
+
+R30 고정 후보 `acd529ffc1a75272cc7d23c9d932a19342f82609`는 공식 0.165.0 기반 R29 위에 정리 수명·자연어 예약 연결·세션별 `ultrafast`·전역 화면 언어 선택과 실행 없는 수동 구독·사용자 원자 입력 코드를 포함한 소스이며, 버전은 `0.165.0+native-r30.20261030`이다. 공식 0.166 전체 기반으로 전환한 소스가 아니다. R29 `af098ce` 이후 94파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 445파일이다. `2dd87db34`의 창 없는 시험 실행 2곳과 `df11ae498`의 구독 오류 분류 8곳을 포함하며, `acd529ffc`는 그 뒤 수동 구독 시험 한 파일의 형식 수정만 더한 후보다. 지정한 Git 객체 이후의 변경과 실시간 작업트리의 미커밋 변경은 포함하지 않는다. 검증 중인 후보로, 실제 정리 효과·설치·모바일 동작 완료를 뜻하지 않는다.
+
+`07de3b0d3`의 `codex-app-server-protocol` 스키마 시험 컴파일은 종료 코드 0이었다. 같은 소스의 저장 스키마 비교에서 TypeScript와 JSON이 각각 1개 실패해 종료 코드 101이었고, 이어 공식 일반·실험 스키마 생성은 각각 1개 통과·종료 코드 0이었다. 생성된 9파일은 `eab7c72d6`의 수동 구독 시험 보강까지 포함한 `13b5532c0`에 고정했다. `2dd87db34`의 프로토콜 전체 시험은 323개 통과·0개 실패·생성 전용 1개 무시, 종료 코드 0이었다. `2dd87db34`와 `acd529ffc` 사이의 프로토콜 소스 차이는 없었다. `df11ae498`의 전체 시험 컴파일 `compile04`는 수동 구독 시험의 형식 오류 10건으로 종료 코드 101이었다. 수정 후보 `acd529ffc`는 `compile05` 성공 시 `run05`를 잇는 백그라운드 실행이 진행 중이며, 컴파일 성공과 후속 시험 결과는 아직 확인되지 않았다. 앞선 결과는 최종 고정 소스의 전체 재컴파일·동적 시험 완료를 뜻하지 않는다. 언어·MCP·정리 수명·공동 입력 인터페이스의 최종 동적 시험과 전체 독립감사·설치·모바일 검증은 미완료다. 공개 사본의 제품 빌드·실행 결과를 주장하지 않는다.
+
+이전 R30 부분시험 이력: `1253c2014`의 통합 시험 컴파일은 TUI 시험의 비공개 필드 접근 2건으로 종료 코드 101이었다. 같은 컴파일에서 생성된 실행 파일로 스키마 시험 4개 통과·0개 실패·1개 무시와 CLI 정리 인자 시험 1개 통과·0개 실패를 확인했다. `bc1db4b14`는 해당 TUI 시험을 공개 입력 경계로 바꾼 후속 수정이며 이 소스 갱신 시점에는 재컴파일 전이다. `6855f4fd3`의 전역 언어 변경, `f120854c8`의 MCP 정리 경계 시험, 정리 수명 동적 시험, 후속 공동 입력 인터페이스·최종 독립감사·설치·모바일 검증은 미완료다. 앞선 R29 결과를 R30의 통과 근거로 재사용하지 않으며, 공개 사본의 제품 빌드·실행 결과를 주장하지 않는다.
+
+## R29 선별 이식 이력
 
 R29 고정 소스 `af098cef617d62fdfce51d5e1fbd0afb4533f75d`는 공식 0.165.0 기반에 공식 0.166 변경 5개만 선별 이식한 후보다. 전체 0.166 기반으로 전환하지 않았으며 버전 표기는 `0.165.0+native-r29.20261030`이다. 이전 `67404f4` 이후 34파일이 바뀌었고 공식 0.165.0 대비 수정 목록은 394파일이다. 제품 로직의 마지막 변경은 `159017bd9`이며, 이후에는 `3fdd3c3`의 Windows 알림 시험과 `af098ce`의 버전 표기만 바뀌었다. `159017bd9`에서 단위시험 11그룹 802개 통과·0개 실패·프로토콜 무시 1개와 표적 통합시험 5개 통과·0개 실패를 확인했다. `3fdd3c3`에서 Windows 알림 경계 시험 1개 통과·0개 실패·무시 0개와 실행 전후 원본 입력 불변을 확인했다. 최종 `af098ce`에서는 버전 표기 168곳 치환과 오프라인 잠금 메타데이터 검사 종료 코드 0을 확인했다. 이 결과는 808개 시험을 최종 커밋에서 전량 재실행했다는 뜻이 아니다. 이번 소스 갱신 시점에는 최적화 빌드가 진행 중이며, 새 실행 파일의 검증·제품 독립감사·설치는 미완료다. 공개 사본의 새 빌드·실행 결과나 실제 캐시율·장기 부하 개선 측정 결과는 아니다.
 
@@ -14,17 +22,26 @@ R29 고정 소스 `af098cef617d62fdfce51d5e1fbd0afb4533f75d`는 공식 0.165.0 �
 | `04e365c69` | `6a405165c` | 스트림 준비 뒤 샘플링 프롬프트 보유 해제 |
 | `c62e9df39` | `159017bd9` | 재개·분기 때 추론 토큰 회계 보존 |
 
-`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 394 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
+`upstream/official-0.165.0.patch` contains only the selected public source changes. `SOURCE_BASELINE.json` and `upstream/source-inventory.json` identify all 445 modified source/build-tool files and every exported Git blob. No local Git history is imported. The existing project README prose is retained with one current-source link added to each language; root LICENSE/NOTICE remain byte-for-byte unchanged. The r22 description is historical. This document and SOURCE_BASELINE identify the current source snapshot.
 
 The changes cover MCP request cancellation and process ownership/cleanup, configuration and reload boundaries, capacity retry/trace ownership, background terminal startup yielding, cache observation, scheduled TUI work, terminal controls and related regression tests. `tools/windows-cli` contains packaging source and its disposable test fixture. This is a source export, not an installable desktop release or a claim that live-app latency, resource growth or all regressions are resolved.
 
 아래 예약 도구 연결·설치 기록은 이전 고정 소스 `67404f4`의 이력입니다. 새 R29 후보의 설치·실행 결과가 아닙니다. 기존 R28 실행 파일은 보존하고 사용자 승인 후 새 패키지의 명령줄 바로가기·기본 공유 서버로 전환했습니다. 실제 모델이 자연어 요청에서 도구를 선택하는 평가는 실행하지 않았습니다. 기존 예약 실행기를 재사용하고 취소·중복 전달 경계를 보강하는 변경과 사용 안내는 [CLI 예약 실행](docs/native-cli-cron.ko.md)에 정리했습니다. 이 설치 전환을 기능 전체의 검증·운영 배포 완료로 해석하면 안 됩니다.
 
-The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 394-file modification/provenance list.
+The root .gitattributes preserves the public repository's existing rules and merges the pinned source rules for generated schemas and LF source/build inputs; checks/.gitattributes is excluded. This merged source input is included in the 445-file modification/provenance list.
 
 Modified Rust, TOML/lock, Python and tool configuration files carry a dated OpenDIY modification comment. Markdown notices are limited to documentation under `docs/`; runtime prompt templates keep their exact source bytes. `sourceSha256` records the pinned Git blob; `publishedSha256` records canonical published Git bytes, including those comments and the root attributes merge. The published bytes therefore differ from the private build input and are not claimed to reproduce a previously built executable. Inventory hashes describe committed Git bytes, not every physical Windows checkout byte. For the 38 recorded embedded prompt inputs, `upstream/windows-prompt-inputs.json` separately records canonical Git-blob SHA-256 and the pinned Windows source-input SHA-256. Only those paths override the existing `* -text` rule with native `text` EOL handling; Linux is not forced to CRLF. On Windows, the verifier checks the actual raw prompt bytes against the Windows hashes before comparing normalized Git bytes. These 38 inputs match the pinned private source input; this is not a whole-binary reproducibility claim. For generated TypeScript/JSON, compressed schema resources and snapshots, the data remains byte-exact and the following list is the external modification notice. Generated TypeScript must keep the actual GENERATED_TS_HEADER at byte zero: the original Rust schema comparison strips that exact prefix and compares the remaining serialized content. A prepended local notice breaks this contract even though it is a valid TypeScript comment. The exporter therefore leaves generated TypeScript exactly equal to the pinned source, without weakening the Rust comparison. Other data formats/snapshots also retain their original byte representation:
 
 - `codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubscribePassiveParams.ts`
+- `codex-rs/app-server-protocol/schema/json/v2/ThreadSubscribePassiveParams.json`
+- `codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildCleanupResult.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildSnapshot.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedParams.ts`
+- `codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedResponse.ts`
+- `codex-rs/app-server-protocol/schema/json/v2/ThreadCleanupCompletedParams.json`
+- `codex-rs/app-server-protocol/schema/json/v2/ThreadCleanupCompletedResponse.json`
+- `codex-rs/core/config.schema.json`
 - `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts`
 - `codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts`
 - `codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts`

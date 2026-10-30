@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
@@ -517,7 +517,7 @@ impl MessageProcessor {
             Arc::clone(&thread_store),
             outgoing.clone(),
             config_manager.clone(),
-            queue_service,
+            queue_service.clone(),
         );
         let project_processor = ProjectRequestProcessor::new(
             Arc::clone(&thread_store),
@@ -537,6 +537,7 @@ impl MessageProcessor {
             thread_watch_manager.clone(),
             Arc::clone(&thread_list_state_permit),
             thread_goal_processor.clone(),
+            queue_service,
             state_db.clone(),
             log_db,
             Arc::clone(&skills_watcher),
@@ -1063,10 +1064,12 @@ impl MessageProcessor {
             | ClientRequest::ThreadSettingsUpdate { .. }
             | ClientRequest::TurnSettingsUpdate { .. }
             | ClientRequest::ThreadDelete { .. }
+            | ClientRequest::ThreadCleanupCompleted { .. }
             | ClientRequest::ThreadArchive { .. } => (Some(self.turn_admission.admit()?), false),
             ClientRequest::ThreadSample { .. }
             | ClientRequest::TurnStart { .. }
             | ClientRequest::TurnStartIfIdle { .. }
+            | ClientRequest::TurnStartUserIfIdle { .. }
             | ClientRequest::TurnSteer { .. }
             | ClientRequest::ReviewStart { .. }
             | ClientRequest::ThreadCompactStart { .. }
@@ -1374,6 +1377,11 @@ impl MessageProcessor {
                 }
                 Ok(response)
             }
+            ClientRequest::ThreadSubscribePassive { params, .. } => {
+                self.thread_processor
+                    .thread_subscribe_passive(request_id.clone(), params)
+                    .await
+            }
             ClientRequest::ThreadResume { params, .. } => {
                 self.thread_processor
                     .thread_resume(
@@ -1413,6 +1421,11 @@ impl MessageProcessor {
             ClientRequest::ThreadArchive { params, .. } => {
                 self.thread_processor
                     .thread_archive(request_id.clone(), params)
+                    .await
+            }
+            ClientRequest::ThreadCleanupCompleted { params, .. } => {
+                self.thread_processor
+                    .thread_cleanup_completed(request_id.clone(), params)
                     .await
             }
             ClientRequest::ThreadDelete { params, .. } => {
@@ -1739,6 +1752,11 @@ impl MessageProcessor {
                     .mock_experimental_method(params)
                     .await
             }
+            ClientRequest::TurnStartUserIfIdle { params, .. } => {
+                self.turn_processor
+                    .turn_start_user_if_idle(request_id.clone(), params)
+                    .await
+            }
             ClientRequest::TurnStartIfIdle { params, .. } => {
                 self.turn_processor
                     .turn_start_if_idle(
@@ -2040,3 +2058,7 @@ mod thread_lifecycle_tests;
 #[cfg(test)]
 #[path = "message_processor_workspace_routing_tests.rs"]
 mod workspace_routing_tests;
+
+#[cfg(test)]
+#[path = "message_processor_passive_tests.rs"]
+mod passive_tests;

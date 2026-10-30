@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Parent model history and bounded host-owned context facts.
 //! Compaction replaces the model window and can activate thread-owned Guardian review.
 //! Snapshots include reviewer policy and retained facts atomically;

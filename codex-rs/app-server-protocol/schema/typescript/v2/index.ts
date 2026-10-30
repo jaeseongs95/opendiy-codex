@@ -92,6 +92,8 @@ export type { CommandExecutionRequestApprovalResponse } from "./CommandExecution
 export type { CommandExecutionSource } from "./CommandExecutionSource";
 export type { CommandExecutionStatus } from "./CommandExecutionStatus";
 export type { CommandMigration } from "./CommandMigration";
+export type { CompletedChildCleanupResult } from "./CompletedChildCleanupResult";
+export type { CompletedChildSnapshot } from "./CompletedChildSnapshot";
 export type { ComputerUseConfig } from "./ComputerUseConfig";
 export type { ComputerUseMacosConfig } from "./ComputerUseMacosConfig";
 export type { ComputerUseMacosRequirements } from "./ComputerUseMacosRequirements";
@@ -499,6 +501,8 @@ export type { ThreadAttachmentOwnerListResponse } from "./ThreadAttachmentOwnerL
 export type { ThreadAttachmentRemoveParams } from "./ThreadAttachmentRemoveParams";
 export type { ThreadAttachmentRemoveResponse } from "./ThreadAttachmentRemoveResponse";
 export type { ThreadAttachmentUpdatedNotification } from "./ThreadAttachmentUpdatedNotification";
+export type { ThreadCleanupCompletedParams } from "./ThreadCleanupCompletedParams";
+export type { ThreadCleanupCompletedResponse } from "./ThreadCleanupCompletedResponse";
 export type { ThreadClosedNotification } from "./ThreadClosedNotification";
 export type { ThreadCompactStartParams } from "./ThreadCompactStartParams";
 export type { ThreadCompactStartResponse } from "./ThreadCompactStartResponse";
@@ -601,6 +605,7 @@ export type { ThreadStartSource } from "./ThreadStartSource";
 export type { ThreadStartedNotification } from "./ThreadStartedNotification";
 export type { ThreadStatus } from "./ThreadStatus";
 export type { ThreadStatusChangedNotification } from "./ThreadStatusChangedNotification";
+export type { ThreadSubscribePassiveParams } from "./ThreadSubscribePassiveParams";
 export type { ThreadTimelineEntry } from "./ThreadTimelineEntry";
 export type { ThreadTokenUsage } from "./ThreadTokenUsage";
 export type { ThreadTokenUsageUpdatedNotification } from "./ThreadTokenUsageUpdatedNotification";

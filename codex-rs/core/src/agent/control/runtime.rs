@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Shared state and startup bindings for one local agent tree.
 //! Registry identity is allocation identity; cloning this handle preserves ownership checks.
 
@@ -205,6 +206,15 @@ pub(crate) struct LocalAgentRuntime {
 }
 
 impl LocalAgentRuntime {
+    pub(crate) fn shares_registry(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.registry, &other.registry)
+    }
+    pub(crate) fn forget_cleaned_child(&self, id: ThreadId) {
+        self.registry.release_spawned_thread(id);
+        self.residency.remove(id);
+        self.mailboxes.remove(id);
+    }
+
     pub(super) fn new(
         manager: Weak<ThreadManagerState>,
         thread_id_generator: ThreadIdGenerator,

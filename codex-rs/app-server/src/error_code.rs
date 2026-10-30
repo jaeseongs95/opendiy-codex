@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use codex_app_server_protocol::JSONRPCErrorError;
 
 pub(crate) const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
@@ -15,6 +16,29 @@ pub(crate) fn server_draining_error() -> JSONRPCErrorError {
 
 pub(crate) fn invalid_request(message: impl Into<String>) -> JSONRPCErrorError {
     error(INVALID_REQUEST_ERROR_CODE, message)
+}
+
+/// Only notLoaded/listenerNotReady allow a bounded retry of subscribePassive.
+/// Closing or a changed runtime must never trigger an implicit resume.
+pub(crate) fn passive_subscription_unavailable(reason: &'static str) -> JSONRPCErrorError {
+    let mut error = invalid_request(format!("passive thread subscription unavailable: {reason}"));
+    error.data = Some(serde_json::json!({
+        "kind": "threadSubscriptionUnavailable",
+        "reason": reason,
+    }));
+    error
+}
+
+pub(crate) fn passive_runtime_unavailable(
+    reason: codex_core::LoadedThreadUnavailable,
+) -> JSONRPCErrorError {
+    use codex_core::LoadedThreadUnavailable;
+    passive_subscription_unavailable(match reason {
+        LoadedThreadUnavailable::NotLoaded => "notLoaded",
+        LoadedThreadUnavailable::Replaced => "runtimeChanged",
+        LoadedThreadUnavailable::Closing => "closing",
+        LoadedThreadUnavailable::Unsupported => "unsupportedRuntime",
+    })
 }
 
 pub(crate) fn method_not_found(message: impl Into<String>) -> JSONRPCErrorError {

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Turn-input request and result types shared by Core's submission APIs.
 
 use crate::AgentPath;
@@ -190,6 +191,8 @@ pub enum TurnInputMode {
     StartOrSteer,
     /// Start only when the thread is idle.
     StartIfIdle,
+    /// Start explicit user input only when idle, without waking pending work on rejection.
+    StartUserIfIdle,
     /// Start an internal continuation when idle.
     /// Reject if another task has started since the expected previous turn.
     ContinueIfIdle { expected_previous_turn_id: String },

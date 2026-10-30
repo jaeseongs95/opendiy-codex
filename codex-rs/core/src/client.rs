@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Session- and turn-scoped helpers for talking to model provider APIs.
 //!
 //! `ModelClient` is intended to live for the lifetime of a Codex session and holds the stable

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::helpers::drain_insert_history_transcript;
 use super::*;
 use codex_app_server_protocol::AuthRecoveryNotification;

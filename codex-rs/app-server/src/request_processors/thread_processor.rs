@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 #[path = "daemon_continuation.rs"]
 mod daemon_continuation;
 
@@ -15,6 +15,8 @@ use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use crate::connection_rpc_gate::ConnectionRpcGate;
 use crate::error_code::method_not_found;
+use crate::error_code::passive_runtime_unavailable;
+use crate::error_code::passive_subscription_unavailable;
 use crate::thread_sample::SampleTask;
 use crate::thread_sample::SampleThread;
 use crate::thread_sample::generate_sample;
@@ -470,6 +472,7 @@ pub(crate) struct ThreadRequestProcessor {
     pub(super) thread_watch_manager: ThreadWatchManager,
     pub(super) thread_list_state_permit: Arc<Semaphore>,
     pub(super) thread_goal_processor: ThreadGoalRequestProcessor,
+    pub(super) cleanup_queue_service: Option<Arc<codex_queue_extension::QueuedItemService>>,
     pub(super) state_db: Option<StateDbHandle>,
     pub(super) log_db: Option<LogDbLayer>,
     pub(super) background_tasks: TaskTracker,
@@ -511,6 +514,7 @@ impl ThreadRequestProcessor {
         thread_watch_manager: ThreadWatchManager,
         thread_list_state_permit: Arc<Semaphore>,
         thread_goal_processor: ThreadGoalRequestProcessor,
+        cleanup_queue_service: Option<Arc<codex_queue_extension::QueuedItemService>>,
         state_db: Option<StateDbHandle>,
         log_db: Option<LogDbLayer>,
         skills_watcher: Arc<SkillsWatcher>,
@@ -531,6 +535,7 @@ impl ThreadRequestProcessor {
             thread_watch_manager,
             thread_list_state_permit,
             thread_goal_processor,
+            cleanup_queue_service,
             state_db,
             log_db,
             background_tasks: TaskTracker::new(),
@@ -570,6 +575,90 @@ impl ThreadRequestProcessor {
         self.thread_unsubscribe_response_inner(params, request_id.connection_id)
             .await
             .map(|response| Some(response.into()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn subscription_state_for_test(&self) -> ThreadStateManager {
+        self.thread_state_manager.clone()
+    }
+
+    pub(crate) async fn thread_subscribe_passive(
+        &self,
+        request_id: ConnectionRequestId,
+        params: codex_app_server_protocol::ThreadSubscribePassiveParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let thread_id = ThreadId::from_string(&params.thread_id)
+            .map_err(|err| invalid_request(format!("invalid thread id: {err}")))?;
+        let thread = self
+            .thread_manager
+            .get_thread(thread_id)
+            .await
+            .map_err(|_| passive_subscription_unavailable("notLoaded"))?;
+        let activity_guard = self
+            .thread_manager
+            .admit_thread_activity(thread_id)
+            .map_err(|_| passive_subscription_unavailable("closing"))?;
+        // Inspect closing under the existing identity boundary before reporting a
+        // missing listener. The final membership commit revalidates this Arc.
+        drop(
+            self.thread_manager
+                .lock_loaded_thread(thread_id, &thread)
+                .await
+                .map_err(passive_runtime_unavailable)?,
+        );
+        let state = self
+            .thread_state_manager
+            .existing_thread_state(thread_id)
+            .await
+            .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?;
+        let tx = {
+            let state = state.lock().await;
+            if !state.listener_matches(&thread) {
+                return Err(passive_subscription_unavailable("listenerNotReady"));
+            }
+            state
+                .listener_command_tx()
+                .ok_or_else(|| passive_subscription_unavailable("listenerNotReady"))?
+        };
+        let (config_snapshot, _) = thread.resume_config_snapshot().await;
+        let mut thread_summary =
+            build_thread_from_loaded_snapshot(thread_id, &config_snapshot, &thread);
+        apply_live_thread_settings(&mut thread_summary, &config_snapshot);
+        thread_summary.can_accept_direct_input = Some(can_accept_direct_input(
+            thread.multi_agent_version(),
+            &config_snapshot.session_source,
+        ));
+        let instruction_sources = thread.legacy_instruction_sources().await;
+        let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+        tx.send(
+            crate::thread_state::ThreadListenerCommand::SendThreadResumeResponse {
+                request: Box::new(crate::thread_state::PendingThreadResumeRequest {
+                    request_id,
+                    passive: true,
+                    _activity_guard: Some(activity_guard),
+                    history_items: Vec::new(),
+                    cold_resume_token_usage_turn_id: None,
+                    config_snapshot,
+                    instruction_sources,
+                    thread_summary,
+                    emit_thread_goal_update: false,
+                    thread_goal_state_db: None,
+                    include_turns: false,
+                    initial_turns_page: None,
+                    paginated_turns: None,
+                    paginated_initial_turns_page: None,
+                    paginated_initial_turns_page_with_active_slot: None,
+                    resume_cursor_store: None,
+                    redact_resume_payloads: false,
+                }),
+                completion_tx,
+            },
+        )
+        .map_err(|_| passive_subscription_unavailable("listenerNotReady"))?;
+        completion_rx
+            .await
+            .map_err(|_| passive_subscription_unavailable("closing"))?;
+        Ok(None)
     }
 
     pub(crate) async fn thread_resume(
@@ -5045,6 +5134,8 @@ impl ThreadRequestProcessor {
             let command = crate::thread_state::ThreadListenerCommand::SendThreadResumeResponse {
                 request: Box::new(crate::thread_state::PendingThreadResumeRequest {
                     request_id: request_id.clone(),
+                    passive: false,
+                    _activity_guard: None,
                     history_items,
                     cold_resume_token_usage_turn_id,
                     config_snapshot,
@@ -7036,7 +7127,7 @@ fn paginate_background_terminals(
     Ok((terminals[start..end].to_vec(), next_cursor))
 }
 
-fn build_thread_from_loaded_snapshot(
+pub(super) fn build_thread_from_loaded_snapshot(
     thread_id: ThreadId,
     config_snapshot: &ThreadConfigSnapshot,
     loaded_thread: &CodexThread,

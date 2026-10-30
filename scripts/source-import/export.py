@@ -9,12 +9,12 @@ import subprocess
 import tarfile
 
 OFFICIAL='360319d8dee62d87e2d59fc0c21805d79519cfed'
-PATCHED='af098cef617d62fdfce51d5e1fbd0afb4533f75d'
+PATCHED='acd529ffc1a75272cc7d23c9d932a19342f82609'
 PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes','docs/native-cli-r27.ko.md','docs/native-cli-cron.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
 DATE='2026-10-30'
 PATCH_PATH='upstream/official-0.165.0.patch'
-LABEL='R29'
+LABEL='R30'
 ATTR_BEGIN=b'# BEGIN OpenDIY pinned source attributes\n'
 ATTR_END=b'# END OpenDIY pinned source attributes\n'
 WINDOWS_INPUTS_PATH='upstream/windows-prompt-inputs.json'

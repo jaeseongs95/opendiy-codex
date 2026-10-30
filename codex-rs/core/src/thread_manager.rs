@@ -1,3 +1,5 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+pub mod cleanup;
 mod managed;
 mod shared_instructions;
 mod shutdown;
@@ -437,12 +439,28 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
     pub(crate) client_mcp_extensions: Option<ClientMcpExtensions>,
 }
 
+/// Holds the loaded-runtime identity stable during a host's short subscription commit.
+/// Do not hold this guard over response delivery or other I/O.
+pub struct LoadedThreadReadGuard {
+    _registry: tokio::sync::OwnedRwLockReadGuard<HashMap<ThreadId, Arc<CodexThread>>>,
+}
+
+/// Failure observed under the registry lock, without parsing diagnostic strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadedThreadUnavailable {
+    NotLoaded,
+    Replaced,
+    Closing,
+    Unsupported,
+}
+
 /// Shared, `Arc`-owned state for [`ThreadManager`]. This `Arc` is required to have a single
 /// `Arc` reference that can be downgraded to by `LocalAgentControl` while preventing every single
 /// function to require an `Arc<&Self>`.
 pub(crate) struct ThreadManagerState {
     // Eviction updates this registry and residency together, locking the registry first.
     pub(crate) threads: Arc<RwLock<HashMap<ThreadId, Arc<CodexThread>>>>,
+    pub(crate) cleanup_admission: Arc<cleanup::CleanupAdmission>,
     shared_thread_instructions: shared_instructions::SharedThreadInstructionsProviders,
     thread_created_tx: broadcast::Sender<ThreadId>,
     thread_id_generator: ThreadIdGenerator,
@@ -615,6 +633,7 @@ impl ThreadManager {
         Self {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
+                cleanup_admission: Arc::default(),
                 shared_thread_instructions: Default::default(),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
@@ -803,6 +822,7 @@ impl ThreadManager {
         Self {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
+                cleanup_admission: Arc::default(),
                 shared_thread_instructions: Default::default(),
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
@@ -977,6 +997,30 @@ impl ThreadManager {
 
     pub async fn get_thread(&self, thread_id: ThreadId) -> CodexResult<Arc<CodexThread>> {
         self.state.get_thread(thread_id).await
+    }
+
+    /// Validates a loaded runtime and pins its registry identity for a short host commit.
+    pub async fn lock_loaded_thread(
+        &self,
+        thread_id: ThreadId,
+        expected: &Arc<CodexThread>,
+    ) -> Result<LoadedThreadReadGuard, LoadedThreadUnavailable> {
+        let registry = Arc::clone(&self.state.threads).read_owned().await;
+        let thread = registry
+            .get(&thread_id)
+            .ok_or(LoadedThreadUnavailable::NotLoaded)?;
+        if !Arc::ptr_eq(thread, expected) {
+            return Err(LoadedThreadUnavailable::Replaced);
+        }
+        if thread.session_source.is_internal() {
+            return Err(LoadedThreadUnavailable::Unsupported);
+        }
+        if !thread.is_running() || thread.io.admission.is_closing() {
+            return Err(LoadedThreadUnavailable::Closing);
+        }
+        Ok(LoadedThreadReadGuard {
+            _registry: registry,
+        })
     }
 
     /// Board hosts may reach internal runtimes only through a matching explicit connection.
@@ -2116,6 +2160,19 @@ impl ThreadManagerState {
 
     /// Spawn a new thread with optional history and register it with the manager.
     async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
+        let mut protected = Vec::new();
+        if let InitialHistory::Resumed(history) = &request.options.initial_history {
+            protected.push(history.conversation_id);
+        }
+        protected.extend(request.parent_thread_id);
+        protected.extend(
+            request
+                .options
+                .session_source
+                .as_ref()
+                .and_then(SessionSource::parent_thread_id),
+        );
+        let _cleanup_admission = self.cleanup_admission.admit(protected)?;
         let cancellation = request
             .options
             .config
@@ -2136,6 +2193,7 @@ impl ThreadManagerState {
                 .get_or_insert_with(|| Arc::new(SessionStartup::default())),
         );
         startup_state.hold_membership(membership);
+        startup_state.hold_cleanup_admission(_cleanup_admission);
         let startup_guard =
             owns_startup.then(|| SessionStartupGuard::new(Arc::clone(&startup_state)));
         let ThreadSpawnRequest {

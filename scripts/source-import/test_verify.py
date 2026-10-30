@@ -77,8 +77,13 @@ class VerifierChecks(unittest.TestCase):
         fixtures=[item for item in inventory['files'] if item['modified'] and item['path'].startswith('codex-rs/app-server-protocol/schema/typescript/') and item['path'].endswith('.ts')]
         self.assertEqual({item["path"] for item in fixtures}, {
             'codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildCleanupResult.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildSnapshot.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubscribePassiveParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts',

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::residency::is_v2_resident_session_source;
 use super::spawn_guard::PendingSpawn;
 use super::spawn_telemetry::SpawnMeasurements;
@@ -331,6 +332,7 @@ impl LocalAgentControl {
         let membership = self.runtime.admit_start()?;
         let state = self.runtime.upgrade()?;
         let owner_thread_id = parent.as_ref().map(|parent| parent.session.thread_id);
+        let _cleanup_admission = state.cleanup_admission.admit([thread_id])?;
         if let Some(parent) = &parent {
             let parent_thread_id = parent.session.thread_id;
             let registered_parent = state.get_thread(parent_thread_id).await.ok();
@@ -733,6 +735,7 @@ impl LocalAgentControl {
             .as_ref()
             .and_then(SessionSource::parent_thread_id)
             .or(options.parent_thread_id);
+        let _cleanup_admission = state.cleanup_admission.admit(parent_thread_id)?;
         let multi_agent_version = state
             .effective_multi_agent_version_for_spawn(
                 &InitialHistory::New,
@@ -888,8 +891,12 @@ impl LocalAgentControl {
             .map_err(|err| err.with_agent_context(AgentErrorContext::ChildStartup))?;
         let child_create = child_create_started_at.elapsed();
         agent_metadata.agent_id = Some(new_thread.thread_id);
-        let mut pending_spawn =
-            PendingSpawn::new(Arc::clone(&state), new_thread.thread_id, membership);
+        let mut pending_spawn = PendingSpawn::new(
+            Arc::clone(&state),
+            new_thread.thread_id,
+            membership,
+            _cleanup_admission,
+        );
 
         if let Some(SessionSource::SubAgent(
             subagent_source @ SubAgentSource::ThreadSpawn {
@@ -929,7 +936,9 @@ impl LocalAgentControl {
         let child = Arc::clone(&new_thread.thread);
         let child_thread_id = new_thread.thread_id;
         let source = notification_source.clone();
+        let edge_admission = state.cleanup_admission.admit(parent_thread_id)?;
         pending_spawn.set_edge_write(tokio::spawn(async move {
+            let _edge_admission = edge_admission;
             control
                 .persist_thread_spawn_edge_for_source(
                     child.as_ref(),
@@ -1492,6 +1501,7 @@ impl LocalAgentControl {
             rollout_path: stored_thread.rollout_path,
         });
         let parent_thread_id = stored_thread.parent_thread_id;
+        let _cleanup_admission = state.cleanup_admission.admit(parent_thread_id)?;
         let multi_agent_version = state
             .effective_multi_agent_version_for_spawn(
                 &initial_history,

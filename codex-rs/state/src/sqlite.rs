@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Shared SQLite connection configuration.
 //! Writable pools preserve the journal and vacuum modes of initialized databases.
 //! Startup retries SQLITE_BUSY and reports other errors to callers.

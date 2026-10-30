@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Compose the owned transcript above the composer and route their selection gestures.
 //! Reserve a cleared row below activity and previews, immediately above the composer.
 //! Slash suggestions overlay already-painted rows so opening or closing them leaves transcript

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 use crate::agents_md_manager::AgentsMdManager;
 use crate::context::ContextualUserFragment;
@@ -153,6 +154,7 @@ async fn test_review_session() -> (
         GuardianReviewSession {
             session,
             io: SessionIo {
+                admission: Arc::default(),
                 tx_sub,
                 rx_event,
                 agent_status,

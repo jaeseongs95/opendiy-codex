@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Extension crate for the `/goal` feature.
 
 mod accounting;
@@ -26,3 +27,5 @@ pub use spec::CREATE_GOAL_TOOL_NAME;
 pub use spec::GET_GOAL_TOOL_NAME;
 pub use spec::UPDATE_GOAL_TOOL_NAME;
 pub use tool::CreateGoalRequest;
+
+pub use api::GoalCleanupGuard;

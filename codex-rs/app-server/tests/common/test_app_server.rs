@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -260,6 +261,8 @@ impl TestAppServer {
         args: &[&str],
     ) -> anyhow::Result<Self> {
         let mut cmd = Command::new(program);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());

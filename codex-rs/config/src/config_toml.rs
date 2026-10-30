@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Schema-heavy configuration TOML types used by Codex.
 
 use std::collections::BTreeMap;
@@ -389,6 +390,11 @@ pub struct ConfigToml {
 
     /// Collection of settings that are specific to the TUI.
     pub tui: Option<Tui>,
+
+    /// Client display language. Only the base $CODEX_HOME/config.toml value is used;
+    /// project, profile, CLI and remote values shown by merged config inspection are ignored.
+    /// Defaults to English. CODEX_UI_LANGUAGE overrides the saved value for one process.
+    pub ui_language: Option<crate::ui_language::UiLanguage>,
 
     /// When set to `true`, `AgentReasoning` events will be hidden from the
     /// UI/output. Defaults to `false`.

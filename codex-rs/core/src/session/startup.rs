@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Retains agent-tree membership and resources throughout managed startup.
 //! Cleanup releases membership only after acquisition and partial session teardown finish;
 //! abandoning that ownership marks tree shutdown as failed.
@@ -24,12 +25,23 @@ use super::session::Session;
 #[derive(Default)]
 pub(crate) struct SessionStartup {
     teardown: StdMutex<Option<AgentTreeTeardownGuard>>,
+    cleanup_admissions: StdMutex<Vec<crate::thread_manager::cleanup::CleanupOperation>>,
     pub(crate) persistence: Mutex<LiveThreadInitGuard>,
     pub(crate) session: OnceLock<Arc<Session>>,
     pub(crate) io: OnceLock<SessionIo>,
 }
 
 impl SessionStartup {
+    pub(crate) fn hold_cleanup_admission(
+        &self,
+        admission: crate::thread_manager::cleanup::CleanupOperation,
+    ) {
+        self.cleanup_admissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(admission);
+    }
+
     fn lock_teardown(&self) -> MutexGuard<'_, Option<AgentTreeTeardownGuard>> {
         self.teardown.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -57,6 +69,10 @@ impl SessionStartup {
     }
 
     pub(crate) fn release_membership(&self) {
+        self.cleanup_admissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         if let Some(teardown) = self.lock_teardown().take() {
             teardown.complete();
         }
@@ -103,6 +119,10 @@ impl SessionStartup {
         if let Some(teardown) = teardown {
             teardown.complete();
         }
+        self.cleanup_admissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 }
 

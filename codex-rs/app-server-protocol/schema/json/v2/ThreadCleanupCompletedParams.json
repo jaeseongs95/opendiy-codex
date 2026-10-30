@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CompletedChildSnapshot": {
+      "properties": {
+        "activityRevision": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lastTurnId": {
+          "type": "string"
+        },
+        "runtimeId": {
+          "type": "string"
+        },
+        "terminalStatus": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "activityRevision",
+        "lastTurnId",
+        "runtimeId",
+        "terminalStatus",
+        "threadId"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Read-only by default. Confirmation must echo the exact preview snapshots.",
+  "properties": {
+    "confirmed": {
+      "default": false,
+      "type": "boolean"
+    },
+    "currentThreadId": {
+      "type": "string"
+    },
+    "parentThreadId": {
+      "type": "string"
+    },
+    "selection": {
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/CompletedChildSnapshot"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "currentThreadId",
+    "parentThreadId"
+  ],
+  "title": "ThreadCleanupCompletedParams",
+  "type": "object"
+}

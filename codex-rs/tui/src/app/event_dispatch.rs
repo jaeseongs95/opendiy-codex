@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain
@@ -2713,6 +2713,24 @@ impl App {
             }
             AppEvent::PersistRealtimeVoiceSelection { voice } => {
                 self.persist_realtime_voice(app_server, voice).await;
+            }
+            AppEvent::PersistUiLanguage(language) => {
+                // This is a local client preference even for a remote conversation.
+                // Do not use merged config paths, profile edits or server config RPCs.
+                let result = match codex_utils_home_dir::find_codex_home() {
+                    Ok(home) => ConfigEditsBuilder::new(home.as_path())
+                        .set_ui_language(language)
+                        .apply()
+                        .await,
+                    Err(error) => Err(error.into()),
+                };
+                match result {
+                    Ok(()) => self.chat_widget.add_info_message(
+                        format!("{} {}", language.as_str(), crate::i18n::text("UI language saved globally. It applies on the next launch. CODEX_UI_LANGUAGE takes precedence.")),
+                        None,
+                    ),
+                    Err(error) => self.chat_widget.add_error_message(format!("{} {error}", crate::i18n::text("Failed to save UI language:"))),
+                }
             }
             AppEvent::PersistServiceTierSelection { service_tier } => {
                 self.refresh_status_line();

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R29 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Hot-path helpers for recording upstream inference attempts.
 //!
 //! A disabled context records nothing, which keeps one-shot HTTP calls,
