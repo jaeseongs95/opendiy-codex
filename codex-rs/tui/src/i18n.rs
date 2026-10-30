@@ -1,7 +1,7 @@
 //! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
 //! slash command tokens, paths, or text supplied by the user or a server.
 //!
-//! `CODEX_UI_LANGUAGE=ko|en` selects the process UI language; startup defaults to Korean.
+//! `CODEX_UI_LANGUAGE=ko|en`로 표시 언어를 선택하며, 미지정 시 원래 영어를 유지한다.
 //! Before startup initialization, library callers retain the original English strings.
 
 use std::sync::OnceLock;
@@ -15,8 +15,8 @@ pub enum Locale {
 impl Locale {
     pub fn from_setting(setting: Option<&str>) -> Result<Self, &'static str> {
         match setting {
-            None | Some("ko") => Ok(Self::Korean),
-            Some("en") => Ok(Self::English),
+            Some("ko") => Ok(Self::Korean),
+            None | Some("en") => Ok(Self::English),
             Some(_) => Err("CODEX_UI_LANGUAGE must be ko or en (한국어: ko, English: en)"),
         }
     }
@@ -670,8 +670,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn language_selection_defaults_to_korean_and_rejects_unknown_values() {
-        assert_eq!(Locale::from_setting(None), Ok(Locale::Korean));
+    fn language_selection_defaults_to_english_and_rejects_unknown_values() {
+        assert_eq!(Locale::from_setting(None), Ok(Locale::English));
         assert_eq!(Locale::from_setting(Some("ko")), Ok(Locale::Korean));
         assert_eq!(Locale::from_setting(Some("en")), Ok(Locale::English));
         for invalid in ["", "kr", "KO", "ja", "ko-KR"] {
