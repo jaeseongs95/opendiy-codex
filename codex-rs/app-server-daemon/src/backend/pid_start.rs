@@ -321,7 +321,7 @@ impl PidBackend {
 async fn require_managed_daemon_support(codex_bin: &std::path::Path) -> Result<()> {
     let status = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        Command::new(codex_bin)
+        Command::from(codex_utils_process::background_command(codex_bin))
             .args(["app-server", "--managed-daemon", "--help"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
