@@ -2342,6 +2342,30 @@
             },
             "method": {
               "enum": [
+                "thread/compact/startIfIdle"
+              ],
+              "title": "Thread/compact/startIfIdleRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadCompactStartIfIdleParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/compact/startIfIdleRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
                 "thread/shellCommand"
               ],
               "title": "Thread/shellCommandRequestMethod",
@@ -2405,6 +2429,54 @@
             "params"
           ],
           "title": "Thread/revertRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subagents/list"
+              ],
+              "title": "Thread/subagents/listRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadSubagentsListParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subagents/listRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subagents/control"
+              ],
+              "title": "Thread/subagents/controlRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadSubagentsControlParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subagents/controlRequest",
           "type": "object"
         },
         {
@@ -19038,6 +19110,129 @@
         }
       ]
     },
+    "SubagentControlStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "notApplied",
+            "unknown",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Accepted by the runtime; this does not mean the agent completed the instruction.",
+          "enum": [
+            "applied"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SubagentManagementAction": {
+      "enum": [
+        "send",
+        "interrupt",
+        "close",
+        "resume"
+      ],
+      "type": "string"
+    },
+    "SubagentManagementAgent": {
+      "properties": {
+        "activeTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "$ref": "#/definitions/SubagentManagementCapabilities"
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nickname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/SubagentManagementStatus"
+        }
+      },
+      "required": [
+        "capabilities",
+        "id",
+        "parentThreadId",
+        "runtimeId",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementCapabilities": {
+      "properties": {
+        "close": {
+          "type": "boolean"
+        },
+        "interrupt": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "boolean"
+        },
+        "send": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "close",
+        "interrupt",
+        "resume",
+        "send"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "idle",
+        "completed",
+        "errored",
+        "closed",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "SubagentMigration": {
       "properties": {
         "name": {
@@ -19048,6 +19243,13 @@
         "name"
       ],
       "type": "object"
+    },
+    "SubagentMutationState": {
+      "enum": [
+        "clear",
+        "unknown"
+      ],
+      "type": "string"
     },
     "TerminalInteractionNotification": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -19745,6 +19947,21 @@
         "threadId"
       ],
       "title": "ThreadClosedNotification",
+      "type": "object"
+    },
+    "ThreadCompactStartIfIdleParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "Non-destructive compaction admission for an already loaded, idle runtime.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadCompactStartIfIdleParams",
       "type": "object"
     },
     "ThreadCompactStartParams": {
@@ -22609,6 +22826,14 @@
             "null"
           ]
         },
+        "supportsCompactIfIdle": {
+          "description": "Available only when Core supports non-destructive idle compaction.",
+          "type": "boolean"
+        },
+        "supportsExpectedTurnInterrupt": {
+          "description": "Independent of compaction: exact turn cancellation is checked atomically in Core.",
+          "type": "boolean"
+        },
         "thread": {
           "$ref": "#/definitions/Thread"
         },
@@ -23476,6 +23701,144 @@
         "threadId"
       ],
       "title": "ThreadStatusChangedNotification",
+      "type": "object"
+    },
+    "ThreadSubagentsControlParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "An operator command, admitted through the authenticated app-server connection.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/SubagentManagementAction"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "expectedParentRuntimeId": {
+          "type": "string"
+        },
+        "expectedRuntimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "agentId",
+        "expectedParentRuntimeId",
+        "expectedRuntimeId",
+        "parentThreadId",
+        "requestId"
+      ],
+      "title": "ThreadSubagentsControlParams",
+      "type": "object"
+    },
+    "ThreadSubagentsControlResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/SubagentControlStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ThreadSubagentsControlResponse",
+      "type": "object"
+    },
+    "ThreadSubagentsListParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "Read only direct children. Responses contain no conversation or filesystem data.",
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "reconcileRequestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "parentThreadId"
+      ],
+      "title": "ThreadSubagentsListParams",
+      "type": "object"
+    },
+    "ThreadSubagentsListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/definitions/SubagentManagementAgent"
+          },
+          "type": "array"
+        },
+        "mutationState": {
+          "$ref": "#/definitions/SubagentMutationState"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentRuntimeId": {
+          "type": "string"
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "reconciledRequestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "agents",
+        "mutationState",
+        "parentRuntimeId",
+        "parentThreadId"
+      ],
+      "title": "ThreadSubagentsListResponse",
       "type": "object"
     },
     "ThreadSubscribePassiveParams": {

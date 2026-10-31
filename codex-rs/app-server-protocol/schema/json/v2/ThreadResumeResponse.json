@@ -3258,6 +3258,14 @@
         "null"
       ]
     },
+    "supportsCompactIfIdle": {
+      "description": "Available only when Core supports non-destructive idle compaction.",
+      "type": "boolean"
+    },
+    "supportsExpectedTurnInterrupt": {
+      "description": "Independent of compaction: exact turn cancellation is checked atomically in Core.",
+      "type": "boolean"
+    },
     "thread": {
       "$ref": "#/definitions/Thread"
     },

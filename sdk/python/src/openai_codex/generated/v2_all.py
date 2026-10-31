@@ -778,6 +778,17 @@ class CommandMigration(BaseModel):
     name: str
 
 
+class CompletedChildSnapshot(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    activity_revision: Annotated[int, Field(alias="activityRevision", ge=0)]
+    last_turn_id: Annotated[str, Field(alias="lastTurnId")]
+    runtime_id: Annotated[str, Field(alias="runtimeId")]
+    terminal_status: Annotated[str, Field(alias="terminalStatus")]
+    thread_id: Annotated[str, Field(alias="threadId")]
+
+
 class ComputerUseMacosConfig(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -2591,10 +2602,30 @@ class McpServerOauthLoginResponse(BaseModel):
     ] = None
 
 
+class McpServerRefreshParams(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    thread_id: Annotated[
+        str | None,
+        Field(
+            alias="threadId",
+            description="Also queue an MCP reconnect on the runtime captured for this loaded thread. The registry is rechecked after reload, but may change before enqueue. Existing calls retain their bound clients; reconnect completion is asynchronous.",
+        ),
+    ] = None
+
+
 class McpServerRefreshResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    reconnect_queued_for_thread_id: Annotated[
+        str | None,
+        Field(
+            alias="reconnectQueuedForThreadId",
+            description="The reconnect operation was accepted by the captured runtime's queue. This does not acknowledge current registry membership, runtime readiness, or cleanup of previous clients.",
+        ),
+    ] = None
 
 
 class McpServerStartupFailureReason(RootModel[Literal["reauthenticationRequired"]]):
@@ -2964,6 +2995,10 @@ class NullableGetAccountTokenUsageParams(RootModel[GetAccountTokenUsageParams | 
     root: Annotated[
         GetAccountTokenUsageParams | None, Field(title="Nullable_GetAccountTokenUsageParams")
     ]
+
+
+class NullableMcpServerRefreshParams(RootModel[McpServerRefreshParams | None]):
+    root: Annotated[McpServerRefreshParams | None, Field(title="Nullable_McpServerRefreshParams")]
 
 
 class PatchApplyStatus(Enum):
@@ -4961,11 +4996,53 @@ class OtherSubAgentSource(BaseModel):
     other: str
 
 
+class SubagentControlStatusValue(Enum):
+    not_applied = "notApplied"
+    unknown = "unknown"
+    unsupported = "unsupported"
+
+
+class SubagentControlStatus(RootModel[SubagentControlStatusValue | Literal["applied"]]):
+    root: SubagentControlStatusValue | Literal["applied"]
+
+
+class SubagentManagementAction(Enum):
+    send = "send"
+    interrupt = "interrupt"
+    close = "close"
+    resume = "resume"
+
+
+class SubagentManagementCapabilities(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    close: bool
+    interrupt: bool
+    resume: bool
+    send: bool
+
+
+class SubagentManagementStatus(Enum):
+    pending = "pending"
+    running = "running"
+    idle = "idle"
+    completed = "completed"
+    errored = "errored"
+    closed = "closed"
+    unknown = "unknown"
+
+
 class SubagentMigration(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
     name: str
+
+
+class SubagentMutationState(Enum):
+    clear = "clear"
+    unknown = "unknown"
 
 
 class TerminalInteractionNotification(BaseModel):
@@ -5176,8 +5253,26 @@ class ThreadAttachmentUpdatedNotification(BaseModel):
     thread_id: Annotated[str, Field(alias="threadId")]
 
 
+class ThreadCleanupCompletedParams(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    confirmed: bool | None = False
+    current_thread_id: Annotated[str, Field(alias="currentThreadId")]
+    parent_thread_id: Annotated[str, Field(alias="parentThreadId")]
+    selection: Annotated[list[CompletedChildSnapshot] | None, Field(validate_default=True)] = []
+
+
 class ThreadClosedNotification(BaseModel):
     model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    thread_id: Annotated[str, Field(alias="threadId")]
+
+
+class ThreadCompactStartIfIdleParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
         populate_by_name=True,
     )
     thread_id: Annotated[str, Field(alias="threadId")]
@@ -5626,6 +5721,33 @@ class ThreadNameUpdatedNotification(BaseModel):
     )
     thread_id: Annotated[str, Field(alias="threadId")]
     thread_name: Annotated[str | None, Field(alias="threadName")] = None
+
+
+class ThreadPluginReloadParams(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    thread_id: Annotated[str, Field(alias="threadId")]
+
+
+class ThreadPluginReloadResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    mcp_reconnect_requested: Annotated[
+        bool,
+        Field(
+            alias="mcpReconnectRequested",
+            description="Reconnection is requested for the next MCP capture, not confirmed ready.",
+        ),
+    ]
+    thread_id: Annotated[str, Field(alias="threadId")]
+    warnings: Annotated[
+        list[str],
+        Field(
+            description="Plugin or hook load diagnostics. A nonempty list means a partial refresh."
+        ),
+    ]
 
 
 class CompletedThreadPredictionResult(BaseModel):
@@ -6223,6 +6345,47 @@ class ThreadStatusChangedNotification(BaseModel):
     thread_id: Annotated[str, Field(alias="threadId")]
 
 
+class ThreadSubagentsControlParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    action: SubagentManagementAction
+    agent_id: Annotated[str, Field(alias="agentId")]
+    expected_parent_runtime_id: Annotated[str, Field(alias="expectedParentRuntimeId")]
+    expected_runtime_id: Annotated[str | None, Field(alias="expectedRuntimeId")]
+    expected_turn_id: Annotated[str | None, Field(alias="expectedTurnId")] = None
+    parent_thread_id: Annotated[str, Field(alias="parentThreadId")]
+    request_id: Annotated[str, Field(alias="requestId")]
+    text: str | None = None
+
+
+class ThreadSubagentsControlResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    status: SubagentControlStatus
+
+
+class ThreadSubagentsListParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    cursor: str | None = None
+    limit: Annotated[int | None, Field(ge=0)] = None
+    parent_thread_id: Annotated[str, Field(alias="parentThreadId")]
+    reconcile_request_id: Annotated[str | None, Field(alias="reconcileRequestId")] = None
+
+
+class ThreadSubscribePassiveParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    thread_id: Annotated[str, Field(alias="threadId")]
+
+
 class TurnStartedThreadTimelineEntry(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -6383,6 +6546,23 @@ class TurnPlanStepStatus(Enum):
     pending = "pending"
     in_progress = "inProgress"
     completed = "completed"
+
+
+class SkippedBusyTurnStartIfIdleResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    status: Annotated[
+        Literal["skippedBusy"], Field(title="SkippedBusyv2::TurnStartIfIdleResponseStatus")
+    ]
+
+
+class NotStartedTurnStartIfIdleResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    reason: str
+    status: Annotated[Literal["notStarted"], Field(title="NotStartedTurnStartIfIdleResponseStatus")]
 
 
 class TurnStatus(Enum):
@@ -6871,6 +7051,17 @@ class InitializeRequest(BaseModel):
     params: InitializeParams
 
 
+class ThreadSubscribePassiveRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/subscribePassive"], Field(title="Thread/subscribePassiveRequestMethod")
+    ]
+    params: ThreadSubscribePassiveParams
+
+
 class ThreadResumeRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -6887,6 +7078,17 @@ class ThreadArchiveRequest(BaseModel):
     id: RequestId
     method: Annotated[Literal["thread/archive"], Field(title="Thread/archiveRequestMethod")]
     params: ThreadArchiveParams
+
+
+class ThreadCleanupCompletedRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/cleanupCompleted"], Field(title="Thread/cleanupCompletedRequestMethod")
+    ]
+    params: ThreadCleanupCompletedParams
 
 
 class ThreadDeleteRequest(BaseModel):
@@ -7012,6 +7214,18 @@ class ThreadCompactStartRequest(BaseModel):
     params: ThreadCompactStartParams
 
 
+class ThreadCompactStartIfIdleRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/compact/startIfIdle"],
+        Field(title="Thread/compact/startIfIdleRequestMethod"),
+    ]
+    params: ThreadCompactStartIfIdleParams
+
+
 class ThreadShellCommandRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -7042,6 +7256,28 @@ class ThreadRevertRequest(BaseModel):
     id: RequestId
     method: Annotated[Literal["thread/revert"], Field(title="Thread/revertRequestMethod")]
     params: ThreadRevertParams
+
+
+class ThreadSubagentsListRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/subagents/list"], Field(title="Thread/subagents/listRequestMethod")
+    ]
+    params: ThreadSubagentsListParams
+
+
+class ThreadSubagentsControlRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/subagents/control"], Field(title="Thread/subagents/controlRequestMethod")
+    ]
+    params: ThreadSubagentsControlParams
 
 
 class ThreadSectionListRequest(BaseModel):
@@ -7093,6 +7329,17 @@ class ThreadLoadedListRequest(BaseModel):
     id: RequestId
     method: Annotated[Literal["thread/loaded/list"], Field(title="Thread/loaded/listRequestMethod")]
     params: ThreadLoadedListParams
+
+
+class ThreadPluginReloadRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["thread/plugin/reload"], Field(title="Thread/plugin/reloadRequestMethod")
+    ]
+    params: ThreadPluginReloadParams
 
 
 class ThreadReadRequest(BaseModel):
@@ -7513,7 +7760,7 @@ class ConfigMcpServerReloadRequest(BaseModel):
     method: Annotated[
         Literal["config/mcpServer/reload"], Field(title="Config/mcpServer/reloadRequestMethod")
     ]
-    params: Annotated[None, Field(None)] = None
+    params: McpServerRefreshParams | None = None
 
 
 class McpServerToolCallRequest(BaseModel):
@@ -7925,6 +8172,15 @@ class CommandExecResizeParams(BaseModel):
         ),
     ]
     size: Annotated[CommandExecTerminalSize, Field(description="New PTY size in character cells.")]
+
+
+class CompletedChildCleanupResult(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    outcome: str
+    snapshot: CompletedChildSnapshot | None = None
+    thread_id: Annotated[str, Field(alias="threadId")]
 
 
 class ComputerUseRequirements(BaseModel):
@@ -9842,6 +10098,29 @@ class SubAgentSource(
     root: SubAgentSourceValue | ThreadSpawnSubAgentSource | OtherSubAgentSource
 
 
+class SubagentManagementAgent(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    active_turn_id: Annotated[str | None, Field(alias="activeTurnId")] = None
+    capabilities: SubagentManagementCapabilities
+    effort: str | None = None
+    id: str
+    model: str | None = None
+    nickname: str | None = None
+    parent_thread_id: Annotated[str, Field(alias="parentThreadId")]
+    role: str | None = None
+    runtime_id: Annotated[str | None, Field(alias="runtimeId")]
+    status: SubagentManagementStatus
+
+
+class ThreadCleanupCompletedResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    results: list[CompletedChildCleanupResult]
+
+
 class ThreadForkParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -10348,8 +10627,22 @@ class ThreadSettings(BaseModel):
             description="Saved list of disabled plugin IDs. Does not yet filter plugin capabilities.",
         ),
     ] = []
+    effective_context_window: Annotated[
+        int | None,
+        Field(
+            alias="effectiveContextWindow",
+            description="Model budget after catalog limits and the model's usable-context percentage.",
+        ),
+    ] = None
     effort: ReasoningEffort | None = None
     model: str
+    model_context_window: Annotated[
+        int | None,
+        Field(
+            alias="modelContextWindow",
+            description="Thread-local override; null uses the configured/model default.",
+        ),
+    ] = None
     model_provider: Annotated[str, Field(alias="modelProvider")]
     personality: Annotated[
         Personality | None,
@@ -10406,6 +10699,18 @@ class ThreadStartParams(BaseModel):
             description="Optional client-supplied analytics source classification for this thread.",
         ),
     ] = None
+
+
+class ThreadSubagentsListResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    agents: list[SubagentManagementAgent]
+    mutation_state: Annotated[SubagentMutationState, Field(alias="mutationState")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    parent_runtime_id: Annotated[str, Field(alias="parentRuntimeId")]
+    parent_thread_id: Annotated[str, Field(alias="parentThreadId")]
+    reconciled_request_id: Annotated[str | None, Field(alias="reconciledRequestId")] = None
 
 
 class RealtimeThreadTimelineEntry(BaseModel):
@@ -10518,6 +10823,15 @@ class TurnPlanUpdatedNotification(BaseModel):
     plan: list[TurnPlanStep]
     thread_id: Annotated[str, Field(alias="threadId")]
     turn_id: Annotated[str, Field(alias="turnId")]
+
+
+class TurnStartIfIdleParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    input: list[UserInput]
+    thread_id: Annotated[str, Field(alias="threadId")]
 
 
 class TurnSteerParams(BaseModel):
@@ -10695,6 +11009,15 @@ class PluginShareUpdateTargetsRequest(BaseModel):
         Field(title="Plugin/share/updateTargetsRequestMethod"),
     ]
     params: PluginShareUpdateTargetsParams
+
+
+class TurnStartIfIdleRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[Literal["turn/startIfIdle"], Field(title="Turn/startIfIdleRequestMethod")]
+    params: TurnStartIfIdleParams
 
 
 class TurnSteerRequest(BaseModel):
@@ -11732,6 +12055,29 @@ class TurnCompletedNotification(BaseModel):
     turn: Turn
 
 
+class StartedTurnStartIfIdleResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    status: Annotated[Literal["started"], Field(title="StartedTurnStartIfIdleResponseStatus")]
+    turn: Turn
+
+
+class TurnStartIfIdleResponse(
+    RootModel[
+        StartedTurnStartIfIdleResponse
+        | SkippedBusyTurnStartIfIdleResponse
+        | NotStartedTurnStartIfIdleResponse
+    ]
+):
+    root: Annotated[
+        StartedTurnStartIfIdleResponse
+        | SkippedBusyTurnStartIfIdleResponse
+        | NotStartedTurnStartIfIdleResponse,
+        Field(title="TurnStartIfIdleResponse"),
+    ]
+
+
 class TurnStartResponse(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -12444,6 +12790,20 @@ class ThreadResumeResponse(BaseModel):
         ),
     ]
     service_tier: Annotated[str | None, Field(alias="serviceTier")] = None
+    supports_compact_if_idle: Annotated[
+        bool | None,
+        Field(
+            alias="supportsCompactIfIdle",
+            description="Available only when Core supports non-destructive idle compaction.",
+        ),
+    ] = None
+    supports_expected_turn_interrupt: Annotated[
+        bool | None,
+        Field(
+            alias="supportsExpectedTurnInterrupt",
+            description="Independent of compaction: exact turn cancellation is checked atomically in Core.",
+        ),
+    ] = None
     thread: Thread
     turns_backwards_cursor: Annotated[
         str | None,
@@ -12665,6 +13025,17 @@ class TurnStartParams(BaseModel):
     ] = None
 
 
+class TurnStartUserIfIdleRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+    id: RequestId
+    method: Annotated[
+        Literal["turn/startUserIfIdle"], Field(title="Turn/startUserIfIdleRequestMethod")
+    ]
+    params: TurnStartParams
+
+
 class TurnStartRequest(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -12702,9 +13073,11 @@ class ClientRequest(
     RootModel[
         InitializeRequest
         | ThreadStartRequest
+        | ThreadSubscribePassiveRequest
         | ThreadResumeRequest
         | ThreadForkRequest
         | ThreadArchiveRequest
+        | ThreadCleanupCompletedRequest
         | ThreadDeleteRequest
         | ThreadUnsubscribeRequest
         | ThreadNameSetRequest
@@ -12719,15 +13092,19 @@ class ClientRequest(
         | ThreadSectionMoveRequest
         | ThreadUnarchiveRequest
         | ThreadCompactStartRequest
+        | ThreadCompactStartIfIdleRequest
         | ThreadShellCommandRequest
         | ThreadApproveGuardianDeniedActionRequest
         | ThreadRevertRequest
+        | ThreadSubagentsListRequest
+        | ThreadSubagentsControlRequest
         | ThreadListRequest
         | ThreadSectionListRequest
         | ThreadSectionCreateRequest
         | ThreadSectionUpdateRequest
         | ThreadSectionDeleteRequest
         | ThreadLoadedListRequest
+        | ThreadPluginReloadRequest
         | ThreadReadRequest
         | ThreadTurnsListRequest
         | ThreadItemsListRequest
@@ -12763,6 +13140,8 @@ class ClientRequest(
         | SkillsConfigWriteRequest
         | PluginInstallRequest
         | PluginUninstallRequest
+        | TurnStartIfIdleRequest
+        | TurnStartUserIfIdleRequest
         | TurnStartRequest
         | TurnSteerRequest
         | TurnInterruptRequest
@@ -12811,9 +13190,11 @@ class ClientRequest(
     root: Annotated[
         InitializeRequest
         | ThreadStartRequest
+        | ThreadSubscribePassiveRequest
         | ThreadResumeRequest
         | ThreadForkRequest
         | ThreadArchiveRequest
+        | ThreadCleanupCompletedRequest
         | ThreadDeleteRequest
         | ThreadUnsubscribeRequest
         | ThreadNameSetRequest
@@ -12828,15 +13209,19 @@ class ClientRequest(
         | ThreadSectionMoveRequest
         | ThreadUnarchiveRequest
         | ThreadCompactStartRequest
+        | ThreadCompactStartIfIdleRequest
         | ThreadShellCommandRequest
         | ThreadApproveGuardianDeniedActionRequest
         | ThreadRevertRequest
+        | ThreadSubagentsListRequest
+        | ThreadSubagentsControlRequest
         | ThreadListRequest
         | ThreadSectionListRequest
         | ThreadSectionCreateRequest
         | ThreadSectionUpdateRequest
         | ThreadSectionDeleteRequest
         | ThreadLoadedListRequest
+        | ThreadPluginReloadRequest
         | ThreadReadRequest
         | ThreadTurnsListRequest
         | ThreadItemsListRequest
@@ -12872,6 +13257,8 @@ class ClientRequest(
         | SkillsConfigWriteRequest
         | PluginInstallRequest
         | PluginUninstallRequest
+        | TurnStartIfIdleRequest
+        | TurnStartUserIfIdleRequest
         | TurnStartRequest
         | TurnSteerRequest
         | TurnInterruptRequest
