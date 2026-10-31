@@ -55,6 +55,7 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
         anyhow::bail!("expected initialize response, got {message:?}");
     };
     let InitializeResponse {
+        supports_expected_turn_interrupt,
         user_agent,
         codex_home: response_codex_home,
         platform_family,
@@ -62,6 +63,7 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
     } = to_response::<InitializeResponse>(response)?;
 
     assert!(user_agent.starts_with("codex_vscode/"));
+    assert_eq!(supports_expected_turn_interrupt, Some(true));
     assert_eq!(response_codex_home, expected_codex_home);
     assert_eq!(platform_family, std::env::consts::FAMILY);
     assert_eq!(platform_os, std::env::consts::OS);
@@ -167,6 +169,7 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
         anyhow::bail!("expected initialize response, got {message:?}");
     };
     let InitializeResponse {
+        supports_expected_turn_interrupt: _,
         user_agent,
         codex_home: response_codex_home,
         platform_family,

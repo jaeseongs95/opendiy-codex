@@ -5,6 +5,14 @@ use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
 
+/// Omission is optional; a present capability must be a JSON boolean, never null.
+pub(crate) fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    bool::deserialize(deserializer).map(Some)
+}
+
 #[cfg(test)]
 pub(crate) fn nullable_string_schema(
     generator: &mut schemars::r#gen::SchemaGenerator,

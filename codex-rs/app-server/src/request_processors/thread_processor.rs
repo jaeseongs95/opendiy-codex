@@ -922,6 +922,59 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    pub(crate) async fn thread_compact_start_if_idle(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: codex_app_server_protocol::ThreadCompactStartIfIdleParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        use codex_app_server_protocol::TurnStartIfIdleResponse;
+        use codex_core::StartIfIdleSubmission;
+        use codex_protocol::turn_input::NotSubmittedReason;
+
+        let (_, thread) = self.load_thread(&params.thread_id).await?;
+        ensure_direct_input_allowed(thread.as_ref()).await?;
+        self.config_manager
+            .check_thread_model_provider(thread.config().await.as_ref())
+            .await
+            .map_err(|error| config_load_error(&error))?;
+        let submission = thread
+            .compact_if_idle(self.outgoing.request_trace_context(request_id).await)
+            .await
+            .map_err(|error| internal_error(format!("failed to admit idle compaction: {error}")))?;
+        let response = match submission {
+            StartIfIdleSubmission::Started {
+                turn_id,
+                root_turn_id,
+            } => {
+                self.outgoing
+                    .record_request_turn_id(request_id, &turn_id)
+                    .await;
+                TurnStartIfIdleResponse::Started {
+                    turn: codex_app_server_protocol::Turn {
+                        id: turn_id,
+                        root_turn_id: Some(root_turn_id),
+                        items: Vec::new(),
+                        items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
+                        status: codex_app_server_protocol::TurnStatus::InProgress,
+                        error: None,
+                        started_at: None,
+                        completed_at: None,
+                        duration_ms: None,
+                    },
+                }
+            }
+            StartIfIdleSubmission::NotSubmitted {
+                reason: NotSubmittedReason::NotIdle | NotSubmittedReason::PendingTriggerTurn,
+            } => TurnStartIfIdleResponse::SkippedBusy,
+            StartIfIdleSubmission::NotSubmitted { reason } => TurnStartIfIdleResponse::NotStarted {
+                reason: format!("{reason:?}"),
+            },
+        };
+        Ok(Some(ClientResponsePayload::ThreadCompactStartIfIdle(
+            response,
+        )))
+    }
+
     pub(crate) async fn thread_background_terminals_clean(
         &self,
         request_id: &ConnectionRequestId,
@@ -4729,6 +4782,8 @@ impl ThreadRequestProcessor {
 
                 let thread_originator = config_snapshot.originator.clone();
                 let response = ThreadResumeResponse {
+                    supports_compact_if_idle: None,
+                    supports_expected_turn_interrupt: None,
                     thread,
                     disabled_plugin_ids: config_snapshot.disabled_plugin_ids,
                     model: session_configured.model,

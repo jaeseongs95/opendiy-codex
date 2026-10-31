@@ -13774,3 +13774,6 @@ async fn strict_context_commit_validates_before_publishing_any_settings() {
     assert_eq!(session.cleanup_admission.activity_revision(), revision);
     assert!(session.active_turn.lock().await.is_none());
 }
+
+#[path = "idle_control_followup_tests.rs"]
+mod idle_control_followup_tests;

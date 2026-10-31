@@ -1167,7 +1167,7 @@ impl SessionIo {
             Op::TurnInput {
                 mode: TurnInputMode::StartUserIfIdle,
                 ..
-            }
+            } | Op::CompactIfIdle { .. }
         ) {
             self.admission.touch();
         }

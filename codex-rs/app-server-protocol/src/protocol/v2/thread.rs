@@ -468,6 +468,24 @@ pub struct ThreadResumeParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadResumeResponse {
+    /// Available only when Core supports non-destructive idle compaction.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_optional_bool"
+    )]
+    #[schemars(with = "bool")]
+    #[ts(optional)]
+    pub supports_compact_if_idle: Option<bool>,
+    /// Independent of compaction: exact turn cancellation is checked atomically in Core.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_optional_bool"
+    )]
+    #[schemars(with = "bool")]
+    #[ts(optional)]
+    pub supports_expected_turn_interrupt: Option<bool>,
     pub thread: Thread,
     pub model: String,
     pub model_provider: String,
@@ -1264,6 +1282,14 @@ pub struct ThreadCompactStartParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadCompactStartResponse {}
+
+/// Non-destructive compaction admission for an already loaded, idle runtime.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export_to = "v2/")]
+pub struct ThreadCompactStartIfIdleParams {
+    pub thread_id: String,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

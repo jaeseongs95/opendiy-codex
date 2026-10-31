@@ -60,6 +60,7 @@ use crate::request_permissions::RequestPermissionsEvent;
 use crate::request_permissions::RequestPermissionsResponse;
 use crate::request_user_input::RequestUserInputResponse;
 use crate::turn_input::CyberAccessProgram;
+use crate::turn_input::StartIfIdleSubmission;
 use crate::turn_input::SuspendTurnOutcome;
 use crate::turn_input::TurnInputMode;
 use crate::turn_input::TurnInputRequest;
@@ -659,6 +660,13 @@ pub enum Op {
     /// This server sends [`EventMsg::TurnAborted`] in response.
     Interrupt,
 
+    /// Interrupt only the named running turn, with the comparison owned by Core.
+    #[debug("InterruptTurn {{ turn_id: {turn_id:?} }}")]
+    InterruptTurn {
+        turn_id: String,
+        reply: oneshot::Sender<bool>,
+    },
+
     /// Interrupt the named turn only if no input is queued for it.
     /// The decision is acknowledged before cancellation finishes.
     #[debug("InterruptIfNoPendingInput {{ turn_id: {turn_id:?} }}")]
@@ -832,6 +840,12 @@ pub enum Op {
     /// The agent will use its existing context (either conversation history or previous response id)
     /// to generate a summary which will be returned as an AgentMessage event.
     Compact,
+
+    /// Reserve idle compaction without replacing work or consuming queued input.
+    #[debug("CompactIfIdle")]
+    CompactIfIdle {
+        reply: oneshot::Sender<CodexResult<StartIfIdleSubmission>>,
+    },
 
     /// Set whether the thread remains eligible for memory generation.
     ///
@@ -1044,6 +1058,7 @@ impl Op {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Interrupt => "interrupt",
+            Self::InterruptTurn { .. } => "interrupt_turn",
             Self::InterruptIfNoPendingInput { .. } => "interrupt_if_no_pending_input",
             Self::CleanBackgroundTerminals => "clean_background_terminals",
             Self::RealtimeConversationStart(_) => "realtime_conversation_start",
@@ -1069,6 +1084,7 @@ impl Op {
             Self::RefreshMcpServers => "refresh_mcp_servers",
             Self::ReloadUserConfig => "reload_user_config",
             Self::Compact => "compact",
+            Self::CompactIfIdle { .. } => "compact_if_idle",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::Review { .. } => "review",
             Self::ApproveGuardianDeniedAction { .. } => "approve_guardian_denied_action",
