@@ -505,7 +505,14 @@ impl Daemon {
                     settings.save(&self.settings_file).await?;
                 }
             }
-            let pid = managed.start_managed_backend(&settings).await?;
+            let pid = if existing_only {
+                backend::pid_backend(managed.backend_paths(&settings))
+                    .preserving_recovery()
+                    .start()
+                    .await?
+            } else {
+                managed.start_managed_backend(&settings).await?
+            };
             (
                 LifecycleStatus::Started,
                 Some(BackendKind::Pid),

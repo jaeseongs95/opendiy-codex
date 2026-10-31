@@ -573,6 +573,7 @@ async fn exited_unreaped_updater_is_reaped() {
 fn update_loop_uses_hidden_app_server_subcommand() {
     let backend = PidBackend {
         feature_overrides: Default::default(),
+        preserve_recovery: false,
         codex_bin: "codex".into(),
         pid_file: "updater.pid".into(),
         lock_file: "updater.pid.lock".into(),
@@ -585,6 +586,35 @@ fn update_loop_uses_hidden_app_server_subcommand() {
         backend.command_args(),
         vec!["app-server", "daemon", "pid-update-loop"]
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn recovery_preserving_start_rejects_before_pid_or_log_changes() {
+    for (script, expected_error) in [
+        ("#!/bin/sh\nexit 2\n", "does not support managed-daemon restoration"),
+        ("#!/missing-managed-daemon-test-interpreter\n", "failed to run managed-daemon support probe"),
+    ] {
+        let home = TempDir::new().unwrap();
+        let codex_bin = home.path().join("codex");
+        codex_utils_cargo_bin::write_executable(&codex_bin, script).unwrap();
+        let recovery = codex_app_server_transport::daemon_recovery_file_path(home.path());
+        std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
+        std::fs::write(&recovery, b"saved restoration candidates").unwrap();
+        let backend = PidBackend::new(
+            codex_bin,
+            home.path().join("app-server-daemon/app-server.pid"),
+            false,
+        )
+        .preserving_recovery();
+
+        let error = backend.start().await.unwrap_err();
+        assert!(format!("{error:#}").contains(expected_error));
+        assert_eq!(std::fs::read(recovery).unwrap(), b"saved restoration candidates");
+        assert!(!backend.pid_file.exists());
+        assert!(!backend.lock_file.exists());
+        assert!(!stderr_log_file_for_pid_file(&backend.pid_file).exists());
+    }
 }
 
 #[test]

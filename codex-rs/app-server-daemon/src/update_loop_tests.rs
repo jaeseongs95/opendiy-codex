@@ -1368,7 +1368,7 @@ async fn existing_installation_start_preserves_settings_recovery_and_updater() {
         let (daemon, _) = manual_update_daemon(&home);
         let args_path = home.path().join("existing-start-args");
         codex_utils_cargo_bin::write_executable(&daemon.managed_codex_bin, &format!(
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex 1.0.0; exit; fi\nif [ \"$2\" = daemon ]; then exec sleep 30; fi\nprintf '%s\\n' \"$@\" > '{}'\nexec sleep 30\n",
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex 1.0.0; exit; fi\nif [ \"$3\" = --help ]; then exit 0; fi\nif [ \"$2\" = daemon ]; then exec sleep 30; fi\nprintf '%s\\n' \"$@\" > '{}'\nexec sleep 30\n",
             args_path.display(),
         )).unwrap();
         let settings_bytes = format!(
@@ -1423,5 +1423,83 @@ async fn existing_installation_start_preserves_settings_recovery_and_updater() {
         stopped.unwrap();
         updater_stopped.unwrap();
         checks.unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn existing_installation_probe_failure_preserves_selected_installation_and_recovery() {
+    for (help, expected_error) in [
+        ("exit 2", "does not support managed-daemon restoration"),
+        ("exec sleep 30", "managed-daemon support probe timed out"),
+    ] {
+        for auto_update_enabled in [true, false] {
+            let home = TempDir::new().unwrap();
+            let (daemon, _) = manual_update_daemon(&home);
+            let args_path = home.path().join("unexpected-daemon-launch");
+            codex_utils_cargo_bin::write_executable(
+                &daemon.managed_codex_bin,
+                &format!(
+                    "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex 1.0.0; exit; fi\nif [ \"$3\" = --help ]; then {help}; fi\nif [ \"$2\" = daemon ]; then exec sleep 30; fi\nprintf '%s\\n' \"$@\" > '{}'\nexec sleep 30\n",
+                    args_path.display(),
+                ),
+            )
+            .unwrap();
+            let settings_bytes = format!(
+                r#"{{"unknownSetting":"preserve","updater":{{"autoUpdateEnabled":{auto_update_enabled}}}}}"#,
+            )
+            .into_bytes();
+            std::fs::write(&daemon.settings_file, &settings_bytes).unwrap();
+            let settings = daemon.load_settings().await.unwrap();
+            let backend = crate::backend::pid_backend(daemon.backend_paths(&settings));
+            let updater = crate::backend::pid_update_loop_backend(daemon.backend_paths(&settings));
+            if !auto_update_enabled {
+                updater.start().await.unwrap();
+            }
+            let updater_before = std::fs::read(&daemon.update_pid_file).ok();
+            let recovery = daemon.recovery_file().unwrap();
+            std::fs::write(&recovery, b"preserve pending restoration").unwrap();
+            let package = home.path().join("packages/standalone");
+            let selected_before = std::fs::read_link(package.join("current")).unwrap();
+            let marker_before = std::fs::read(package.join("auto-update-version")).unwrap();
+            let executable_before = std::fs::read(&daemon.managed_codex_bin).unwrap();
+            let state = daemon.pid_file.parent().unwrap();
+            let stderr = state.join("app-server.stderr.log");
+            std::fs::write(&stderr, b"preserve daemon diagnostics").unwrap();
+
+            let result = daemon.start_existing_installation().await;
+            let updater_running = updater.is_starting_or_running().await;
+            let checks = (|| -> anyhow::Result<()> {
+                let error = result.expect_err("an unsupported or stalled executable must not launch");
+                anyhow::ensure!(format!("{error:#}").contains(expected_error));
+                anyhow::ensure!(std::fs::read_link(package.join("current"))? == selected_before);
+                anyhow::ensure!(std::fs::read(package.join("auto-update-version"))? == marker_before);
+                anyhow::ensure!(std::fs::read(&daemon.managed_codex_bin)? == executable_before);
+                anyhow::ensure!(std::fs::read(&daemon.settings_file)? == settings_bytes);
+                anyhow::ensure!(std::fs::read(&recovery)? == b"preserve pending restoration");
+                anyhow::ensure!(std::fs::read(&daemon.update_pid_file).ok() == updater_before);
+                anyhow::ensure!(updater_running? == !auto_update_enabled);
+                anyhow::ensure!(std::fs::read(&stderr)? == b"preserve daemon diagnostics");
+                anyhow::ensure!(!home.path().join("packages/app-server-daemon").exists());
+                anyhow::ensure!(!args_path.exists());
+                anyhow::ensure!(!daemon.pid_file.exists());
+                anyhow::ensure!(!state.join("workdir").exists());
+                Ok(())
+            })();
+            let backend_stopped = backend.stop().await;
+            let stopped = updater.stop().await;
+            backend_stopped.unwrap();
+            stopped.unwrap();
+            checks.unwrap();
+
+            if help == "exit 2" && auto_update_enabled {
+                // Ordinary backend starts retain their legacy fallback policy.
+                let pid = backend.start().await.unwrap();
+                let legacy_cleared_recovery = !recovery.exists();
+                backend.stop().await.unwrap();
+                assert!(pid.is_some());
+                assert!(legacy_cleared_recovery);
+            }
+        }
     }
 }

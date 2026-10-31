@@ -37,6 +37,7 @@ const STDERR_LOG_TAIL_BYTES: u64 = 4096;
 #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 pub(crate) struct PidBackend {
     pub(super) feature_overrides: BTreeMap<String, bool>,
+    preserve_recovery: bool,
     codex_bin: PathBuf,
     pid_file: PathBuf,
     lock_file: PathBuf,
@@ -112,6 +113,7 @@ impl PidBackend {
         let lock_file = pid_file.with_extension("pid.lock");
         Self {
             feature_overrides: BTreeMap::new(),
+            preserve_recovery: false,
             codex_bin,
             pid_file,
             lock_file,
@@ -129,11 +131,17 @@ impl PidBackend {
         let lock_file = pid_file.with_extension("pid.lock");
         Self {
             feature_overrides: BTreeMap::new(),
+            preserve_recovery: false,
             codex_bin,
             pid_file,
             lock_file,
             command_kind: PidCommandKind::UpdateLoop { restore_release },
         }
+    }
+
+    pub(crate) fn preserving_recovery(mut self) -> Self {
+        self.preserve_recovery = true;
+        self
     }
 
     pub(crate) async fn is_starting_or_running(&self) -> Result<bool> {
