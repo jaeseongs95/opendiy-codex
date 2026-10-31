@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 //! Local hard-delete support for persisted threads.
 //!
 //! Existing rollout files are deleted before this operation reports success. A rollout file that
@@ -149,6 +150,8 @@ pub(super) async fn delete_threads(
         .collect::<Vec<_>>();
     check_attached_children(&reference_index, &lock_thread_ids)?;
     ensure_no_external_references(&reference_index, thread_rollouts.as_slice())?;
+    #[cfg(feature = "test-support")]
+    store.wait_for_delete_barriers_for_test(&thread_ids).await;
     if let Some(cleanup) = &store.thread_data_cleanup {
         cleanup(thread_ids.clone()).await?;
     }

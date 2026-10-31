@@ -2062,3 +2062,7 @@ mod workspace_routing_tests;
 #[cfg(test)]
 #[path = "message_processor_passive_tests.rs"]
 mod passive_tests;
+
+#[cfg(all(test, feature = "test-support"))]
+#[path = "message_processor_cleanup_guard_tests.rs"]
+mod cleanup_guard_tests;

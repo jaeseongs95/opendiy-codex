@@ -1171,6 +1171,40 @@ impl ThreadManager {
         .await
     }
 
+    /// Builds a child through the production spawn path, sharing its parent's registry.
+    /// Available only to explicitly enabled integration fixtures.
+    #[cfg(feature = "test-support")]
+    pub async fn spawn_child_for_cleanup_test(
+        &self,
+        parent_thread_id: ThreadId,
+        mut options: StartThreadOptions,
+    ) -> CodexResult<NewThread> {
+        let parent = self.get_thread(parent_thread_id).await?;
+        let depth = match &parent.session_source {
+            SessionSource::SubAgent(SubAgentSource::ThreadSpawn { depth, .. }) => depth + 1,
+            _ => 1,
+        };
+        options.session_source = Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            parent_thread_id,
+            depth,
+            agent_path: None,
+            agent_nickname: None,
+            agent_role: None,
+        }));
+        self.state
+            .spawn_child_thread(
+                options,
+                parent
+                    .session
+                    .services
+                    .local_agent_runtime
+                    .control(parent.session.session_id()),
+                Some(parent_thread_id),
+                None,
+            )
+            .await
+    }
+
     /// Starts a fresh internal session associated with an existing parent thread.
     pub async fn spawn_internal_session(
         &self,
