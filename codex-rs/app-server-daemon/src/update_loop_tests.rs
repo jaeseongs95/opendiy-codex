@@ -1470,10 +1470,13 @@ async fn existing_installation_probe_failure_preserves_selected_installation_and
             let result = daemon.start_existing_installation().await;
             let updater_running = updater.is_starting_or_running().await;
             let checks = (|| -> anyhow::Result<()> {
-                let error = result.expect_err("an unsupported or stalled executable must not launch");
+                let error =
+                    result.expect_err("an unsupported or stalled executable must not launch");
                 anyhow::ensure!(format!("{error:#}").contains(expected_error));
                 anyhow::ensure!(std::fs::read_link(package.join("current"))? == selected_before);
-                anyhow::ensure!(std::fs::read(package.join("auto-update-version"))? == marker_before);
+                anyhow::ensure!(
+                    std::fs::read(package.join("auto-update-version"))? == marker_before
+                );
                 anyhow::ensure!(std::fs::read(&daemon.managed_codex_bin)? == executable_before);
                 anyhow::ensure!(std::fs::read(&daemon.settings_file)? == settings_bytes);
                 anyhow::ensure!(std::fs::read(&recovery)? == b"preserve pending restoration");

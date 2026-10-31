@@ -132,8 +132,7 @@ impl PidBackend {
             .stderr(Stdio::from(stderr_log.into_std().await));
         // Older or pinned managed binaries may predate this optional startup flag.
         if managed_app_server
-            && (self.preserve_recovery
-                || require_managed_daemon_support(&codex_bin).await.is_ok())
+            && (self.preserve_recovery || require_managed_daemon_support(&codex_bin).await.is_ok())
         {
             command.arg("--managed-daemon");
         } else if managed_app_server && !self.preserve_recovery {

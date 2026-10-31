@@ -592,8 +592,14 @@ fn update_loop_uses_hidden_app_server_subcommand() {
 #[tokio::test]
 async fn recovery_preserving_start_rejects_before_pid_or_log_changes() {
     for (script, expected_error) in [
-        ("#!/bin/sh\nexit 2\n", "does not support managed-daemon restoration"),
-        ("#!/missing-managed-daemon-test-interpreter\n", "failed to run managed-daemon support probe"),
+        (
+            "#!/bin/sh\nexit 2\n",
+            "does not support managed-daemon restoration",
+        ),
+        (
+            "#!/missing-managed-daemon-test-interpreter\n",
+            "failed to run managed-daemon support probe",
+        ),
     ] {
         let home = TempDir::new().unwrap();
         let codex_bin = home.path().join("codex");
@@ -610,7 +616,10 @@ async fn recovery_preserving_start_rejects_before_pid_or_log_changes() {
 
         let error = backend.start().await.unwrap_err();
         assert!(format!("{error:#}").contains(expected_error));
-        assert_eq!(std::fs::read(recovery).unwrap(), b"saved restoration candidates");
+        assert_eq!(
+            std::fs::read(recovery).unwrap(),
+            b"saved restoration candidates"
+        );
         assert!(!backend.pid_file.exists());
         assert!(!backend.lock_file.exists());
         assert!(!stderr_log_file_for_pid_file(&backend.pid_file).exists());
