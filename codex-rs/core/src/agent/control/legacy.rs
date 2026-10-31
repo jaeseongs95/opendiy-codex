@@ -81,6 +81,11 @@ impl LocalAgentControl {
                     continue;
                 }
                 thread.wait_until_terminated().await;
+                if !thread.io.admission.shutdown_confirmed() {
+                    tracing::warn!(thread_id = %id, "managed subagent shutdown remains unconfirmed");
+                    failed = true;
+                    continue;
+                }
                 let mut threads = state.threads.write().await;
                 if threads
                     .get(&id)

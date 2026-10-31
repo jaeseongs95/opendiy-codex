@@ -185,7 +185,7 @@ impl RuntimeAdmission {
             .shutdown_result
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
     }
-    fn shutdown_confirmed(&self) -> bool {
+    pub(crate) fn shutdown_confirmed(&self) -> bool {
         self.shutdown_result.load(Ordering::Acquire) == 1
             && self.loop_completed.load(Ordering::Acquire)
     }

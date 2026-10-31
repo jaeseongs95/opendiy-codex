@@ -1,10 +1,10 @@
 //! Real loaded-runtime and parent/child admission coverage without model calls.
 
 use super::*;
-use crate::error::CodexErr;
 use crate::state::TaskKind;
 use crate::tasks::SessionTask;
 use crate::tasks::SessionTaskResult;
+use codex_protocol::error::CodexErrorDetails;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -24,7 +24,7 @@ impl SessionTask for HeldTask {
 
     async fn run(
         self: Arc<Self>,
-        _session: Arc<crate::session::Session>,
+        _session: Arc<crate::session::session::Session>,
         _context: Arc<crate::session::turn_context::TurnContext>,
         _input: Vec<crate::session::TurnInput>,
         cancellation: CancellationToken,
@@ -178,7 +178,8 @@ async fn idle_compact_runtime_guard_blocks_raw_remove_and_retained_core_queue_re
     .expect("actual Core queue must answer the retained runtime");
     assert!(matches!(
         outcome,
-        Err(CodexErr::InvalidRequest(message)) if message == "compaction requires a loaded runtime"
+        Err(ref error) if matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
+            if message == "compaction requires a loaded runtime")
     ));
     assert!(retained.session.active_turn.lock().await.is_none());
     assert_eq!(retained.io.admission.activity_revision(), revision);
@@ -244,8 +245,8 @@ async fn idle_compact_loaded_identity_rejects_old_session_after_real_same_id_reo
             .local_agent_runtime
             .lock_loaded_session(&old.thread.session)
             .await,
-        Err(CodexErr::InvalidRequest(message))
-            if message == "loaded compaction runtime changed or is closing"
+        Err(ref error) if matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
+            if message == "loaded compaction runtime changed or is closing")
     ));
     drop(
         reopened
@@ -275,8 +276,8 @@ async fn idle_compact_registry_removal_while_waiting_rejects_before_reservation(
 
     assert!(matches!(
         compact.await,
-        Err(CodexErr::InvalidRequest(message))
-            if message == "compaction requires a loaded runtime"
+        Err(ref error) if matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
+            if message == "compaction requires a loaded runtime")
     ));
     assert!(removed.session.active_turn.lock().await.is_none());
     assert_eq!(removed.io.admission.activity_revision(), revision);
