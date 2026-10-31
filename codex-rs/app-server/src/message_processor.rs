@@ -1056,6 +1056,15 @@ impl MessageProcessor {
         );
 
         let (turn_admission, recheck_turn_admission) = match &codex_request {
+            ClientRequest::ThreadSubagentsControl { params, .. }
+                if matches!(
+                    params.action,
+                    codex_app_server_protocol::SubagentManagementAction::Send
+                        | codex_app_server_protocol::SubagentManagementAction::Resume
+                ) =>
+            {
+                (Some(self.turn_admission.admit()?), true)
+            }
             ClientRequest::ThreadStart { .. }
             | ClientRequest::ThreadFork { .. }
             | ClientRequest::ThreadResume { .. }
@@ -1587,6 +1596,12 @@ impl MessageProcessor {
                         client_version.clone(),
                     )
                     .await
+            }
+            ClientRequest::ThreadSubagentsList { params, .. } => {
+                self.thread_processor.thread_subagents_list(params).await
+            }
+            ClientRequest::ThreadSubagentsControl { params, .. } => {
+                self.thread_processor.thread_subagents_control(params).await
             }
             ClientRequest::ThreadList { params, .. } => {
                 self.thread_processor.thread_list(params).await

@@ -324,9 +324,30 @@ impl LocalAgentControl {
     /// Keep the returned residency pin until the caller has submitted its input.
     pub(crate) async fn ensure_v2_agent_loaded(
         &self,
+        config: Config,
+        thread_id: ThreadId,
+        parent: Option<Arc<CodexThread>>,
+    ) -> CodexResult<Option<tokio::sync::OwnedRwLockReadGuard<()>>> {
+        self.ensure_v2_agent_loaded_internal(config, thread_id, parent, false)
+            .await
+    }
+
+    pub(super) async fn ensure_v2_agent_loaded_for_operator(
+        &self,
+        config: Config,
+        thread_id: ThreadId,
+        parent: Arc<CodexThread>,
+    ) -> CodexResult<Option<tokio::sync::OwnedRwLockReadGuard<()>>> {
+        self.ensure_v2_agent_loaded_internal(config, thread_id, Some(parent), true)
+            .await
+    }
+
+    async fn ensure_v2_agent_loaded_internal(
+        &self,
         mut config: Config,
         thread_id: ThreadId,
         parent: Option<Arc<CodexThread>>,
+        fence_parent: bool,
     ) -> CodexResult<Option<tokio::sync::OwnedRwLockReadGuard<()>>> {
         let membership = self.runtime.admit_start()?;
         let state = self.runtime.upgrade()?;
@@ -649,11 +670,25 @@ impl LocalAgentControl {
         // Reserving a slot can evict an idle nested parent. Capture its instructions and
         // analytics metadata alongside its authority before the live parent can disappear.
         let residency_slot = self
-            .reserve_v2_residency_slot(&state, &config, &membership, Some(thread_id))
+            .reserve_v2_residency_slot(
+                &state,
+                &config,
+                &membership,
+                Some(if fence_parent {
+                    owner_thread_id.unwrap_or(thread_id)
+                } else {
+                    thread_id
+                }),
+            )
             .await?;
 
         match state
             .resume_thread_with_history_with_source(ResumeThreadWithHistoryOptions {
+                expected_parent_runtime: if fence_parent {
+                    parent.as_ref().map(|(parent, _)| Arc::clone(parent))
+                } else {
+                    None
+                },
                 config,
                 prompt_cache_key,
                 initial_history,
@@ -1543,6 +1578,7 @@ impl LocalAgentControl {
 
         let resumed_thread = state
             .resume_thread_with_history_with_source(ResumeThreadWithHistoryOptions {
+                expected_parent_runtime: None,
                 config: config.clone(),
                 prompt_cache_key: None,
                 initial_history,

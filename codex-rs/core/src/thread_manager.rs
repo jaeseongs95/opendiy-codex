@@ -362,6 +362,7 @@ struct ThreadSpawnRequest {
     auth_manager: Arc<AuthManager>,
     agent_control: AgentControlInit,
     parent_thread_id: Option<ThreadId>,
+    expected_parent_runtime: Option<Arc<CodexThread>>,
     parent_originator: Option<String>,
     forked_from_thread_id: Option<ThreadId>,
     fork_persistence: ForkPersistence,
@@ -383,6 +384,7 @@ impl ThreadSpawnRequest {
             auth_manager,
             agent_control: agent_control.into(),
             parent_thread_id: None,
+            expected_parent_runtime: None,
             parent_originator: None,
             forked_from_thread_id: None,
             fork_persistence: ForkPersistence::Copied,
@@ -425,6 +427,7 @@ fn effective_originator_value(
 }
 
 pub(crate) struct ResumeThreadWithHistoryOptions {
+    pub(crate) expected_parent_runtime: Option<Arc<CodexThread>>,
     pub(crate) config: Config,
     pub(crate) prompt_cache_key: Option<PromptCacheKey>,
     pub(crate) initial_history: InitialHistory,
@@ -992,6 +995,44 @@ impl ThreadManager {
 
     pub fn subscribe_thread_created(&self) -> broadcast::Receiver<ThreadId> {
         self.state.thread_created_tx.subscribe()
+    }
+
+    pub async fn list_managed_subagents(
+        &self,
+        parent: ThreadId,
+    ) -> CodexResult<crate::ManagedSubagentList> {
+        self.get_thread(parent)
+            .await?
+            .session
+            .services
+            .agent_control
+            .list_managed_subagents(parent)
+            .await
+    }
+
+    pub async fn control_managed_subagent(
+        &self,
+        parent: ThreadId,
+        expected_parent_runtime_id: uuid::Uuid,
+        child: ThreadId,
+        expected_child_runtime_id: Option<uuid::Uuid>,
+        action: crate::ManagedSubagentAction,
+    ) -> CodexResult<crate::ManagedSubagentControlOutcome> {
+        let Ok(parent_thread) = self.get_thread(parent).await else {
+            return Ok(crate::ManagedSubagentControlOutcome::NotApplied);
+        };
+        parent_thread
+            .session
+            .services
+            .agent_control
+            .control_managed_subagent(
+                parent,
+                expected_parent_runtime_id,
+                child,
+                expected_child_runtime_id,
+                action,
+            )
+            .await
     }
 
     pub async fn get_thread(&self, thread_id: ThreadId) -> CodexResult<Arc<CodexThread>> {
@@ -2095,6 +2136,7 @@ impl ThreadManagerState {
         options: ResumeThreadWithHistoryOptions,
     ) -> CodexResult<NewThread> {
         let ResumeThreadWithHistoryOptions {
+            expected_parent_runtime,
             config,
             prompt_cache_key,
             initial_history,
@@ -2129,6 +2171,7 @@ impl ThreadManagerState {
         let mut request =
             ThreadSpawnRequest::new(options, Arc::clone(&self.auth_manager), agent_control);
         request.parent_thread_id = parent_thread_id;
+        request.expected_parent_runtime = expected_parent_runtime;
         request.inherited_environments = inherited_environments;
         request.inherited_instructions = inherited_instructions;
         request.inherited_exec_policy = inherited_exec_policy;
@@ -2159,6 +2202,26 @@ impl ThreadManagerState {
 
     /// Spawn a new thread with optional history and register it with the manager.
     async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
+        // Bind in-flight local child creation to the parent's current allocation.
+        // A close can remove that parent before the asynchronous startup commits.
+        if request.expected_parent_runtime.is_none()
+            && !matches!(&request.options.initial_history, InitialHistory::Resumed(_))
+            && let Some(parent_id) = request
+                .options
+                .session_source
+                .as_ref()
+                .and_then(SessionSource::parent_thread_id)
+        {
+            let threads = self.threads.read().await;
+            if let Some(parent) = threads.get(&parent_id)
+                && request
+                    .agent_control
+                    .runtime()
+                    .shares_registry(&parent.session.services.local_agent_runtime)
+            {
+                request.expected_parent_runtime = Some(Arc::clone(parent));
+            }
+        }
         let mut protected = Vec::new();
         if let InitialHistory::Resumed(history) = &request.options.initial_history {
             protected.push(history.conversation_id);
@@ -2201,6 +2264,7 @@ impl ThreadManagerState {
             auth_manager,
             agent_control,
             parent_thread_id,
+            expected_parent_runtime,
             parent_originator,
             forked_from_thread_id,
             fork_persistence,
@@ -2563,7 +2627,13 @@ impl ThreadManagerState {
             session.services.mcp_runtime.enable_full_access_form_input();
         }
         let finalize_result = self
-            .finalize_thread_spawn(session, io, tracked_session_source, initial_host_config)
+            .finalize_thread_spawn(
+                session,
+                io,
+                tracked_session_source,
+                initial_host_config,
+                expected_parent_runtime,
+            )
             .await;
         let new_thread = match finalize_result {
             Ok(new_thread) => new_thread,
@@ -2594,6 +2664,7 @@ impl ThreadManagerState {
         io: SessionIo,
         session_source: SessionSource,
         initial_host_config: Option<AgentConfigUpdate>,
+        expected_parent_runtime: Option<Arc<CodexThread>>,
     ) -> CodexResult<NewThread> {
         let thread_id = session.thread_id();
         let event = io.next_event().await?;
@@ -2615,6 +2686,28 @@ impl ThreadManagerState {
             .clone();
         {
             let mut threads = self.threads.write().await;
+            if session_source
+                .parent_thread_id()
+                .and_then(|id| threads.get(&id))
+                .is_some_and(|parent| parent.io.admission.is_closing())
+            {
+                return Err(CodexErr::InvalidRequest(
+                    "subagent parent is closing".into(),
+                ));
+            }
+            if let Some(parent) = &expected_parent_runtime {
+                let current = threads.get(&parent.session.thread_id);
+                if !current.is_some_and(|current| Arc::ptr_eq(current, parent))
+                    || !parent.is_running()
+                    || parent.io.admission.is_closing()
+                    || parent.session.services.agent_control.identity()
+                        != session.services.agent_control.identity()
+                {
+                    return Err(CodexErr::InvalidRequest(
+                        "managed subagent parent runtime changed before registration".into(),
+                    ));
+                }
+            }
             if let std::collections::hash_map::Entry::Vacant(e) = threads.entry(thread_id) {
                 if let Some(update) = initial_host_config {
                     session

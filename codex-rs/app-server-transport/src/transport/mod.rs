@@ -382,6 +382,7 @@ mod tests {
             id: RequestId::Integer(7),
             result: Box::new(ClientResponsePayload::Initialize(
                 codex_app_server_protocol::InitializeResponse {
+                    supports_subagent_management: false,
                     user_agent: "codex-test-agent".to_string(),
                     codex_home,
                     platform_family: "unix".to_string(),

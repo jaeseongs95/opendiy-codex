@@ -72,6 +72,9 @@ pub struct InitializeCapabilities {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
+    /// This server provides fenced operator commands and body-free child snapshots.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub supports_subagent_management: bool,
     pub user_agent: String,
     /// Absolute path to the server's $CODEX_HOME directory.
     pub codex_home: AbsolutePathBuf,

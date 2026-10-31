@@ -41,6 +41,28 @@ const _: Option<&dyn AgentControl> = None;
 pub trait AgentControl: Send + Sync {
     fn identity(&self) -> SessionId;
 
+    fn list_managed_subagents(
+        &self,
+        _parent: ThreadId,
+    ) -> BoxFuture<'_, Result<super::management::ManagedSubagentList>> {
+        Box::pin(async {
+            Err(codex_protocol::error::CodexErr::UnsupportedOperation(
+                "this agent backend does not support operator management".into(),
+            ))
+        })
+    }
+
+    fn control_managed_subagent(
+        &self,
+        _parent: ThreadId,
+        _expected_parent_runtime_id: uuid::Uuid,
+        _child: ThreadId,
+        _expected_child_runtime_id: Option<uuid::Uuid>,
+        _action: super::management::ManagedSubagentAction,
+    ) -> BoxFuture<'_, Result<super::management::ManagedSubagentControlOutcome>> {
+        Box::pin(async { Ok(super::management::ManagedSubagentControlOutcome::Unsupported) })
+    }
+
     /// Resolve an ID or a name relative to the caller's captured source, without loading.
     /// The local backend lazily registers callers with no parent before resolving, including
     /// for direct IDs. Keeping resolution separate preserves tool error and analytics ordering.

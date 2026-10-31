@@ -77,6 +77,7 @@ mod inspection;
 mod interrupt;
 mod legacy;
 mod mailbox;
+mod management;
 mod residency;
 pub use residency::ThreadEvictionOutcome;
 mod resume;

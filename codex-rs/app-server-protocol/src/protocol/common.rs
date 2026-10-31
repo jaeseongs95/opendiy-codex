@@ -873,6 +873,16 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadRevertResponse,
     },
+    ThreadSubagentsList => "thread/subagents/list" {
+        params: v2::ThreadSubagentsListParams,
+        serialization: None,
+        response: v2::ThreadSubagentsListResponse,
+    },
+    ThreadSubagentsControl => "thread/subagents/control" {
+        params: v2::ThreadSubagentsControlParams,
+        serialization: thread_id(params.parent_thread_id),
+        response: v2::ThreadSubagentsControlResponse,
+    },
     ThreadList => "thread/list" {
         params: v2::ThreadListParams,
         inspect_params: true,

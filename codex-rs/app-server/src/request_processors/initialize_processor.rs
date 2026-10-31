@@ -211,6 +211,7 @@ impl InitializeRequestProcessor {
 
         let user_agent = get_codex_user_agent();
         let response = InitializeResponse {
+            supports_subagent_management: true,
             user_agent,
             codex_home,
             platform_family: std::env::consts::FAMILY.to_string(),

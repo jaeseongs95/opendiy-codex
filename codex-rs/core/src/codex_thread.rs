@@ -209,6 +209,7 @@ pub struct GuardianRootSnapshot {
 }
 
 pub struct CodexThread {
+    runtime_id: uuid::Uuid,
     pub(crate) session: Arc<Session>,
     pub(crate) io: SessionIo,
     // Queued agent mail owns a read guard until handled or dropped; eviction needs a write guard.
@@ -239,6 +240,28 @@ pub struct BackgroundTerminalInfo {
 /// Conduit for the bidirectional stream of messages that compose a thread
 /// (formerly called a conversation) in Codex.
 impl CodexThread {
+    pub(crate) async fn managed_multi_agent_version(&self) -> MultiAgentVersion {
+        if let Some(version) = self.multi_agent_version() {
+            return version;
+        }
+        let config = self.session.get_config().await;
+        if let Some(version) = config.multi_agent_version_override() {
+            return version;
+        }
+        let model = self.config_snapshot().await.model;
+        let info = self
+            .session
+            .services
+            .models_manager
+            .get_model_info(&model, &config.to_models_manager_config())
+            .await;
+        config.multi_agent_version_for_model(info.multi_agent_version)
+    }
+
+    pub fn runtime_id(&self) -> uuid::Uuid {
+        self.runtime_id
+    }
+
     pub(crate) async fn cleanup_is_idle(&self) -> bool {
         self.session.active_turn.lock().await.is_none()
             && !self.session.has_outstanding_durable_sleep()
@@ -255,6 +278,7 @@ impl CodexThread {
         session_source: SessionSource,
     ) -> Self {
         Self {
+            runtime_id: uuid::Uuid::new_v4(),
             session,
             residency_gate: Arc::clone(&io.admission.gate),
             io,

@@ -459,6 +459,8 @@ fn validate_dynamic_tools(tools: &[DynamicToolSpec]) -> Result<(), String> {
 
 #[derive(Clone)]
 pub(crate) struct ThreadRequestProcessor {
+    pub(super) subagent_mutations:
+        Arc<tokio::sync::Mutex<super::subagent_processor::SubagentMutationReceipts>>,
     pub(super) auth_manager: Arc<AuthManager>,
     pub(crate) thread_manager: Arc<ThreadManager>,
     pub(super) outgoing: Arc<OutgoingMessageSender>,
@@ -522,6 +524,7 @@ impl ThreadRequestProcessor {
         sample_responses: Arc<crate::thread_sample::SampleResponseRegistry>,
     ) -> Self {
         Self {
+            subagent_mutations: Arc::new(tokio::sync::Mutex::new(Default::default())),
             auth_manager,
             thread_manager,
             outgoing,

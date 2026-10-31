@@ -632,6 +632,22 @@ impl Session {
         true
     }
 
+    /// Finish an exact task whose cancellation was committed under active_turn.
+    pub(crate) async fn finish_managed_turn_abort(self: &Arc<Self>, mut active_turn: ActiveTurn) {
+        if let Some(task) = active_turn.task.take() {
+            self.handle_task_abort_internal(
+                task,
+                TurnAbortReason::Interrupted,
+                &active_turn.turn_state,
+                None,
+                true,
+            )
+            .await;
+        }
+        self.input_queue.clear_pending(&active_turn).await;
+        self.maybe_start_turn_for_pending_work().await;
+    }
+
     pub(crate) async fn finish_turn_abort(
         self: &Arc<Self>,
         mut active_turn: ActiveTurn,
@@ -961,8 +977,20 @@ impl Session {
         turn_state: &Mutex<TurnState>,
         error: Option<ErrorEvent>,
     ) {
+        self.handle_task_abort_internal(task, reason, turn_state, error, false)
+            .await;
+    }
+
+    async fn handle_task_abort_internal(
+        self: &Arc<Self>,
+        task: RunningTask,
+        reason: TurnAbortReason,
+        turn_state: &Mutex<TurnState>,
+        error: Option<ErrorEvent>,
+        cancellation_owned: bool,
+    ) {
         let sub_id = task.turn_context.sub_id.clone();
-        if task.cancellation_token.is_cancelled() {
+        if task.cancellation_token.is_cancelled() && !cancellation_owned {
             self.emit_turn_abort_lifecycle(reason, task.turn_context.extension_data.as_ref())
                 .await;
             return;

@@ -36,6 +36,7 @@ struct ActiveAgents {
     thread_paths: HashMap<ThreadId, RegisteredAgent>,
     used_agent_nicknames: HashSet<String>,
     nickname_reset_count: usize,
+    managed_closed: HashSet<ThreadId>,
 }
 
 /// Thread defaults and executor bindings retained while a child's runtime is unloaded.
@@ -95,6 +96,58 @@ pub(crate) fn exceeds_thread_spawn_depth_limit(depth: i32, max_depth: i32) -> bo
 }
 
 impl AgentRegistry {
+    /// Capture only direct child metadata under one membership lock.
+    pub(crate) fn managed_children(&self, parent: ThreadId) -> Result<Vec<AgentMetadata>> {
+        let agents = self
+            .active_agents
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(path) = agents.thread_paths.get(&parent).map(|agent| &agent.path) else {
+            return Ok(Vec::new());
+        };
+        let prefix = format!("{path}/");
+        let mut children = agents
+            .agent_tree
+            .values()
+            .filter(|agent| {
+                agent.agent_path.as_ref().is_some_and(|path| {
+                    path.as_str()
+                        .strip_prefix(&prefix)
+                        .is_some_and(|name| !name.contains('/'))
+                })
+            })
+            .take(1025)
+            .cloned()
+            .collect::<Vec<_>>();
+        if children.len() > 1024 {
+            return Err(CodexErr::InvalidRequest(
+                "managed subagent metadata exceeds the 1024-entry limit".into(),
+            ));
+        }
+        children.sort_by_key(|agent| agent.agent_id.map(|id| id.to_string()));
+        Ok(children)
+    }
+
+    pub(crate) fn set_managed_closed(&self, child: ThreadId, closed: bool) {
+        let mut agents = self
+            .active_agents
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if closed {
+            agents.managed_closed.insert(child);
+        } else {
+            agents.managed_closed.remove(&child);
+        }
+    }
+
+    pub(crate) fn is_managed_closed(&self, child: ThreadId) -> bool {
+        self.active_agents
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .managed_closed
+            .contains(&child)
+    }
+
     pub(crate) fn reserve_spawn_slot(
         self: &Arc<Self>,
         max_threads: Option<usize>,
@@ -123,6 +176,7 @@ impl AgentRegistry {
                 .active_agents
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            active_agents.managed_closed.remove(&thread_id);
             active_agents
                 .thread_paths
                 .remove(&thread_id)

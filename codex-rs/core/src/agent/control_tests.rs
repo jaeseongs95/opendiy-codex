@@ -1,4 +1,6 @@
 use super::*;
+#[path = "management_tests.rs"]
+mod management_tests;
 use crate::CodexThread;
 use crate::StateDbHandle;
 use crate::ThreadManager;
