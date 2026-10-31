@@ -1326,7 +1326,11 @@ impl ThreadManager {
             .find(|entry| entry.thread_id == done.thread_id)
             .unwrap();
         assert_eq!(entry.runtime_id, Some(done.thread.runtime_id()));
+        assert_eq!(entry.status, crate::ManagedSubagentStatus::Unknown);
+        assert!(entry.active_turn_id.is_none());
         assert!(!entry.capabilities.send);
+        assert!(!entry.capabilities.interrupt);
+        assert!(!entry.capabilities.close);
         assert!(!entry.capabilities.resume);
         // The one-shot fault is consumed; close the retained real writer during fixture teardown.
         manager

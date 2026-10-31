@@ -58,24 +58,27 @@ impl SubagentMutationReceipts {
             }
             return Ok(Some(receipt.status));
         }
-        if self.has_unknown(parent, runtime) {
-            return Ok(Some(SubagentControlStatus::Unknown));
-        }
         // Never evict accepted IDs: a late replay must not execute twice. At this
         // server-lifetime ceiling, callers must reconnect to a fresh server runtime.
         if self.receipts.len() >= MAX_RECEIPTS {
             return Ok(Some(SubagentControlStatus::Unsupported));
         }
+        let rejected = self.has_unknown(parent, runtime);
+        let status = if rejected {
+            SubagentControlStatus::NotApplied
+        } else {
+            SubagentControlStatus::Unknown
+        };
         self.receipts.insert(
             id,
             MutationReceipt {
                 parent,
                 runtime,
                 fingerprint,
-                status: SubagentControlStatus::Unknown,
+                status,
             },
         );
-        Ok(None)
+        Ok(rejected.then_some(SubagentControlStatus::NotApplied))
     }
 
     fn finish(&mut self, id: Uuid, status: SubagentControlStatus) {
@@ -176,6 +179,37 @@ fn validate_command(params: &ThreadSubagentsControlParams) -> Result<(), JSONRPC
     Ok(())
 }
 
+fn management_agent_to_wire(agent: codex_core::ManagedSubagent) -> SubagentManagementAgent {
+    SubagentManagementAgent {
+        id: agent.thread_id.to_string(),
+        parent_thread_id: agent.parent_thread_id.to_string(),
+        runtime_id: agent.runtime_id.map(|id| id.to_string()),
+        nickname: bounded_metadata(agent.nickname, 256),
+        role: bounded_metadata(agent.role, 256),
+        model: bounded_metadata(agent.model, 256),
+        effort: agent
+            .reasoning_effort
+            .map(|effort| effort.to_string())
+            .and_then(|effort| bounded_metadata(Some(effort), 64)),
+        status: match agent.status {
+            ManagedSubagentStatus::Pending => SubagentManagementStatus::Pending,
+            ManagedSubagentStatus::Running => SubagentManagementStatus::Running,
+            ManagedSubagentStatus::Idle => SubagentManagementStatus::Idle,
+            ManagedSubagentStatus::Completed => SubagentManagementStatus::Completed,
+            ManagedSubagentStatus::Errored => SubagentManagementStatus::Errored,
+            ManagedSubagentStatus::Closed => SubagentManagementStatus::Closed,
+            ManagedSubagentStatus::Unknown => SubagentManagementStatus::Unknown,
+        },
+        active_turn_id: bounded_metadata(agent.active_turn_id, MAX_TURN_ID_BYTES),
+        capabilities: SubagentManagementCapabilities {
+            send: agent.capabilities.send,
+            interrupt: agent.capabilities.interrupt,
+            close: agent.capabilities.close,
+            resume: agent.capabilities.resume,
+        },
+    }
+}
+
 impl ThreadRequestProcessor {
     pub(crate) async fn thread_subagents_list(
         &self,
@@ -232,34 +266,7 @@ impl ThreadRequestProcessor {
         let mut page = Vec::new();
         for _ in 0..limit {
             let Some(agent) = agents.next() else { break };
-            page.push(SubagentManagementAgent {
-                id: agent.thread_id.to_string(),
-                parent_thread_id: agent.parent_thread_id.to_string(),
-                runtime_id: agent.runtime_id.map(|id| id.to_string()),
-                nickname: bounded_metadata(agent.nickname, 256),
-                role: bounded_metadata(agent.role, 256),
-                model: bounded_metadata(agent.model, 256),
-                effort: agent
-                    .reasoning_effort
-                    .map(|effort| effort.to_string())
-                    .and_then(|effort| bounded_metadata(Some(effort), 64)),
-                status: match agent.status {
-                    ManagedSubagentStatus::Pending => SubagentManagementStatus::Pending,
-                    ManagedSubagentStatus::Running => SubagentManagementStatus::Running,
-                    ManagedSubagentStatus::Idle => SubagentManagementStatus::Idle,
-                    ManagedSubagentStatus::Completed => SubagentManagementStatus::Completed,
-                    ManagedSubagentStatus::Errored => SubagentManagementStatus::Errored,
-                    ManagedSubagentStatus::Closed => SubagentManagementStatus::Closed,
-                    ManagedSubagentStatus::Unknown => SubagentManagementStatus::Unknown,
-                },
-                active_turn_id: bounded_metadata(agent.active_turn_id, MAX_TURN_ID_BYTES),
-                capabilities: SubagentManagementCapabilities {
-                    send: agent.capabilities.send,
-                    interrupt: agent.capabilities.interrupt,
-                    close: agent.capabilities.close,
-                    resume: agent.capabilities.resume,
-                },
-            });
+            page.push(management_agent_to_wire(agent));
         }
         let next_cursor = if agents.next().is_some() {
             page.last()
@@ -378,7 +385,7 @@ mod tests {
         assert_eq!(
             book.reserve(Uuid::now_v7(), parent, runtime, [3; 32])
                 .unwrap(),
-            Some(SubagentControlStatus::Unknown)
+            Some(SubagentControlStatus::NotApplied)
         );
         book.finish(id, SubagentControlStatus::Applied);
         assert_eq!(
@@ -473,6 +480,156 @@ mod tests {
         assert_eq!(
             book.lock().await.reconcile(parent, runtime, Some(id)),
             (SubagentMutationState::Unknown, None)
+        );
+    }
+    #[tokio::test]
+    async fn distinct_connection_requests_reconcile_an_unadmitted_rejection() {
+        let book =
+            std::sync::Arc::new(tokio::sync::Mutex::new(SubagentMutationReceipts::default()));
+        let parent = ThreadId::new();
+        let runtime = Uuid::now_v7();
+        let first = Uuid::now_v7();
+        let second = Uuid::now_v7();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let first_connection = std::sync::Arc::clone(&book);
+        let running = tokio::spawn(async move {
+            assert_eq!(
+                first_connection
+                    .lock()
+                    .await
+                    .reserve(first, parent, runtime, [1; 32])
+                    .unwrap(),
+                None
+            );
+            started_tx.send(()).unwrap();
+            finish_rx.await.unwrap();
+            first_connection
+                .lock()
+                .await
+                .finish(first, SubagentControlStatus::Applied);
+        });
+        started_rx.await.unwrap();
+        let second_connection = std::sync::Arc::clone(&book);
+        let rejected = tokio::spawn(async move {
+            second_connection
+                .lock()
+                .await
+                .reserve(second, parent, runtime, [2; 32])
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert_eq!(rejected, Some(SubagentControlStatus::NotApplied));
+        {
+            let mut receipts = book.lock().await;
+            assert_eq!(receipts.receipts.len(), 2);
+            assert_eq!(
+                receipts.reserve(first, parent, runtime, [1; 32]).unwrap(),
+                Some(SubagentControlStatus::Unknown)
+            );
+            assert_eq!(
+                receipts.reserve(second, parent, runtime, [2; 32]).unwrap(),
+                Some(SubagentControlStatus::NotApplied)
+            );
+            assert!(receipts.reserve(second, parent, runtime, [3; 32]).is_err());
+            assert_eq!(
+                receipts.reconcile(parent, runtime, Some(second)),
+                (SubagentMutationState::Unknown, None)
+            );
+        }
+        finish_tx.send(()).unwrap();
+        running.await.unwrap();
+        let mut receipts = book.lock().await;
+        assert_eq!(
+            receipts.reconcile(parent, runtime, Some(second)),
+            (SubagentMutationState::Clear, Some(second.to_string()))
+        );
+        assert_eq!(
+            receipts.reserve(second, parent, runtime, [2; 32]).unwrap(),
+            Some(SubagentControlStatus::NotApplied)
+        );
+        let third = Uuid::now_v7();
+        assert_eq!(
+            receipts.reserve(third, parent, runtime, [3; 32]).unwrap(),
+            None
+        );
+        receipts.finish(third, SubagentControlStatus::Applied);
+        assert_eq!(
+            receipts.reconcile(parent, runtime, Some(third)),
+            (SubagentMutationState::Clear, Some(third.to_string()))
+        );
+    }
+
+    #[test]
+    fn terminal_rejections_share_the_bounded_receipt_ceiling() {
+        let mut book = SubagentMutationReceipts::default();
+        let parent = ThreadId::new();
+        let runtime = Uuid::now_v7();
+        let first = Uuid::now_v7();
+        assert_eq!(book.reserve(first, parent, runtime, [1; 32]).unwrap(), None);
+        for _ in 1..MAX_RECEIPTS {
+            assert_eq!(
+                book.reserve(Uuid::now_v7(), parent, runtime, [2; 32])
+                    .unwrap(),
+                Some(SubagentControlStatus::NotApplied)
+            );
+        }
+        assert_eq!(book.receipts.len(), MAX_RECEIPTS);
+        assert_eq!(
+            book.reserve(Uuid::now_v7(), parent, runtime, [2; 32])
+                .unwrap(),
+            Some(SubagentControlStatus::Unsupported)
+        );
+        assert_eq!(
+            book.reserve(first, parent, runtime, [1; 32]).unwrap(),
+            Some(SubagentControlStatus::Unknown)
+        );
+        assert_eq!(book.receipts.len(), MAX_RECEIPTS);
+    }
+
+    #[test]
+    fn retained_shutdown_runtime_serializes_as_unknown_without_actions() {
+        let parent = ThreadId::new();
+        let runtime = Uuid::now_v7();
+        let child = codex_core::ManagedSubagent {
+            thread_id: ThreadId::new(),
+            parent_thread_id: parent,
+            runtime_id: Some(runtime),
+            nickname: None,
+            role: None,
+            model: None,
+            reasoning_effort: None,
+            status: ManagedSubagentStatus::Unknown,
+            active_turn_id: None,
+            capabilities: codex_core::ManagedSubagentCapabilities::default(),
+        };
+        let response = ThreadSubagentsListResponse {
+            parent_thread_id: parent.to_string(),
+            parent_runtime_id: Uuid::now_v7().to_string(),
+            agents: vec![management_agent_to_wire(child)],
+            next_cursor: None,
+            mutation_state: SubagentMutationState::Unknown,
+            reconciled_request_id: None,
+        };
+        let wire = serde_json::to_value(response).unwrap();
+        let agent = &wire["agents"][0];
+        assert_eq!(agent["status"], "unknown");
+        assert_eq!(agent["runtimeId"], runtime.to_string());
+        assert!(agent.get("activeTurnId").is_none());
+        assert_eq!(
+            agent["capabilities"],
+            serde_json::json!({
+                "send": false, "interrupt": false, "close": false, "resume": false
+            })
+        );
+        assert_eq!(agent.as_object().unwrap().len(), 5);
+        let decoded: ThreadSubagentsListResponse = serde_json::from_value(wire).unwrap();
+        assert_eq!(decoded.agents[0].status, SubagentManagementStatus::Unknown);
+        let runtime_id = runtime.to_string();
+        assert_eq!(
+            decoded.agents[0].runtime_id.as_deref(),
+            Some(runtime_id.as_str())
         );
     }
 }

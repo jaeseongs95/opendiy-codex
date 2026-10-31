@@ -43,8 +43,8 @@ fn status(status: &AgentStatus, active: bool) -> ManagedSubagentStatus {
         AgentStatus::Running | AgentStatus::Interrupted => ManagedSubagentStatus::Idle,
         AgentStatus::Completed(_) => ManagedSubagentStatus::Completed,
         AgentStatus::Errored(_) => ManagedSubagentStatus::Errored,
-        AgentStatus::Shutdown => ManagedSubagentStatus::Closed,
-        AgentStatus::NotFound => ManagedSubagentStatus::Unknown,
+        // Closed is reserved for metadata whose runtime has been removed.
+        AgentStatus::Shutdown | AgentStatus::NotFound => ManagedSubagentStatus::Unknown,
     }
 }
 
