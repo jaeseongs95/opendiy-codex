@@ -129,7 +129,7 @@ impl CronState {
         });
     }
 
-    fn epoch(&self, backend: BackendId) -> u64 {
+    pub(super) fn epoch(&self, backend: BackendId) -> u64 {
         self.epochs.get(&backend).copied().unwrap_or_default()
     }
 
