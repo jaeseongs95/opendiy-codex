@@ -1359,3 +1359,69 @@ printf '%s' '{release}' > '{marker}'
         );
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn existing_installation_start_preserves_settings_recovery_and_updater() {
+    for auto_update_enabled in [true, false] {
+        let home = TempDir::new().unwrap();
+        let (daemon, _) = manual_update_daemon(&home);
+        let args_path = home.path().join("existing-start-args");
+        codex_utils_cargo_bin::write_executable(&daemon.managed_codex_bin, &format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex 1.0.0; exit; fi\nif [ \"$2\" = daemon ]; then exec sleep 30; fi\nprintf '%s\\n' \"$@\" > '{}'\nexec sleep 30\n",
+            args_path.display(),
+        )).unwrap();
+        let settings_bytes = format!(
+            r#"{{"featureOverrides":{{"api_key_model_discovery":true}},"remoteControlEnabled":true,"unknownSetting":"preserve","updater":{{"autoUpdateEnabled":{auto_update_enabled}}}}}"#
+        ).into_bytes();
+        std::fs::write(&daemon.settings_file, &settings_bytes).unwrap();
+        let settings = daemon.load_settings().await.unwrap();
+        let backend = crate::backend::pid_backend(daemon.backend_paths(&settings));
+        let updater = crate::backend::pid_update_loop_backend(daemon.backend_paths(&settings));
+        // Exercise both prohibited effects: starting an absent updater and stopping a live one.
+        if !auto_update_enabled {
+            updater.start().await.unwrap();
+        }
+        let updater_before = std::fs::read(&daemon.update_pid_file).ok();
+        let recovery = daemon.recovery_file().unwrap();
+        std::fs::write(&recovery, b"preserve pending restoration").unwrap();
+        let control = async {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            while !args_path.exists() {
+                anyhow::ensure!(
+                    tokio::time::Instant::now() < deadline,
+                    "daemon did not launch"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok::<_, anyhow::Error>(test_control_server(&daemon, home.path()).await)
+        };
+        let (started, server) = tokio::join!(daemon.start_existing_installation(), control);
+        let checks = async {
+            anyhow::ensure!(server.is_ok(), "control fixture did not start");
+            let output = started?;
+            anyhow::ensure!(output.status == crate::LifecycleStatus::Started);
+            anyhow::ensure!(output.managed_codex_path == daemon.managed_codex_bin);
+            anyhow::ensure!(output.app_server_version.as_deref() == Some("1.0.0"));
+            let pid_before = std::fs::read(&daemon.pid_file)?;
+            let reused = daemon.start_existing_installation().await?;
+            anyhow::ensure!(reused.status == crate::LifecycleStatus::AlreadyRunning);
+            anyhow::ensure!(std::fs::read(&daemon.pid_file)? == pid_before);
+            anyhow::ensure!(std::fs::read(&daemon.settings_file)? == settings_bytes);
+            anyhow::ensure!(std::fs::read(&recovery)? == b"preserve pending restoration");
+            anyhow::ensure!(std::fs::read(&daemon.update_pid_file).ok() == updater_before);
+            let args = std::fs::read_to_string(&args_path)?;
+            anyhow::ensure!(args.contains("features.api_key_model_discovery=true"));
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        let stopped = backend.stop().await;
+        let updater_stopped = updater.stop().await;
+        if let Ok(server) = server {
+            server.abort();
+        }
+        stopped.unwrap();
+        updater_stopped.unwrap();
+        checks.unwrap();
+    }
+}

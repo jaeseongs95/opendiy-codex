@@ -683,7 +683,11 @@ enum AppServerDaemonSubcommand {
     Bootstrap(AppServerBootstrapCommand),
 
     /// Start the local app server daemon if it is not already running.
-    Start,
+    Start {
+        /// Use only the selected installation; preserve settings and updater state.
+        #[arg(long)]
+        existing_installation: bool,
+    },
 
     /// Restart the local app server daemon.
     Restart,
@@ -1367,8 +1371,15 @@ async fn cli_main(
                     }
                 }
                 Some(AppServerSubcommand::Daemon(daemon_cli)) => match daemon_cli.subcommand {
-                    AppServerDaemonSubcommand::Start => {
-                        print_app_server_daemon_output(AppServerLifecycleCommand::Start).await?;
+                    AppServerDaemonSubcommand::Start {
+                        existing_installation,
+                    } => {
+                        let command = if existing_installation {
+                            AppServerLifecycleCommand::StartExistingInstallation
+                        } else {
+                            AppServerLifecycleCommand::Start
+                        };
+                        print_app_server_daemon_output(command).await?;
                     }
                     AppServerDaemonSubcommand::Bootstrap(bootstrap_cli) => {
                         let output =
@@ -2485,7 +2496,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
         None => "app-server",
         Some(AppServerSubcommand::Daemon(daemon)) => match daemon.subcommand {
             AppServerDaemonSubcommand::Bootstrap(_) => "app-server daemon bootstrap",
-            AppServerDaemonSubcommand::Start => "app-server daemon start",
+            AppServerDaemonSubcommand::Start { .. } => "app-server daemon start",
             AppServerDaemonSubcommand::Restart => "app-server daemon restart",
             AppServerDaemonSubcommand::Update { .. } => "app-server daemon update",
             AppServerDaemonSubcommand::EnableRemoteControl => {
@@ -5033,7 +5044,9 @@ enabled = true
         assert!(matches!(
             app_server_from_args(["codex", "app-server", "daemon", "start"].as_ref()).subcommand,
             Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
-                subcommand: AppServerDaemonSubcommand::Start
+                subcommand: AppServerDaemonSubcommand::Start {
+                    existing_installation: false
+                }
             }))
         ));
         assert!(matches!(
@@ -5070,6 +5083,28 @@ enabled = true
             app_server_from_args(["codex", "app-server", "daemon", "version"].as_ref()).subcommand,
             Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
                 subcommand: AppServerDaemonSubcommand::Version
+            }))
+        ));
+    }
+
+    #[test]
+    fn app_server_daemon_existing_installation_start_parses() {
+        assert!(matches!(
+            app_server_from_args(
+                [
+                    "codex",
+                    "app-server",
+                    "daemon",
+                    "start",
+                    "--existing-installation"
+                ]
+                .as_ref()
+            )
+            .subcommand,
+            Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
+                subcommand: AppServerDaemonSubcommand::Start {
+                    existing_installation: true
+                }
             }))
         ));
     }
