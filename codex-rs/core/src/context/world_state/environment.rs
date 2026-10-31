@@ -445,6 +445,7 @@ async fn powershell_version(shell_path: &Path) -> Option<String> {
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
+    codex_protocol::shell_environment::scrub_non_inheritable_env_vars(command.as_std_mut());
     let version = tokio::time::timeout(Duration::from_secs(2), command.output())
         .await
         .ok()

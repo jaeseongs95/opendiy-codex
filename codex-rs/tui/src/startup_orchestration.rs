@@ -12,6 +12,7 @@ pub(super) async fn run_main_inner(
     arg0_paths: Arg0DispatchPaths,
     loader_overrides: LoaderOverrides,
     mut explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> std::io::Result<AppExitInfo> {
     if cli.no_daemon && explicit_remote_endpoint.is_some() {
         return Err(std::io::Error::other(
@@ -918,8 +919,11 @@ pub(super) async fn run_main_inner(
         .map(|layer| layer.with_filter(log_db::default_filter()));
 
     let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
-    let batch_layer = batch_layer.map(|layer| layer.with_filter(
-        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
+    let batch_layer = batch_layer.map(|layer| {
+        layer.with_filter(tracing_subscriber::filter::filter_fn(
+            codex_diagnostics::batch_log::metadata_enabled,
+        ))
+    });
     let _ = tracing_subscriber::registry()
         .with(tui_file_layer)
         .with(feedback_layer)
@@ -957,6 +961,7 @@ pub(super) async fn run_main_inner(
         managed_daemon,
         launch_telemetry,
         startup_draft,
+        desktop_cron_bootstrap,
     ))
     .await
     .map_err(|err| {

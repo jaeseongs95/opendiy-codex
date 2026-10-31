@@ -1057,11 +1057,17 @@ fn stage_str(stage: Stage) -> &'static str {
 }
 
 fn main() -> anyhow::Result<()> {
+    let desktop_cron_bootstrap = codex_tui::take_desktop_cron_bootstrap_from_env();
     codex_build_info::initialize!();
     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
         // Keep the CLI dispatcher off the runtime's stack while the TUI rebuilds a thread.
-        Box::pin(cli_main(arg0_paths, remote_control_disabled)).await?;
+        Box::pin(cli_main(
+            arg0_paths,
+            remote_control_disabled,
+            desktop_cron_bootstrap,
+        ))
+        .await?;
         Ok(())
     })
 }
@@ -1069,6 +1075,7 @@ fn main() -> anyhow::Result<()> {
 async fn cli_main(
     arg0_paths: Arg0DispatchPaths,
     remote_control_disabled: bool,
+    desktop_cron_bootstrap: codex_tui::DesktopCronBootstrap,
 ) -> anyhow::Result<()> {
     codex_tui::i18n::initialize()?;
     let MultitoolCli {
@@ -1172,6 +1179,7 @@ async fn cli_main(
                 root_remote.clone(),
                 root_remote_auth_token_env.clone(),
                 arg0_paths.clone(),
+                desktop_cron_bootstrap,
             )
             .await?;
             handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
@@ -1581,6 +1589,7 @@ async fn cli_main(
                     .remote_auth_token_env
                     .or(root_remote_auth_token_env.clone()),
                 arg0_paths.clone(),
+                desktop_cron_bootstrap,
             )
             .await?;
             handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
@@ -1689,6 +1698,7 @@ async fn cli_main(
                     .remote_auth_token_env
                     .or(root_remote_auth_token_env.clone()),
                 arg0_paths.clone(),
+                desktop_cron_bootstrap,
             )
             .await?;
             handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
@@ -2544,6 +2554,7 @@ async fn run_interactive_tui(
     remote: Option<String>,
     remote_auth_token_env: Option<String>,
     arg0_paths: Arg0DispatchPaths,
+    mut desktop_cron_bootstrap: codex_tui::DesktopCronBootstrap,
 ) -> std::io::Result<AppExitInfo> {
     if interactive.no_daemon {
         if interactive.agents_overview {
@@ -2612,6 +2623,7 @@ async fn run_interactive_tui(
             arg0_paths.clone(),
             codex_config::LoaderOverrides::default(),
             remote_endpoint.clone(),
+            std::mem::take(&mut desktop_cron_bootstrap),
         )
     };
     run_tui_with_recovery(start_tui, remote_auth_token_env.as_deref()).await
@@ -2820,6 +2832,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
         web_search,
         no_alt_screen,
         no_daemon,
+        desktop_cron_control,
         prompt,
         mut config_overrides,
         ..
@@ -2841,6 +2854,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
     }
     interactive.no_alt_screen |= no_alt_screen;
     interactive.no_daemon |= no_daemon;
+    if desktop_cron_control.is_some() {
+        interactive.desktop_cron_control = desktop_cron_control;
+    }
     if strict_config {
         interactive.strict_config = true;
     }
@@ -2874,12 +2890,52 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    fn desktop_cron_control_is_explicit_and_global_for_resume() {
+        assert!(
+            MultitoolCli::try_parse_from(["codex"])
+                .expect("parse")
+                .interactive
+                .desktop_cron_control
+                .is_none()
+        );
+        for args in [
+            vec![
+                "codex",
+                "--desktop-cron-control=pipe-v1",
+                "resume",
+                "thread-id",
+            ],
+            vec![
+                "codex",
+                "resume",
+                "thread-id",
+                "--desktop-cron-control=pipe-v1",
+            ],
+        ] {
+            let cli = finalize_resume_from_args(&args);
+            assert_eq!(
+                cli.desktop_cron_control,
+                Some(codex_tui::DesktopCronControl::PipeV1)
+            );
+        }
+        assert!(MultitoolCli::try_parse_from(["codex", "--desktop-cron-control=other"]).is_err());
+        for args in [vec!["codex", "--help"], vec!["codex", "resume", "--help"]] {
+            let help = MultitoolCli::try_parse_from(args).expect_err("help");
+            assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+            let help = help.to_string();
+            assert!(help.contains("--desktop-cron-control"));
+            assert!(help.contains("pipe-v1"));
+        }
+    }
+
+    #[test]
     fn interactive_tui_future_stays_bounded() {
         let future = run_interactive_tui(
             TuiCli::parse_from(["codex"]),
             /*remote*/ None,
             /*remote_auth_token_env*/ None,
             Arg0DispatchPaths::default(),
+            codex_tui::DesktopCronBootstrap::default(),
         );
         let size = std::mem::size_of_val(&future);
 

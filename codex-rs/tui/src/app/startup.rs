@@ -253,6 +253,7 @@ impl App {
         mut startup_draft: StartupDraftPump,
         managed_worktree: Option<crate::ManagedTuiWorktree>,
         daemon_cli_executable: Option<AbsolutePathBuf>,
+        desktop_cron_bootstrap: crate::DesktopCronBootstrap,
     ) -> Result<AppExitInfo> {
         use tokio_stream::StreamExt;
 
@@ -1085,6 +1086,14 @@ See the Codex keymap documentation for supported actions and examples."
             // Prewarm WSL interop off the UI thread, without accessing clipboard contents.
             let _ = tui.clipboard.warm_text_reader(tui.frame_requester());
         }
+        #[cfg(windows)]
+        let desktop_cron_task = crate::desktop_cron::start(
+            desktop_cron_bootstrap,
+            app.cron.desktop.owner.clone(),
+            app.app_event_tx.clone(),
+        );
+        #[cfg(not(windows))]
+        drop(desktop_cron_bootstrap);
         app.remember_launch_permissions();
         if !tui.is_terminal_focused() {
             app.recap.note_focus_lost(Instant::now());
@@ -1688,6 +1697,10 @@ See the Codex keymap documentation for supported actions and examples."
                 }
             }
         };
+        #[cfg(windows)]
+        if let Some(task) = desktop_cron_task {
+            task.stop().await;
+        }
         app.cron.stop();
         app.chat_widget.mention_usage_mut().flush().await;
         if let Err(err) = backends.shutdown().await {

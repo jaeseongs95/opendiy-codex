@@ -32,6 +32,18 @@ impl App {
         app_server: &mut AppServerSession,
         event: AppEvent,
     ) -> Result<AppRunControl> {
+        #[cfg(windows)]
+        let event = match event {
+            AppEvent::DesktopCronRequest(request) => {
+                self.handle_desktop_cron_request(app_server, *request).await;
+                return Ok(AppRunControl::Continue);
+            }
+            AppEvent::DesktopCronCancelReply(reply) => {
+                self.handle_desktop_cron_cancel_reply(*reply);
+                return Ok(AppRunControl::Continue);
+            }
+            event => event,
+        };
         let from_agents_overview = matches!(event, AppEvent::ForkAgentsOverviewThreadReady { .. });
         let event = if let AppEvent::ForkAgentsOverviewThreadReady { thread_id } = event {
             if self.current_displayed_thread_id() != Some(thread_id)
@@ -167,6 +179,8 @@ impl App {
             event => (event, None),
         };
         match event {
+            #[cfg(windows)]
+            AppEvent::DesktopCronRequest(_) | AppEvent::DesktopCronCancelReply(_) => unreachable!("예약 제어는 화면 필터 전에 처리합니다."),
             AppEvent::MemoryCommand { thread_id, args } => self.handle_memory_command(app_server, thread_id, args).await,
             AppEvent::ContextCommand { thread_id, args } => self.handle_context_command(app_server, thread_id, args).await,
             AppEvent::CronToolCall(request) => self.handle_cron_tool_call(app_server, *request).await,

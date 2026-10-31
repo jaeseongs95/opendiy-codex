@@ -487,6 +487,16 @@ impl AppServerSession {
         }
     }
 
+    pub(crate) fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        if !self
+            .connection_live
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return None;
+        }
+        self.client.supports_expected_turn_interrupt()
+    }
+
     pub(crate) fn backend_id(&self) -> crate::backend_id::BackendId {
         self.backend_id
     }
@@ -894,13 +904,20 @@ impl AppServerSession {
     }
 
     pub(crate) async fn next_event(&mut self) -> Option<AppServerSessionEvent> {
-        self.client
-            .next_event()
-            .await
-            .map(|event| AppServerSessionEvent {
-                backend_id: self.backend_id,
-                event,
-            })
+        let event = self.client.next_event().await;
+        if event.is_none()
+            || matches!(
+                &event,
+                Some(codex_app_server_client::AppServerEvent::Disconnected { .. })
+            )
+        {
+            self.connection_live
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
+        event.map(|event| AppServerSessionEvent {
+            backend_id: self.backend_id,
+            event,
+        })
     }
 
     #[cfg(test)]
@@ -1947,6 +1964,8 @@ impl AppServerSession {
     }
 
     pub(crate) async fn shutdown(self) -> std::io::Result<()> {
+        self.connection_live
+            .store(false, std::sync::atomic::Ordering::Release);
         self.client.shutdown().await
     }
 

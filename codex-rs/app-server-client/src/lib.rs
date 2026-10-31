@@ -340,6 +340,7 @@ enum ClientCommand {
 pub struct InProcessAppServerClient {
     command_tx: mpsc::Sender<ClientCommand>,
     event_rx: mpsc::UnboundedReceiver<InProcessServerEvent>,
+    supports_expected_turn_interrupt: Option<bool>,
     worker_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -370,6 +371,7 @@ impl InProcessAppServerClient {
         let channel_capacity = args.channel_capacity.max(1);
         let mut handle =
             codex_app_server::in_process::start(args.into_runtime_start_args()).await?;
+        let supports_expected_turn_interrupt = handle.supports_expected_turn_interrupt();
         let request_sender = handle.sender();
         let (command_tx, mut command_rx) = mpsc::channel::<ClientCommand>(channel_capacity);
         // e9996ec62a preserved transcript events by awaiting a bounded queue, but that can
@@ -476,8 +478,17 @@ impl InProcessAppServerClient {
         Ok(Self {
             command_tx,
             event_rx,
+            supports_expected_turn_interrupt,
             worker_handle,
         })
+    }
+
+    pub fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        if self.command_tx.is_closed() {
+            None
+        } else {
+            self.supports_expected_turn_interrupt
+        }
     }
 
     pub fn request_handle(&self) -> InProcessAppServerRequestHandle {
@@ -590,6 +601,7 @@ impl InProcessAppServerClient {
         let Self {
             command_tx,
             event_rx,
+            supports_expected_turn_interrupt: _,
             worker_handle,
         } = self;
         let mut worker_handle = worker_handle;
@@ -750,6 +762,15 @@ impl AppServerRequestHandle {
 }
 
 impl AppServerClient {
+    /// 이 연결의 실제 initialize 응답에서 확인한 정확 턴 취소 지원값입니다.
+    pub fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        match self {
+            Self::InProcess(client) => client.supports_expected_turn_interrupt(),
+            Self::Remote(client) => client.supports_expected_turn_interrupt(),
+            Self::Cloud(_) => None,
+        }
+    }
+
     /// App-server platform family, which can differ from the executor's platform.
     /// Older remote servers may omit this metadata.
     pub fn platform_family(&self) -> Option<&str> {
@@ -1413,6 +1434,111 @@ mod tests {
             ]
         );
 
+        client.shutdown().await.expect("shutdown should complete");
+    }
+
+    #[tokio::test]
+    async fn embedded_expected_turn_interrupt_capability_comes_from_initialize() {
+        let TestClient {
+            _codex_home,
+            client,
+        } = start_test_client(SessionSource::Cli).await;
+        assert_eq!(client.supports_expected_turn_interrupt(), Some(true));
+        let client = AppServerClient::InProcess(client);
+        assert_eq!(client.supports_expected_turn_interrupt(), Some(true));
+        client.shutdown().await.expect("shutdown should complete");
+    }
+
+    #[tokio::test]
+    async fn remote_expected_turn_interrupt_capability_is_connection_scoped() {
+        for supported in [Some(true), None, Some(false), None] {
+            let websocket_url = start_test_remote_server(move |mut websocket| async move {
+                let mut metadata = serde_json::json!({});
+                if let Some(supported) = supported {
+                    metadata["supportsExpectedTurnInterrupt"] = supported.into();
+                }
+                expect_remote_initialize_with_metadata(&mut websocket, metadata).await;
+                let _ = websocket.next().await;
+            })
+            .await;
+            let client = RemoteAppServerClient::connect(test_remote_connect_args(websocket_url))
+                .await
+                .expect("remote client should connect");
+            assert_eq!(client.supports_expected_turn_interrupt(), supported);
+            let client = AppServerClient::Remote(client);
+            assert_eq!(client.supports_expected_turn_interrupt(), supported);
+            client.shutdown().await.expect("shutdown should complete");
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_expected_turn_interrupt_capability_rejects_invalid_types() {
+        for invalid in [
+            serde_json::Value::Null,
+            serde_json::json!("true"),
+            serde_json::json!(1),
+            serde_json::json!({}),
+            serde_json::json!([]),
+        ] {
+            let (sent_text_tx, sent_text_rx) = oneshot::channel();
+            let websocket_url = start_test_remote_server(move |mut websocket| async move {
+                let JSONRPCMessage::Request(request) = read_websocket_message(&mut websocket).await
+                else {
+                    panic!("expected initialize request");
+                };
+                assert_eq!(request.method, "initialize");
+                write_websocket_message(
+                    &mut websocket,
+                    JSONRPCMessage::Response(JSONRPCResponse {
+                        id: request.id,
+                        result: serde_json::json!({ "supportsExpectedTurnInterrupt": invalid }),
+                    }),
+                )
+                .await;
+                let sent_text = matches!(websocket.next().await, Some(Ok(Message::Text(_))));
+                let _ = sent_text_tx.send(sent_text);
+            })
+            .await;
+            let error = RemoteAppServerClient::connect(test_remote_connect_args(websocket_url))
+                .await
+                .err()
+                .expect("invalid capability must reject initialize");
+            assert_eq!(error.kind(), ErrorKind::InvalidData);
+            assert!(error.to_string().contains("supportsExpectedTurnInterrupt"));
+            assert!(
+                !timeout(Duration::from_secs(2), sent_text_rx)
+                    .await
+                    .expect("failed initialize should close the connection")
+                    .expect("server should report whether initialized was sent")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_expected_turn_interrupt_capability_is_cleared_on_disconnect() {
+        let (close_tx, close_rx) = oneshot::channel();
+        let websocket_url = start_test_remote_server(move |mut websocket| async move {
+            expect_remote_initialize_with_metadata(
+                &mut websocket,
+                serde_json::json!({ "supportsExpectedTurnInterrupt": true }),
+            )
+            .await;
+            close_rx.await.expect("client should request disconnect");
+            websocket.close(None).await.expect("close should succeed");
+        })
+        .await;
+        let mut client = AppServerClient::Remote(
+            RemoteAppServerClient::connect(test_remote_connect_args(websocket_url))
+                .await
+                .expect("remote client should connect"),
+        );
+        assert_eq!(client.supports_expected_turn_interrupt(), Some(true));
+        close_tx.send(()).expect("server should still be connected");
+        let event = timeout(Duration::from_secs(2), client.next_event())
+            .await
+            .expect("disconnect should arrive");
+        assert!(matches!(event, Some(AppServerEvent::Disconnected { .. })));
+        assert_eq!(client.supports_expected_turn_interrupt(), None);
         client.shutdown().await.expect("shutdown should complete");
     }
 
@@ -2142,6 +2268,7 @@ mod tests {
         let mut client = InProcessAppServerClient {
             command_tx,
             event_rx,
+            supports_expected_turn_interrupt: None,
             worker_handle,
         };
 
@@ -2249,6 +2376,7 @@ mod tests {
         let client = InProcessAppServerClient {
             command_tx,
             event_rx,
+            supports_expected_turn_interrupt: None,
             worker_handle,
         };
 

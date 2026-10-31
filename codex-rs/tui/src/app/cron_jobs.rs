@@ -14,9 +14,9 @@ const USAGE: &str = "/cron add --every 10m -- <prompt> | add --at <RFC3339+offse
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CronTarget {
-    backend: BackendId,
-    epoch: u64,
-    thread: ThreadId,
+    pub(super) backend: BackendId,
+    pub(super) epoch: u64,
+    pub(super) thread: ThreadId,
 }
 
 #[derive(Debug)]
@@ -37,14 +37,16 @@ pub(crate) struct CronReply {
 
 #[derive(Default)]
 pub(crate) struct CronState {
-    scheduler: Scheduler<CronTarget>,
+    pub(super) scheduler: Scheduler<CronTarget>,
+    #[cfg(windows)]
+    pub(super) desktop: super::desktop_cron::DesktopOwner,
     epochs: HashMap<BackendId, u64>,
     unsupported: HashSet<BackendId>,
     tasks: HashMap<(u64, u64), (BackendId, JoinHandle<()>)>,
-    cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
+    pub(super) cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
     pub(super) tool_tasks:
         HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
-    closed_threads: HashSet<(BackendId, ThreadId)>,
+    pub(super) closed_threads: HashSet<(BackendId, ThreadId)>,
     model_calls: HashMap<
         (BackendId, uuid::Uuid, ThreadId, String, String),
         (String, codex_app_server_protocol::DynamicToolCallResponse),
@@ -191,7 +193,11 @@ fn parse_add(args: &str, now: MonotonicInstant) -> Result<(Schedule, String), St
             let delay = (at.with_timezone(&chrono::Utc) - chrono::Utc::now())
                 .to_std()
                 .map_err(|_| "예약 시각은 미래여야 합니다.")?;
-            Schedule::Once(now.checked_add(delay).ok_or("예약 시각이 너무 멉니다.")?)
+            Schedule::Once {
+                deadline: now.checked_add(delay).ok_or("예약 시각이 너무 멉니다.")?,
+                at_unix_ms: u64::try_from(at.timestamp_millis())
+                    .map_err(|_| "예약 시각이 허용 범위를 넘었습니다.")?,
+            }
         }
         _ => return Err(USAGE.into()),
     };
@@ -455,25 +461,7 @@ impl App {
                             .await;
                     }
                     "cancel" => {
-                        let job = self.cron.scheduler.job_mut(id)?;
-                        let Phase::Running {
-                            turn_id,
-                            cancelling,
-                        } = &mut job.phase
-                        else {
-                            return Err(
-                                "정확한 소유 turn이 확인된 실행만 취소할 수 있습니다.".into()
-                            );
-                        };
-                        if *cancelling {
-                            return Err("이미 이 turn의 취소 종료를 기다리고 있습니다.".into());
-                        }
-                        // Never substitute active_turn_id: it may belong to manual input.
-                        let params = TurnInterruptParams {
-                            thread_id: target.thread.to_string(),
-                            turn_id: turn_id.clone(),
-                        };
-                        *cancelling = true;
+                        let params = self.claim_cron_cancel(app_server, &target, id)?;
                         let turn_id = params.turn_id.clone();
                         let sender = self.app_event_tx.clone();
                         let request = app_server.request_handle();
@@ -514,6 +502,48 @@ impl App {
             }
             _ => Err(USAGE.into()),
         }
+    }
+
+    pub(super) fn claim_cron_cancel(
+        &mut self,
+        app_server: &AppServerSession,
+        target: &CronTarget,
+        id: u64,
+    ) -> Result<TurnInterruptParams, String> {
+        if target.backend != app_server.backend_id()
+            || target.epoch != self.cron.epoch(target.backend)
+            || self.reconnect.offline
+            || !app_server
+                .cron_tool_connection()
+                .live
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("등록 당시 backend 연결 세대가 끝났습니다.".into());
+        }
+        let job = self.cron.scheduler.job_mut(id)?;
+        if &job.target != target {
+            return Err("예약의 소유 대화 또는 연결 세대가 일치하지 않습니다.".into());
+        }
+        let Phase::Running {
+            turn_id,
+            cancelling,
+        } = &mut job.phase
+        else {
+            return Err("정확한 소유 turn이 확인된 실행만 취소할 수 있습니다.".into());
+        };
+        if turn_id.is_empty() || *cancelling {
+            return Err("소유 turn이 비어 있거나 이미 취소 종료를 기다리고 있습니다.".into());
+        }
+        if app_server.supports_expected_turn_interrupt() != Some(true) {
+            return Err("expectedTurnInterruptUnsupported".into());
+        }
+        // active_turn_id로 대체하지 않는다. 수동 입력의 턴일 수 있다.
+        let params = TurnInterruptParams {
+            thread_id: target.thread.to_string(),
+            turn_id: turn_id.clone(),
+        };
+        *cancelling = true;
+        Ok(params)
     }
 
     pub(super) fn dispatch_due_cron(&mut self, backends: &backend_sessions::BackendSessions) {
@@ -726,7 +756,7 @@ impl App {
         }
     }
 
-    async fn release_cron_thread_if_unused(
+    pub(super) async fn release_cron_thread_if_unused(
         &mut self,
         app_server: &AppServerSession,
         thread: ThreadId,
@@ -2014,6 +2044,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cron_cancel_missing_false_or_replaced_capability_sends_nothing()
+    -> color_eyre::Result<()> {
+        for capability in [None, Some(false), Some(true)] {
+            let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+            let (session, mut observed, worker) = super::super::app_server_requests::retained_reply_tests::connection_with_expected_turn_interrupt(capability).await?;
+            let thread = ThreadId::new();
+            app.active_thread_id = Some(thread);
+            app.primary_thread_id = Some(thread);
+            app.ensure_thread_channel(thread);
+            let target = CronTarget {
+                backend: session.backend_id(),
+                epoch: 0,
+                thread,
+            };
+            let now = MonotonicInstant::now();
+            let id = app
+                .cron
+                .scheduler
+                .add(
+                    target.clone(),
+                    "saved".into(),
+                    Schedule::Every(Duration::from_secs(1)),
+                    now,
+                )
+                .unwrap();
+            let attempt = app
+                .cron
+                .scheduler
+                .due(now + Duration::from_secs(1))
+                .pop()
+                .unwrap()
+                .attempt;
+            app.cron
+                .scheduler
+                .submitted(id, attempt, Submission::Started("owned".into()));
+            if capability == Some(true) {
+                app.cron
+                    .invalidate_schedules(session.backend_id(), "교체된 연결");
+            }
+            let result = app.claim_cron_cancel(&session, &target, id);
+            assert!(result.is_err());
+            assert!(app.cron.cancel_tasks.is_empty());
+            assert!(observed.try_recv().is_err());
+            if capability != Some(true) {
+                assert!(
+                    matches!(&app.cron.scheduler.jobs[0].phase, Phase::Running { cancelling: false, turn_id } if turn_id == "owned")
+                );
+            }
+            session.shutdown().await?;
+            worker.await??;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn cron_remove_cancel_and_late_reply_keep_exact_turn_until_terminal()
     -> color_eyre::Result<()> {
         use codex_app_server_protocol::{
@@ -2021,7 +2106,7 @@ mod tests {
         };
         let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
         let (session, mut observed, worker) =
-            super::super::app_server_requests::retained_reply_tests::connection().await?;
+            super::super::app_server_requests::retained_reply_tests::connection_with_expected_turn_interrupt(Some(true)).await?;
         let registered = ThreadId::new();
         let displayed = ThreadId::new();
         app.active_thread_id = Some(displayed);

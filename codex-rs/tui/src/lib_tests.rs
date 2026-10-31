@@ -22,6 +22,7 @@ fn tui_startup_future_stays_bounded() {
         Arg0DispatchPaths::default(),
         LoaderOverrides::default(),
         /*explicit_remote_endpoint*/ None,
+        DesktopCronBootstrap::default(),
     );
     let size = std::mem::size_of_val(&future);
 
