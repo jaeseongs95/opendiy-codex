@@ -5,6 +5,19 @@ use super::thread_processor::unsupported_thread_store_operation;
 use super::*;
 
 impl ThreadRequestProcessor {
+    #[cfg(all(test, feature = "test-support"))]
+    pub(crate) fn cleanup_services_for_test(
+        &self,
+    ) -> (
+        Arc<dyn ThreadStore>,
+        Arc<codex_queue_extension::QueuedItemService>,
+    ) {
+        (
+            Arc::clone(&self.thread_store),
+            Arc::clone(self.cleanup_queue_service.as_ref().expect("queue fixture")),
+        )
+    }
+
     pub(crate) async fn thread_cleanup_completed(
         &self,
         request_id: ConnectionRequestId,

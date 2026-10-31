@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 [package]
 name = "codex-app-server"
 version.workspace = true
@@ -20,6 +21,9 @@ path = "src/bin/exec_server.rs"
 name = "codex_app_server"
 path = "src/lib.rs"
 doctest = false
+
+[features]
+test-support = ["codex-core/test-support", "codex-thread-store/test-support"]
 
 [lints]
 workspace = true

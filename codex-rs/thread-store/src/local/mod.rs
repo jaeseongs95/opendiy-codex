@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 mod archive_thread;
 mod create_thread;
 mod delete_thread;
@@ -153,9 +154,17 @@ pub struct LocalThreadStore {
     state_db: Option<StateDbHandle>,
     thread_history_db: Arc<OnceCell<sqlx::SqlitePool>>,
     thread_data_cleanup: Option<Arc<ThreadDataCleanup>>,
+    #[cfg(feature = "test-support")]
+    delete_barriers_for_test: Arc<Mutex<HashMap<ThreadId, DeleteBarrierForTest>>>,
     #[cfg(test)]
     startup_migration_retry_gate: Option<Arc<StartupMigrationRetryGate>>,
 }
+
+#[cfg(feature = "test-support")]
+type DeleteBarrierForTest = (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+);
 
 type ThreadDataCleanup = dyn Fn(Vec<ThreadId>) -> ThreadStoreFuture<'static, ()> + Send + Sync;
 
@@ -281,8 +290,43 @@ impl LocalThreadStore {
             state_db,
             thread_history_db: Arc::new(OnceCell::new()),
             thread_data_cleanup: None,
+            #[cfg(feature = "test-support")]
+            delete_barriers_for_test: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             startup_migration_retry_gate: None,
+        }
+    }
+
+    /// Installs a one-use barrier on this store instance, after real deletion checks.
+    /// Dropping the release sender (including cancellation/panic) releases the owner.
+    #[cfg(feature = "test-support")]
+    pub async fn install_delete_barrier_for_test(
+        &self,
+        thread_id: ThreadId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let previous = self
+            .delete_barriers_for_test
+            .lock()
+            .await
+            .insert(thread_id, (entered_tx, release_rx));
+        assert!(previous.is_none(), "only one deletion barrier per thread");
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(feature = "test-support")]
+    async fn wait_for_delete_barriers_for_test(&self, thread_ids: &[ThreadId]) {
+        for id in thread_ids {
+            let barrier = self.delete_barriers_for_test.lock().await.remove(id);
+            if let Some((entered, release)) = barrier {
+                let _ = entered.send(());
+                // A cancelled or panicking fixture cannot strand the deletion owner.
+                let _ = release.await;
+            }
         }
     }
 

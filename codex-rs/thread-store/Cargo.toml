@@ -1,3 +1,4 @@
+# Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 [package]
 edition.workspace = true
 license.workspace = true
@@ -8,6 +9,9 @@ version.workspace = true
 name = "codex_thread_store"
 path = "src/lib.rs"
 doctest = false
+
+[features]
+test-support = []
 
 [lints]
 workspace = true

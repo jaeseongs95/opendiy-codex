@@ -36,6 +36,11 @@ pub(crate) struct ThreadGoalRequestProcessor {
 }
 
 impl ThreadGoalRequestProcessor {
+    #[cfg(all(test, feature = "test-support"))]
+    pub(crate) fn goal_service_for_test(&self) -> Arc<GoalService> {
+        Arc::clone(&self.goal_service)
+    }
+
     pub(super) async fn cleanup_guard(
         &self,
         id: ThreadId,
