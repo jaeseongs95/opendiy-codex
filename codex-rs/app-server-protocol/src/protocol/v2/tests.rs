@@ -445,6 +445,7 @@ fn thread_resume_response_round_trips_initial_turns_page() {
 #[test]
 fn initialize_interrupt_capability_accepts_only_omission_or_boolean() {
     let response = crate::InitializeResponse {
+        supports_subagent_management: false,
         supports_expected_turn_interrupt: None,
         user_agent: "test-client".into(),
         codex_home: absolute_path("tmp"),
