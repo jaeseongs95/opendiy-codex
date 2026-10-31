@@ -99,6 +99,7 @@ pub struct ThreadSubagentsControlParams {
     pub agent_id: String,
     // Explicit null means the caller observed an unloaded child. Omission is invalid.
     #[serde(deserialize_with = "required_nullable_runtime")]
+    #[schemars(schema_with = "required_nullable_runtime_schema")]
     pub expected_runtime_id: Option<String>,
     pub action: SubagentManagementAction,
     pub request_id: String,
@@ -113,6 +114,14 @@ where
     D: Deserializer<'de>,
 {
     Option::<String>::deserialize(deserializer)
+}
+
+// schema_with supplies a required field while preserving Option's nullable value schema.
+#[cfg(test)]
+fn required_nullable_runtime_schema(
+    generator: &mut schemars::r#gen::SchemaGenerator,
+) -> schemars::schema::Schema {
+    generator.subschema_for::<Option<String>>()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
@@ -156,7 +165,25 @@ mod tests {
         });
         assert!(serde_json::from_value::<ThreadSubagentsControlParams>(request.clone()).is_err());
         request["expectedRuntimeId"] = serde_json::Value::Null;
-        assert!(serde_json::from_value::<ThreadSubagentsControlParams>(request).is_ok());
+        let parsed = serde_json::from_value::<ThreadSubagentsControlParams>(request).unwrap();
+        assert!(serde_json::to_value(parsed).unwrap()["expectedRuntimeId"].is_null());
+    }
+
+    #[test]
+    fn control_schema_and_typescript_require_a_nullable_runtime() {
+        let schema =
+            serde_json::to_value(schemars::schema_for!(ThreadSubagentsControlParams)).unwrap();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("expectedRuntimeId")));
+        let types = schema["properties"]["expectedRuntimeId"]["type"]
+            .as_array()
+            .unwrap();
+        assert_eq!(types.len(), 2);
+        assert!(types.contains(&json!("string")));
+        assert!(types.contains(&json!("null")));
+        let declaration = <ThreadSubagentsControlParams as ts_rs::TS>::decl();
+        assert!(declaration.contains("expectedRuntimeId: string | null"));
+        assert!(!declaration.contains("expectedRuntimeId?:"));
     }
 
     #[test]

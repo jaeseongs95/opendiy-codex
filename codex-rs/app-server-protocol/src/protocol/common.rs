@@ -834,6 +834,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadCompactStartResponse,
     },
+    ThreadCompactStartIfIdle => "thread/compact/startIfIdle" {
+        params: v2::ThreadCompactStartIfIdleParams,
+        serialization: thread_id(params.thread_id),
+        manual_payload_conversion: manual,
+        response: v2::TurnStartIfIdleResponse,
+    },
     ThreadShellCommand => "thread/shellCommand" {
         params: v2::ThreadShellCommandParams,
         serialization: thread_id(params.thread_id),

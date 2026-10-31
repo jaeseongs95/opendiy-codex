@@ -509,6 +509,18 @@ impl CodexThread {
         }
     }
 
+    /// Starts compaction only after Core reserves this exact loaded, idle runtime.
+    /// A lost response does not retract accepted work and must not be retried automatically.
+    pub async fn compact_if_idle(
+        &self,
+        trace: Option<codex_protocol::protocol::W3cTraceContext>,
+    ) -> CodexResult<StartIfIdleSubmission> {
+        let (reply, result) = tokio::sync::oneshot::channel();
+        self.submit_with_trace(Op::CompactIfIdle { reply }, trace)
+            .await?;
+        result.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+    }
+
     /// Starts a new internal continuation turn when idle, including in Plan mode.
     /// Rejects if a newer task has started, even if it has already finished.
     /// The input must be a response item; it is never treated as user authorization.

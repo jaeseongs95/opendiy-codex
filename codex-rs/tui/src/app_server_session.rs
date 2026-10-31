@@ -487,6 +487,16 @@ impl AppServerSession {
         }
     }
 
+    pub(crate) fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        if !self
+            .connection_live
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return None;
+        }
+        self.client.supports_expected_turn_interrupt()
+    }
+
     pub(crate) fn backend_id(&self) -> crate::backend_id::BackendId {
         self.backend_id
     }
@@ -894,13 +904,20 @@ impl AppServerSession {
     }
 
     pub(crate) async fn next_event(&mut self) -> Option<AppServerSessionEvent> {
-        self.client
-            .next_event()
-            .await
-            .map(|event| AppServerSessionEvent {
-                backend_id: self.backend_id,
-                event,
-            })
+        let event = self.client.next_event().await;
+        if event.is_none()
+            || matches!(
+                &event,
+                Some(codex_app_server_client::AppServerEvent::Disconnected { .. })
+            )
+        {
+            self.connection_live
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
+        event.map(|event| AppServerSessionEvent {
+            backend_id: self.backend_id,
+            event,
+        })
     }
 
     #[cfg(test)]
@@ -1947,6 +1964,8 @@ impl AppServerSession {
     }
 
     pub(crate) async fn shutdown(self) -> std::io::Result<()> {
+        self.connection_live
+            .store(false, std::sync::atomic::Ordering::Release);
         self.client.shutdown().await
     }
 
@@ -4328,6 +4347,8 @@ mod tests {
         let forked_from_id = ThreadId::new();
         let read_only_profile = PermissionProfile::read_only();
         let response = ThreadResumeResponse {
+            supports_compact_if_idle: None,
+            supports_expected_turn_interrupt: None,
             disabled_plugin_ids: Vec::new(),
             thread: codex_app_server_protocol::Thread {
                 originator: None,

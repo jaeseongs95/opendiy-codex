@@ -7,7 +7,7 @@ use std::time::Instant;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Schedule {
     Every(Duration),
-    Once(Instant),
+    Once { deadline: Instant, at_unix_ms: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +32,7 @@ pub(crate) struct Job<T> {
     pub(crate) id: u64,
     pub(crate) target: T,
     pub(crate) prompt: String,
+    pub(crate) schedule: Schedule,
     pub(crate) phase: Phase,
     pub(crate) paused: bool,
     pub(crate) removed: bool,
@@ -92,15 +93,27 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         schedule: Schedule,
         now: Instant,
     ) -> Result<u64, String> {
-        if prompt.trim().is_empty() {
-            return Err("예약 프롬프트가 비어 있습니다.".into());
+        if self.jobs.len() >= 100 {
+            return Err("예약은 최대 100개입니다. 소유 실행이 남은 제거 예약도 포함합니다.".into());
+        }
+        if prompt.trim().is_empty() || prompt.len() > 64 * 1024 || prompt.contains('\0') {
+            return Err(
+                "예약 프롬프트는 비어 있지 않은 NUL 없는 64KiB 이하 문자열이어야 합니다.".into(),
+            );
         }
         let (interval, next_due) = match schedule {
-            Schedule::Every(interval) if !interval.is_zero() => {
+            Schedule::Every(interval)
+                if !interval.is_zero()
+                    && (1..=9_007_199_254_740_991).contains(&interval.as_secs()) =>
+            {
                 (Some(interval), now.checked_add(interval))
             }
             Schedule::Every(_) => return Err("예약 간격은 0보다 커야 합니다.".into()),
-            Schedule::Once(deadline) => (None, Some(deadline)),
+            Schedule::Once {
+                deadline,
+                at_unix_ms,
+            } if (1..=9_007_199_254_740_991).contains(&at_unix_ms) => (None, Some(deadline)),
+            Schedule::Once { .. } => return Err("예약 시각이 허용 범위를 넘었습니다.".into()),
         };
         let next_due = next_due.ok_or("예약 간격이 너무 큽니다.")?;
         let id = self.next_id;
@@ -109,6 +122,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
             id,
             target,
             prompt,
+            schedule,
             phase: Phase::Ready,
             paused: false,
             removed: false,
@@ -325,6 +339,42 @@ mod tests {
     }
 
     #[test]
+    fn common_admission_caps_jobs_prompt_and_keeps_original_once_time() {
+        let now = Instant::now();
+        let mut scheduler = Scheduler::default();
+        let once = Schedule::Once {
+            deadline: now,
+            at_unix_ms: 1_900_000_000_123,
+        };
+        for prompt in [" ".to_owned(), "x\0y".to_owned(), "가".repeat(22_000)] {
+            assert!(scheduler.add("A", prompt, once, now).is_err());
+        }
+        assert!(scheduler.jobs.is_empty());
+        let id = scheduler
+            .add("A", "x".repeat(64 * 1024), once, now)
+            .unwrap();
+        assert!(matches!(
+            scheduler.jobs[0].schedule,
+            Schedule::Once {
+                at_unix_ms: 1_900_000_000_123,
+                ..
+            }
+        ));
+        let attempt = scheduler.due(now).pop().unwrap().attempt;
+        scheduler.submitted(id, attempt, Submission::Started("owned".into()));
+        scheduler.remove(id).unwrap();
+        for _ in 1..100 {
+            recurring(&mut scheduler, now);
+        }
+        assert_eq!(scheduler.jobs.len(), 100);
+        assert!(scheduler.add("B", "new".into(), once, now).is_err());
+        assert_eq!(scheduler.jobs.len(), 100);
+        scheduler.terminal(&"A", "owned");
+        assert_eq!(scheduler.jobs.len(), 99);
+        assert!(scheduler.add("B", "new".into(), once, now).is_ok());
+    }
+
+    #[test]
     fn missed_slots_busy_and_terminal_are_not_a_queue() {
         let now = Instant::now();
         let mut s = Scheduler::default();
@@ -375,7 +425,15 @@ mod tests {
         let now = Instant::now();
         let mut s = Scheduler::default();
         let id = s
-            .add("A", "prompt".into(), Schedule::Once(now), now)
+            .add(
+                "A",
+                "prompt".into(),
+                Schedule::Once {
+                    deadline: now,
+                    at_unix_ms: 1,
+                },
+                now,
+            )
             .unwrap();
         let d = s.due(now).pop().unwrap();
         s.submitted(id, d.attempt, Submission::Busy);
@@ -463,7 +521,10 @@ mod tests {
             .add(
                 "thread-A/epoch-2",
                 "new prompt".into(),
-                Schedule::Once(now),
+                Schedule::Once {
+                    deadline: now,
+                    at_unix_ms: 1,
+                },
                 now,
             )
             .unwrap();

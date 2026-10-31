@@ -1081,6 +1081,7 @@ impl MessageProcessor {
             | ClientRequest::TurnSteer { .. }
             | ClientRequest::ReviewStart { .. }
             | ClientRequest::ThreadCompactStart { .. }
+            | ClientRequest::ThreadCompactStartIfIdle { .. }
             | ClientRequest::ThreadShellCommand { .. }
             | ClientRequest::ThreadQueueStart { .. }
             | ClientRequest::ThreadRealtimeStart { .. } => {
@@ -1565,6 +1566,11 @@ impl MessageProcessor {
             ClientRequest::ThreadCompactStart { params, .. } => {
                 self.thread_processor
                     .thread_compact_start(&request_id, params)
+                    .await
+            }
+            ClientRequest::ThreadCompactStartIfIdle { params, .. } => {
+                self.thread_processor
+                    .thread_compact_start_if_idle(&request_id, params)
                     .await
             }
             ClientRequest::ThreadBackgroundTerminalsClean { params, .. } => {

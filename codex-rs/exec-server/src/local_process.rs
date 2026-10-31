@@ -1551,6 +1551,22 @@ mod tests {
     }
 
     #[test]
+    fn child_env_rejects_desktop_bootstrap_overrides() {
+        let params = test_exec_params(HashMap::from([
+            (
+                "CODEX_DESKTOP_CRON_BOOTSTRAP".into(),
+                "synthetic-bootstrap".into(),
+            ),
+            ("Codex_Desktop_Cron_Token".into(), "synthetic-token".into()),
+            ("SAFE".into(), "retained".into()),
+        ]));
+        assert_eq!(
+            child_env(&params),
+            HashMap::from([("SAFE".into(), "retained".into())])
+        );
+    }
+
+    #[test]
     fn child_env_defaults_to_exact_env() {
         let params = test_exec_params(HashMap::from([("ONLY_THIS".to_string(), "1".to_string())]));
 

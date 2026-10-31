@@ -253,8 +253,8 @@ impl LocalAgentControl {
                 let mut active = child.session.active_turn.lock().await;
                 let Some(task) =
                     active
-                        .as_ref()
-                        .and_then(|turn| turn.task.as_ref())
+                        .as_mut()
+                        .and_then(|turn| turn.task.as_mut())
                         .filter(|task| {
                             task.turn_context.sub_id == expected_turn_id
                                 && !task.cancellation_token.is_cancelled()
@@ -263,7 +263,7 @@ impl LocalAgentControl {
                     return Ok(Outcome::NotApplied);
                 };
                 // Cancellation and identity comparison share the active-turn lock.
-                task.cancellation_token.cancel();
+                child.session.cancel_exact_task(task);
                 child.session.mark_interrupted();
                 let turn = active.take();
                 drop(active);
@@ -302,12 +302,20 @@ impl LocalAgentControl {
                     .into_iter()
                     .filter_map(|id| threads.get(&id).map(|thread| (id, Arc::clone(thread))))
                     .collect::<Vec<_>>();
-                for (id, thread) in &captured {
-                    thread.io.admission.close();
-                    self.runtime.registry.set_managed_closed(*id, true);
+                let reservation = uuid::Uuid::new_v4();
+                let mut reserved: Vec<Arc<crate::CodexThread>> = Vec::new();
+                for (_, thread) in &captured {
+                    if !thread.io.admission.reserve_managed_close(reservation) {
+                        for thread in reserved {
+                            thread.io.admission.rollback_managed_close(reservation);
+                        }
+                        return Ok(Outcome::NotApplied);
+                    }
+                    reserved.push(Arc::clone(thread));
                 }
                 drop(threads);
-                self.close_managed_agent(child_id, captured).await
+                self.close_managed_agent(child_id, captured, reservation)
+                    .await
             }
             ManagedSubagentAction::Resume => {
                 if child.is_some() || expected_child_runtime_id.is_some() {

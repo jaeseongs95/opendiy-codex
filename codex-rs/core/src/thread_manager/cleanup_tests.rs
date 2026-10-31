@@ -1242,3 +1242,6 @@ async fn loaded_runtime_read_guard_linearizes_raw_removal_without_touching_activ
     assert_eq!(root.thread.io.admission.activity_revision(), revision);
     removed.shutdown_and_wait().await.unwrap();
 }
+
+#[path = "idle_control_followup_tests.rs"]
+mod idle_control_followup_tests;

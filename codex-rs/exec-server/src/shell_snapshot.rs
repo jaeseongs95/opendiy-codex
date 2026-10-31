@@ -474,6 +474,7 @@ done
             });
         }
     }
+    shell_environment::scrub_non_inheritable_env_vars(command.as_std_mut());
     let mut child = SnapshotCapture::spawn(&mut command).map_err(|err| {
         (
             "spawn_failed",

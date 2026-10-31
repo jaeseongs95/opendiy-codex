@@ -746,6 +746,88 @@ async fn steer(
 }
 
 impl Session {
+    /// Called under the loaded-runtime registry read lock, only for admission.
+    /// The active-turn lock also serializes independent mailbox wake reservations.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "idle reservation and pending-mail check share the active-turn lock"
+    )]
+    pub(crate) async fn reserve_compact_if_idle(
+        &self,
+    ) -> CodexResult<Result<Arc<tokio::sync::Mutex<TurnState>>, NotSubmittedReason>> {
+        let mut active = self.active_turn.lock().await;
+        if self.cleanup_admission.is_closing() {
+            return Err(CodexErr::InvalidRequest(
+                "thread cleanup has closed input admission".into(),
+            ));
+        }
+        if active.is_some() {
+            return Ok(Err(NotSubmittedReason::NotIdle));
+        }
+        // Inspect mail under the same admission lock before installing a reservation.
+        // An arrival after this check remains queued for completion's normal wake.
+        if self.input_queue.has_pending_mailbox_items().await {
+            return Ok(Err(NotSubmittedReason::PendingTriggerTurn));
+        }
+        let mut turn_state = TurnState::default();
+        turn_state.set_mailbox_delivery_phase(crate::state::MailboxDeliveryPhase::NextTurn);
+        let turn = ActiveTurn {
+            task: None,
+            finishing: None,
+            turn_state: Arc::new(tokio::sync::Mutex::new(turn_state)),
+        };
+        let state = Arc::clone(&turn.turn_state);
+        *active = Some(turn);
+        Ok(Ok(state))
+    }
+
+    pub(crate) async fn compact_if_idle(
+        self: &Arc<Self>,
+        submission_id: String,
+    ) -> CodexResult<codex_protocol::turn_input::StartIfIdleSubmission> {
+        use codex_protocol::turn_input::StartIfIdleSubmission;
+        let Some(_admission) = self.services.extensions.admit_turn_start() else {
+            return Ok(StartIfIdleSubmission::NotSubmitted {
+                reason: NotSubmittedReason::ServerDraining,
+            });
+        };
+        let reserved = {
+            // Acquire here, never while waiting in the submission queue or building context.
+            let _registry = self
+                .services
+                .local_agent_runtime
+                .lock_loaded_session(self)
+                .await?;
+            self.reserve_compact_if_idle().await?
+        };
+        let state = match reserved {
+            Ok(state) => state,
+            Err(reason) => return Ok(StartIfIdleSubmission::NotSubmitted { reason }),
+        };
+        self.cleanup_admission.touch();
+        let context = self
+            .new_turn_with_default_settings(submission_id.clone(), Default::default())
+            .await;
+        let root_turn_id = context.root_turn_id();
+        if !self
+            .start_task_with_reservation(
+                context,
+                Vec::new(),
+                crate::tasks::CompactTask,
+                Some(state),
+            )
+            .await
+        {
+            return Err(CodexErr::InvalidRequest(
+                "idle compaction reservation was superseded".into(),
+            ));
+        }
+        Ok(StartIfIdleSubmission::Started {
+            turn_id: submission_id,
+            root_turn_id,
+        })
+    }
+
     /// Called under the active-turn lock when registering a task (or a realtime transcript turn).
     pub(crate) async fn record_started_turn(
         &self,

@@ -70,6 +70,7 @@ const STATE_DIR_NAME: &str = "app-server-daemon";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LifecycleCommand {
     Start,
+    StartExistingInstallation,
     Restart {
         feature_overrides: BTreeMap<String, bool>,
     },
@@ -240,7 +241,9 @@ pub async fn run(command: LifecycleCommand) -> Result<LifecycleOutput> {
     #[cfg(windows)]
     if matches!(
         command,
-        LifecycleCommand::Start | LifecycleCommand::Restart { .. }
+        LifecycleCommand::Start
+            | LifecycleCommand::StartExistingInstallation
+            | LifecycleCommand::Restart { .. }
     ) {
         backend::windows::ensure_not_elevated()?;
     }
@@ -430,6 +433,9 @@ impl Daemon {
         let selected = self.current_installation()?;
         match command {
             LifecycleCommand::Start => selected.start(&BTreeMap::new()).await,
+            LifecycleCommand::StartExistingInstallation => {
+                selected.start_existing_installation().await
+            }
             LifecycleCommand::Restart { feature_overrides } => {
                 selected.restart(&feature_overrides).await
             }
@@ -445,6 +451,24 @@ impl Daemon {
     }
 
     async fn start(&self, feature_overrides: &BTreeMap<String, bool>) -> Result<LifecycleOutput> {
+        self.start_with_overrides(Some(feature_overrides)).await
+    }
+
+    async fn start_existing_installation(&self) -> Result<LifecycleOutput> {
+        self.start_with_overrides(None).await
+    }
+
+    async fn start_with_overrides(
+        &self,
+        feature_overrides: Option<&BTreeMap<String, bool>>,
+    ) -> Result<LifecycleOutput> {
+        let existing_only = feature_overrides.is_none();
+        if existing_only && !self.managed_codex_bin.is_file() {
+            return Err(anyhow!(
+                "selected daemon executable is not installed at {}; existing-installation start will not install it",
+                self.managed_codex_bin.display()
+            ));
+        }
         let mut managed = self.clone();
         let mut settings = self.load_settings().await?;
         let (status, backend, pid, info) = if let Ok(info) = client::probe(&self.socket_path).await
@@ -463,22 +487,32 @@ impl Daemon {
                 self.wait_until_ready().await?,
             )
         } else {
-            // A fresh start must ignore snapshots left by older stop clients.
-            if let Err(err) = thread_recovery::discard_pending(self) {
-                self.diagnostic(format_args!(
-                    "warning: failed to clear stale daemon recovery before start: {err}"
-                ));
+            if let Some(feature_overrides) = feature_overrides {
+                // Ordinary starts keep their existing install and recovery policy.
+                if let Err(err) = thread_recovery::discard_pending(self) {
+                    self.diagnostic(format_args!(
+                        "warning: failed to clear stale daemon recovery before start: {err}"
+                    ));
+                }
+                prepare_install::prepare(self, &settings).await?;
+                managed.managed_codex_bin = self.current_managed_codex_bin()?;
             }
-            prepare_install::prepare(self, &settings).await?;
-            managed.managed_codex_bin = self.current_managed_codex_bin()?;
+            // Existing-only starts use the selection captured under the operation lock.
             managed.ensure_managed_codex_bin()?;
-            // Only a fresh launch may replace these settings. Keep them for restarts
-            // and updates, without changing the user's config or a running daemon.
-            if settings.feature_overrides != *feature_overrides {
-                settings.feature_overrides = feature_overrides.clone();
-                settings.save(&self.settings_file).await?;
+            if let Some(feature_overrides) = feature_overrides {
+                if settings.feature_overrides != *feature_overrides {
+                    settings.feature_overrides = feature_overrides.clone();
+                    settings.save(&self.settings_file).await?;
+                }
             }
-            let pid = managed.start_managed_backend(&settings).await?;
+            let pid = if existing_only {
+                backend::pid_backend(managed.backend_paths(&settings))
+                    .preserving_recovery()
+                    .start()
+                    .await?
+            } else {
+                managed.start_managed_backend(&settings).await?
+            };
             (
                 LifecycleStatus::Started,
                 Some(BackendKind::Pid),
@@ -486,7 +520,8 @@ impl Daemon {
                 self.wait_until_ready().await?,
             )
         };
-        if backend.is_some()
+        if !existing_only
+            && backend.is_some()
             && let Err(err) = managed.ensure_managed_updater(&settings).await
         {
             self.diagnostic(format_args!(
@@ -1284,6 +1319,73 @@ mod tests {
     use crate::client::ProbeInfo;
     #[cfg(unix)]
     use crate::settings::DaemonSettings;
+
+    #[tokio::test]
+    async fn existing_installation_start_rejects_missing_binary_without_side_effects() {
+        let home = TempDir::new().expect("isolated home");
+        let state = home.path().join("app-server-daemon");
+        codex_uds::prepare_private_socket_directory(&state)
+            .await
+            .unwrap();
+        let daemon = Daemon {
+            log_diagnostics: false,
+            socket_path: home.path().join("server.sock"),
+            pid_file: state.join("daemon.pid"),
+            update_pid_file: state.join("daemon-updater.pid"),
+            operation_lock_file: state.join("daemon.lock"),
+            settings_file: state.join("settings.json"),
+            managed_codex_bin: crate::managed_install::managed_codex_bin(home.path()),
+        };
+        let settings = br#"{"featureOverrides":{"auth_elicitation":true},"remoteControlEnabled":true,"updater":{"autoUpdateEnabled":false}}"#;
+        let recovery = daemon.recovery_file().unwrap();
+        std::fs::write(&daemon.settings_file, settings).unwrap();
+        std::fs::write(&recovery, b"saved recovery candidates").unwrap();
+        std::fs::write(&daemon.update_pid_file, b"saved updater state").unwrap();
+        let error = daemon
+            .run(super::LifecycleCommand::StartExistingInstallation)
+            .await
+            .expect_err("missing installation must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("existing-installation start will not install it")
+        );
+        assert_eq!(std::fs::read(&daemon.settings_file).unwrap(), settings);
+        assert_eq!(
+            std::fs::read(&recovery).unwrap(),
+            b"saved recovery candidates"
+        );
+        assert_eq!(
+            std::fs::read(&daemon.update_pid_file).unwrap(),
+            b"saved updater state"
+        );
+        assert!(!home.path().join("packages").exists());
+        assert!(!daemon.pid_file.exists());
+
+        // A present but unusable executable must not turn a settings parse failure into repair.
+        std::fs::create_dir_all(daemon.managed_codex_bin.parent().unwrap()).unwrap();
+        std::fs::write(&daemon.managed_codex_bin, b"not an executable").unwrap();
+        std::fs::write(&daemon.settings_file, b"{").unwrap();
+        let error = daemon
+            .run(super::LifecycleCommand::StartExistingInstallation)
+            .await
+            .expect_err("invalid settings must remain an error");
+        assert!(error.to_string().contains("failed to parse settings"));
+        assert_eq!(std::fs::read(&daemon.settings_file).unwrap(), b"{");
+        assert_eq!(
+            std::fs::read(&daemon.managed_codex_bin).unwrap(),
+            b"not an executable"
+        );
+        assert_eq!(
+            std::fs::read(&recovery).unwrap(),
+            b"saved recovery candidates"
+        );
+        assert_eq!(
+            std::fs::read(&daemon.update_pid_file).unwrap(),
+            b"saved updater state"
+        );
+        assert!(!daemon.pid_file.exists());
+    }
 
     #[test]
     fn remote_control_status_uses_camel_case_json() {

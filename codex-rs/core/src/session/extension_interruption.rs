@@ -80,6 +80,9 @@ impl Session {
                 let _ = reply.send(false);
                 return;
             }
+            if let Some(task) = active.as_mut().and_then(|turn| turn.task.as_mut()) {
+                self.cancel_exact_task(task);
+            }
             self.mark_interrupted();
             active.take()
         };

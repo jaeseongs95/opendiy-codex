@@ -10,11 +10,40 @@ impl LocalAgentControl {
         &self,
         agent_id: ThreadId,
         captured: Vec<(ThreadId, Arc<crate::CodexThread>)>,
+        reservation: uuid::Uuid,
     ) -> CodexResult<crate::ManagedSubagentControlOutcome> {
         let control = self.clone();
         // Accepted close remains owned if the host loses its response waiter.
         tokio::spawn(async move {
-            let state = control.runtime.upgrade()?;
+            let rollback = || {
+                for (_, thread) in &captured {
+                    thread.io.admission.rollback_managed_close(reservation);
+                }
+            };
+            let Ok(state) = control.runtime.upgrade() else {
+                rollback();
+                return Ok(crate::ManagedSubagentControlOutcome::NotApplied);
+            };
+            // No close status or shutdown is committed until every captured runtime is durable.
+            for (id, thread) in &captured {
+                thread.ensure_rollout_materialized().await;
+                let flush = managed_close_flush(thread).await;
+                if let Err(error) = flush {
+                    tracing::warn!(thread_id = %id, %error, "managed subagent flush failed before close");
+                    rollback();
+                    return Ok(crate::ManagedSubagentControlOutcome::NotApplied);
+                }
+            }
+            let threads = state.threads.read().await;
+            if captured.iter().any(|(id, thread)| threads.get(id).is_none_or(|current| !Arc::ptr_eq(current, thread))) {
+                rollback();
+                return Ok(crate::ManagedSubagentControlOutcome::NotApplied);
+            }
+            for (id, thread) in &captured {
+                thread.io.admission.close(); // Commit consumes our rollback ownership.
+                control.runtime.registry.set_managed_closed(*id, true);
+            }
+            drop(threads);
             let mut failed = false;
             if let Some(store) = state.agent_graph_store()
                 && let Err(error) = store
@@ -28,12 +57,6 @@ impl LocalAgentControl {
                 failed = true;
             }
             for (id, thread) in captured {
-                thread.ensure_rollout_materialized().await;
-                if let Err(error) = thread.session.flush_rollout().await {
-                    tracing::warn!(thread_id = %id, %error, "managed subagent flush failed");
-                    failed = true;
-                    continue;
-                }
                 // Admission was closed under the registry fence. Do not wait for
                 // residency pins: queued mailbox entries release them during shutdown.
                 if thread.is_running()
@@ -199,4 +222,25 @@ impl LocalAgentControl {
         }
         result
     }
+}
+
+async fn managed_close_flush(thread: &crate::CodexThread) -> std::io::Result<()> {
+    #[cfg(test)]
+    {
+        let hook = thread
+            .io
+            .admission
+            .managed_close_flush_hook
+            .lock()
+            .unwrap()
+            .take();
+        if let Some((entered, release)) = hook {
+            entered.notify_one();
+            release.notified().await;
+            return Err(std::io::Error::other(
+                "injected managed close flush failure",
+            ));
+        }
+    }
+    thread.session.flush_rollout().await
 }

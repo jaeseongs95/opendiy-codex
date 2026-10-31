@@ -156,6 +156,7 @@ struct RemoteServerMetadata {
     codex_home: Option<String>,
     platform_family: Option<String>,
     platform_os: Option<String>,
+    supports_expected_turn_interrupt: Option<bool>,
 }
 
 pub struct RemoteAppServerClient {
@@ -234,6 +235,14 @@ impl RemoteAppServerClient {
 
     pub fn platform_os(&self) -> Option<&str> {
         self.metadata.platform_os.as_deref()
+    }
+
+    pub fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        if self.command_tx.is_closed() {
+            None
+        } else {
+            self.metadata.supports_expected_turn_interrupt
+        }
     }
 
     async fn connect_with_stream<S>(
@@ -873,6 +882,21 @@ where
                     })?;
                     match message {
                         JSONRPCMessage::Response(response) if response.id == initialize_request_id => {
+                            metadata.supports_expected_turn_interrupt = match response
+                                .result
+                                .get("supportsExpectedTurnInterrupt")
+                            {
+                                None => None,
+                                Some(serde_json::Value::Bool(supported)) => Some(*supported),
+                                Some(_) => {
+                                    return Err(IoError::new(
+                                        ErrorKind::InvalidData,
+                                        format!(
+                                            "remote app server at `{endpoint}` sent invalid initialize response: supportsExpectedTurnInterrupt must be a boolean when present"
+                                        ),
+                                    ));
+                                }
+                            };
                             metadata.server_version = response
                                 .result
                                 .get("userAgent")

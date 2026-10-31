@@ -225,6 +225,8 @@ mod connector_mentions;
 pub(crate) mod cron_jobs;
 mod daemon_menu;
 mod daybreak;
+#[cfg(windows)]
+pub(crate) mod desktop_cron;
 mod empty_state_policy;
 mod event_dispatch;
 mod exit_summary;

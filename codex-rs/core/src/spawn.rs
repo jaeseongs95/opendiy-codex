@@ -133,5 +133,6 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
         }
     }
 
+    codex_protocol::shell_environment::scrub_non_inheritable_env_vars(cmd.as_std_mut());
     cmd.kill_on_drop(true).spawn()
 }

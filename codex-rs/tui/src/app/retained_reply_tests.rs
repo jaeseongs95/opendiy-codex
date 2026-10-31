@@ -27,6 +27,16 @@ pub(in crate::app) async fn connection() -> color_eyre::Result<(
     mpsc::UnboundedReceiver<JSONRPCMessage>,
     JoinHandle<color_eyre::Result<()>>,
 )> {
+    connection_with_expected_turn_interrupt(None).await
+}
+
+pub(in crate::app) async fn connection_with_expected_turn_interrupt(
+    supports_expected_turn_interrupt: Option<bool>,
+) -> color_eyre::Result<(
+    AppServerSession,
+    mpsc::UnboundedReceiver<JSONRPCMessage>,
+    JoinHandle<color_eyre::Result<()>>,
+)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = crate::resolve_remote_addr(&format!("ws://{}", listener.local_addr()?))?;
     let (observed, receiver) = mpsc::unbounded_channel();
@@ -40,15 +50,17 @@ pub(in crate::app) async fn connection() -> color_eyre::Result<(
             let message: JSONRPCMessage = serde_json::from_str(&text)?;
             match message {
                 JSONRPCMessage::Request(request) if request.method == "initialize" => {
+                    let mut result = json!({
+                        "userAgent":"retained-reply-test","codexHome":std::env::temp_dir(),
+                        "platformFamily":std::env::consts::FAMILY,
+                        "platformOs":std::env::consts::OS
+                    });
+                    if let Some(supported) = supports_expected_turn_interrupt {
+                        result["supportsExpectedTurnInterrupt"] = supported.into();
+                    }
                     socket
                         .send(Message::Text(
-                            json!({"id":request.id,"result":{
-                                "userAgent":"retained-reply-test","codexHome":std::env::temp_dir(),
-                                "platformFamily":std::env::consts::FAMILY,
-                                "platformOs":std::env::consts::OS
-                            }})
-                            .to_string()
-                            .into(),
+                            json!({"id":request.id,"result":result}).to_string().into(),
                         ))
                         .await?;
                 }

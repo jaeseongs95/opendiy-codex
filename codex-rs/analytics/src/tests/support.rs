@@ -211,6 +211,8 @@ pub(super) fn sample_thread_resume_response_with_source(
     parent_thread_id: Option<String>,
 ) -> ClientResponsePayload {
     ClientResponsePayload::ThreadResume(ThreadResumeResponse {
+        supports_compact_if_idle: None,
+        supports_expected_turn_interrupt: None,
         disabled_plugin_ids: Vec::new(),
         thread: sample_thread_with_metadata(
             thread_id,

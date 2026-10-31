@@ -6,8 +6,10 @@ use super::execution::AgentExecutionLimiter;
 use super::residency::V2Residency;
 use crate::agent::api::AgentControl;
 use crate::agent::registry::AgentRegistry;
+use crate::codex_thread::CodexThread;
 use crate::config::RolloutBudgetConfig;
 use crate::rollout_budget::RolloutBudget;
+use crate::session::Session;
 use crate::thread_manager::AgentTreeShutdownFailure;
 use crate::thread_manager::AgentTreeShutdownFailureReason;
 use crate::thread_manager::AgentTreeShutdownReport;
@@ -20,11 +22,13 @@ use codex_protocol::ThreadId;
 use codex_protocol::error::AgentErrorContext;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::sync::Weak;
+use tokio::sync::OwnedRwLockReadGuard;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tokio_util::task::task_tracker::TaskTrackerToken;
@@ -205,6 +209,31 @@ pub(crate) struct LocalAgentRuntime {
 }
 
 impl LocalAgentRuntime {
+    /// Lock order: runtime admission gate, loaded registry, active turn, mailbox.
+    /// Keep this guard only through reservation, never context preparation or I/O.
+    pub(crate) async fn lock_loaded_session(
+        &self,
+        session: &Arc<Session>,
+    ) -> CodexResult<OwnedRwLockReadGuard<HashMap<ThreadId, Arc<CodexThread>>>> {
+        let manager = self.manager.upgrade().ok_or_else(|| {
+            CodexErr::InvalidRequest("local thread registry is unavailable".into())
+        })?;
+        let registry = Arc::clone(&manager.threads).read_owned().await;
+        let registered = registry.get(&session.thread_id).ok_or_else(|| {
+            CodexErr::InvalidRequest("compaction requires a loaded runtime".into())
+        })?;
+        if !Arc::ptr_eq(&registered.session, session)
+            || registered.session_source.is_internal()
+            || !registered.is_running()
+            || registered.io.admission.is_closing()
+        {
+            return Err(CodexErr::InvalidRequest(
+                "loaded compaction runtime changed or is closing".into(),
+            ));
+        }
+        Ok(registry)
+    }
+
     pub(crate) fn shares_registry(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.registry, &other.registry)
     }

@@ -289,6 +289,8 @@ fn thread_resume_params_accept_turns_page_bootstrap() {
 #[test]
 fn thread_resume_response_round_trips_initial_turns_page() {
     let response = ThreadResumeResponse {
+        supports_compact_if_idle: None,
+        supports_expected_turn_interrupt: None,
         disabled_plugin_ids: Vec::new(),
         thread: Thread {
             originator: Some("future_client".to_string()),
@@ -407,9 +409,69 @@ fn thread_resume_response_round_trips_initial_turns_page() {
         value.get("itemsBackwardsCursor"),
         Some(&json!("items_head"))
     );
-    let decoded = serde_json::from_value::<ThreadResumeResponse>(value)
+    let decoded = serde_json::from_value::<ThreadResumeResponse>(value.clone())
         .expect("deserialize thread resume response");
     assert_eq!(decoded, response);
+
+    for compact in [None, Some(false), Some(true)] {
+        for interrupt in [None, Some(false), Some(true)] {
+            let mut candidate = response.clone();
+            candidate.supports_compact_if_idle = compact;
+            candidate.supports_expected_turn_interrupt = interrupt;
+            let serialized = serde_json::to_value(&candidate).unwrap();
+            assert_eq!(
+                serialized.get("supportsCompactIfIdle"),
+                compact.map(|cap| json!(cap)).as_ref()
+            );
+            assert_eq!(
+                serialized.get("supportsExpectedTurnInterrupt"),
+                interrupt.map(|cap| json!(cap)).as_ref()
+            );
+            assert_eq!(
+                serde_json::from_value::<ThreadResumeResponse>(serialized).unwrap(),
+                candidate
+            );
+        }
+    }
+    for field in ["supportsCompactIfIdle", "supportsExpectedTurnInterrupt"] {
+        for invalid in [json!(null), json!("true"), json!(1), json!({}), json!([])] {
+            let mut candidate = value.clone();
+            candidate[field] = invalid;
+            assert!(serde_json::from_value::<ThreadResumeResponse>(candidate).is_err());
+        }
+    }
+}
+
+#[test]
+fn initialize_interrupt_capability_accepts_only_omission_or_boolean() {
+    let response = crate::InitializeResponse {
+        supports_expected_turn_interrupt: None,
+        user_agent: "test-client".into(),
+        codex_home: absolute_path("tmp"),
+        platform_family: std::env::consts::FAMILY.into(),
+        platform_os: std::env::consts::OS.into(),
+    };
+    let value = serde_json::to_value(&response).unwrap();
+    assert!(value.get("supportsExpectedTurnInterrupt").is_none());
+    assert_eq!(
+        serde_json::from_value::<crate::InitializeResponse>(value.clone()).unwrap(),
+        response
+    );
+    for cap in [false, true] {
+        let mut candidate = value.clone();
+        candidate["supportsExpectedTurnInterrupt"] = json!(cap);
+        assert_eq!(
+            serde_json::from_value::<crate::InitializeResponse>(candidate)
+                .unwrap()
+                .supports_expected_turn_interrupt,
+            Some(cap)
+        );
+    }
+    for invalid in [json!(null), json!("true"), json!(1), json!({}), json!([])] {
+        let mut candidate = value.clone();
+        candidate["supportsExpectedTurnInterrupt"] = invalid;
+        assert!(serde_json::from_value::<crate::InitializeResponse>(candidate).is_err());
+    }
 }
 
 #[test]

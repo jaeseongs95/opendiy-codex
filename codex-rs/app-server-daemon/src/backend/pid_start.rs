@@ -21,6 +21,21 @@ impl PidBackend {
     pub(super) async fn start_inner(&self, replacement: Option<PidRecord>) -> Result<Option<u32>> {
         #[cfg(windows)]
         crate::backend::windows::ensure_not_elevated()?;
+        let managed_app_server =
+            matches!(self.command_kind, super::PidCommandKind::AppServer { .. });
+        // Existing-installation starts must fail before PID/log/workdir changes
+        // if the selected executable cannot safely consume saved restoration.
+        let selected_codex_bin = if self.preserve_recovery && managed_app_server {
+            let codex_bin = fs::canonicalize(&self.codex_bin)
+                .await
+                .context("failed to resolve existing daemon executable")?;
+            require_managed_daemon_support(&codex_bin)
+                .await
+                .context("existing-installation start requires managed restoration support")?;
+            Some(codex_bin)
+        } else {
+            None
+        };
         if let Some(parent) = self.pid_file.parent() {
             codex_uds::prepare_private_socket_directory(parent)
                 .await
@@ -86,9 +101,12 @@ impl PidBackend {
             }
         }
         // Pin the selected release across installer symlink/junction retargeting.
-        let codex_bin = fs::canonicalize(&self.codex_bin)
-            .await
-            .unwrap_or_else(|_| self.codex_bin.clone());
+        let codex_bin = match selected_codex_bin {
+            Some(codex_bin) => codex_bin,
+            None => fs::canonicalize(&self.codex_bin)
+                .await
+                .unwrap_or_else(|_| self.codex_bin.clone()),
+        };
         let launched_identity =
             if matches!(self.command_kind, super::PidCommandKind::AppServer { .. }) {
                 executable_identity(&codex_bin).await.ok()
@@ -113,25 +131,11 @@ impl PidBackend {
             .stdout(Stdio::null())
             .stderr(Stdio::from(stderr_log.into_std().await));
         // Older or pinned managed binaries may predate this optional startup flag.
-        let managed_app_server =
-            matches!(self.command_kind, super::PidCommandKind::AppServer { .. });
         if managed_app_server
-            && matches!(
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    Command::new(&codex_bin)
-                        .args(["app-server", "--managed-daemon", "--help"])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .kill_on_drop(true)
-                        .status(),
-                ).await,
-                Ok(Ok(status)) if status.success()
-            )
+            && (self.preserve_recovery || require_managed_daemon_support(&codex_bin).await.is_ok())
         {
             command.arg("--managed-daemon");
-        } else if managed_app_server {
+        } else if managed_app_server && !self.preserve_recovery {
             let codex_home = self
                 .pid_file
                 .parent()
@@ -312,4 +316,25 @@ impl PidBackend {
         drop(reservation_lock);
         Ok(Some(pid))
     }
+}
+
+async fn require_managed_daemon_support(codex_bin: &std::path::Path) -> Result<()> {
+    let status = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Command::from(codex_utils_process::background_command(codex_bin))
+            .args(["app-server", "--managed-daemon", "--help"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await
+    .context("managed-daemon support probe timed out")?
+    .context("failed to run managed-daemon support probe")?;
+    anyhow::ensure!(
+        status.success(),
+        "selected executable does not support managed-daemon restoration (status {status})"
+    );
+    Ok(())
 }

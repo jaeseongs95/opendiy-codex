@@ -136,6 +136,9 @@ mod config_update;
 mod copy_input_guard;
 mod cron;
 mod cron_tools;
+mod desktop_cron;
+pub use cli::DesktopCronControl;
+pub use desktop_cron::{DesktopCronBootstrap, take_desktop_cron_bootstrap_from_env};
 pub(crate) mod custom_terminal;
 mod daybreak;
 mod experimental_features;
@@ -1144,7 +1147,14 @@ pub async fn run_main(
     arg0_paths: Arg0DispatchPaths,
     loader_overrides: LoaderOverrides,
     explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> std::io::Result<AppExitInfo> {
+    let desktop_cron_bootstrap = if cli.desktop_cron_control.is_some() {
+        desktop_cron_bootstrap
+    } else {
+        drop(desktop_cron_bootstrap);
+        DesktopCronBootstrap::default()
+    };
     i18n::initialize()?;
     system_motion::initialize().await;
     startup_recovery::scope(async move {
@@ -1155,6 +1165,7 @@ pub async fn run_main(
             arg0_paths,
             loader_overrides,
             explicit_remote_endpoint,
+            desktop_cron_bootstrap,
         ))
         .await
         {
@@ -1205,6 +1216,7 @@ async fn run_ratatui_app(
         impl FnOnce(&AppServerTarget, bool) -> terminal_size_telemetry::LaunchTags,
     >,
     startup_draft: startup_draft::StartupDraft,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> color_eyre::Result<AppExitInfo> {
     let backend_id = crate::backend_id::BackendId::new();
     let uses_remote_workspace = app_server_target.uses_remote_workspace();
@@ -2198,6 +2210,7 @@ async fn run_ratatui_app(
         startup_draft,
         managed_worktree,
         daemon_cli_executable,
+        desktop_cron_bootstrap,
     ))
     .await;
 

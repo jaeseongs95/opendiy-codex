@@ -307,6 +307,10 @@ pub(crate) enum AppEvent {
         thread_id: Option<ThreadId>,
         args: String,
     },
+    #[cfg(windows)]
+    DesktopCronRequest(Box<crate::desktop_cron::PendingRequest>),
+    #[cfg(windows)]
+    DesktopCronCancelReply(Box<crate::app::desktop_cron::DesktopCancelReply>),
     CronReply(Box<crate::app::cron_jobs::CronReply>),
     CronCancelReply(Box<crate::app::cron_jobs::CronCancelReply>),
     AccountEmailLoaded {

@@ -22,13 +22,18 @@ use super::try_lock_file;
 
 #[cfg(windows)]
 fn is_elevated_test_process() -> anyhow::Result<bool> {
+    use std::os::windows::process::CommandExt;
+
     let output = std::process::Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-Command",
             "[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
         ])
+        .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
         .output()?;
     anyhow::ensure!(
         output.status.success(),
@@ -573,6 +578,7 @@ async fn exited_unreaped_updater_is_reaped() {
 fn update_loop_uses_hidden_app_server_subcommand() {
     let backend = PidBackend {
         feature_overrides: Default::default(),
+        preserve_recovery: false,
         codex_bin: "codex".into(),
         pid_file: "updater.pid".into(),
         lock_file: "updater.pid.lock".into(),
@@ -585,6 +591,44 @@ fn update_loop_uses_hidden_app_server_subcommand() {
         backend.command_args(),
         vec!["app-server", "daemon", "pid-update-loop"]
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn recovery_preserving_start_rejects_before_pid_or_log_changes() {
+    for (script, expected_error) in [
+        (
+            "#!/bin/sh\nexit 2\n",
+            "does not support managed-daemon restoration",
+        ),
+        (
+            "#!/missing-managed-daemon-test-interpreter\n",
+            "failed to run managed-daemon support probe",
+        ),
+    ] {
+        let home = TempDir::new().unwrap();
+        let codex_bin = home.path().join("codex");
+        codex_utils_cargo_bin::write_executable(&codex_bin, script).unwrap();
+        let recovery = codex_app_server_transport::daemon_recovery_file_path(home.path());
+        std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
+        std::fs::write(&recovery, b"saved restoration candidates").unwrap();
+        let backend = PidBackend::new(
+            codex_bin,
+            home.path().join("app-server-daemon/app-server.pid"),
+            false,
+        )
+        .preserving_recovery();
+
+        let error = backend.start().await.unwrap_err();
+        assert!(format!("{error:#}").contains(expected_error));
+        assert_eq!(
+            std::fs::read(recovery).unwrap(),
+            b"saved restoration candidates"
+        );
+        assert!(!backend.pid_file.exists());
+        assert!(!backend.lock_file.exists());
+        assert!(!stderr_log_file_for_pid_file(&backend.pid_file).exists());
+    }
 }
 
 #[test]
@@ -697,6 +741,94 @@ async fn stale_creation_time_never_stops_reused_pid() {
         backend.stop().await.expect("stale record cleanup");
         assert!(!backend.pid_file.exists());
         assert!(!backend.pid_file.with_extension("shutdown").exists());
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn recovery_preserving_start_probe_failures_leave_windows_state_unchanged() {
+    if is_elevated_test_process().expect("query administrator membership") {
+        return;
+    }
+    for (name, contents, expected_error) in [
+        (
+            "unsupported.cmd",
+            "@echo off\r\nexit /b 2\r\n",
+            "does not support managed-daemon restoration",
+        ),
+        (
+            "invalid.exe",
+            "not a Windows executable",
+            "failed to run managed-daemon support probe",
+        ),
+        (
+            "timeout.cmd",
+            // Only cmd builtins: dropping the timed-out probe kills its one
+            // process, with no sleep child or process-tree cleanup to perform.
+            "@echo off\r\n:waiting\r\ngoto waiting\r\n",
+            "managed-daemon support probe timed out",
+        ),
+    ] {
+        for existing_state in [false, true] {
+            let home = TempDir::new().expect("temp dir");
+            let codex_bin = home.path().join(name);
+            std::fs::write(&codex_bin, contents).expect("probe fixture");
+            let recovery = codex_app_server_transport::daemon_recovery_file_path(home.path());
+            std::fs::create_dir_all(recovery.parent().unwrap()).unwrap();
+            std::fs::write(&recovery, b"saved restoration candidates").unwrap();
+            let state = home.path().join("app-server-daemon");
+            std::fs::create_dir_all(&state).unwrap();
+            let backend = PidBackend::new(
+                codex_bin.clone(),
+                state.join("app-server.pid"),
+                /*remote_control_enabled*/ false,
+            )
+            .preserving_recovery();
+            let workdir = state.join("workdir");
+            let preserved_files = [
+                recovery,
+                codex_bin,
+                backend.pid_file.clone(),
+                backend.lock_file.clone(),
+                stderr_log_file_for_pid_file(&backend.pid_file),
+                workdir.join("existing-marker"),
+            ];
+            if existing_state {
+                std::fs::create_dir(&workdir).unwrap();
+                for path in &preserved_files[2..] {
+                    std::fs::write(path, b"preserve existing state").unwrap();
+                }
+            }
+            let before: Vec<_> = preserved_files.iter().map(std::fs::read).collect();
+            let mut entries_before: Vec<_> = std::fs::read_dir(&state)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            entries_before.sort();
+
+            let error = backend
+                .start()
+                .await
+                .expect_err("probe must reject startup");
+
+            assert!(format!("{error:#}").contains(expected_error), "{error:#}");
+            for (path, contents_before) in preserved_files.iter().zip(before) {
+                match contents_before {
+                    Ok(contents) => assert_eq!(std::fs::read(path).unwrap(), contents),
+                    Err(error) => {
+                        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+                        assert!(!path.exists(), "{} must remain absent", path.display());
+                    }
+                }
+            }
+            assert_eq!(workdir.exists(), existing_state);
+            let mut entries_after: Vec<_> = std::fs::read_dir(&state)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            entries_after.sort();
+            assert_eq!(entries_after, entries_before);
+        }
     }
 }
 

@@ -284,6 +284,7 @@ impl InProcessClientSender {
 /// request/response helpers, and surface-specific startup policy.
 pub struct InProcessClientHandle {
     client: InProcessClientSender,
+    supports_expected_turn_interrupt: Option<bool>,
     event_rx: mpsc::Receiver<InProcessServerEvent>,
     runtime_handle: tokio::task::JoinHandle<()>,
     #[cfg(test)]
@@ -291,6 +292,11 @@ pub struct InProcessClientHandle {
 }
 
 impl InProcessClientHandle {
+    /// Capability observed in this runtime's successful initialize handshake.
+    pub fn supports_expected_turn_interrupt(&self) -> Option<bool> {
+        self.supports_expected_turn_interrupt
+    }
+
     /// Sends a typed client request into the in-process runtime.
     ///
     /// The returned value is a transport-level `IoResult` containing either a
@@ -388,7 +394,7 @@ pub async fn start(mut args: InProcessStartArgs) -> IoResult<InProcessClientHand
         });
     }
     let initialize = args.initialize.clone();
-    let client = Box::pin(start_uninitialized(args)).await?;
+    let mut client = Box::pin(start_uninitialized(args)).await?;
 
     let initialize_response = client
         .request(ClientRequest::Initialize {
@@ -396,13 +402,19 @@ pub async fn start(mut args: InProcessStartArgs) -> IoResult<InProcessClientHand
             params: initialize,
         })
         .await?;
-    if let Err(error) = initialize_response {
-        let _ = client.shutdown().await;
-        return Err(IoError::new(
-            ErrorKind::InvalidData,
-            format!("in-process initialize failed: {}", error.message),
-        ));
-    }
+    let initialize_response = match initialize_response {
+        Ok(value) => serde_json::from_value::<codex_app_server_protocol::InitializeResponse>(value)
+            .map_err(|error| format!("invalid in-process initialize response: {error}")),
+        Err(error) => Err(format!("in-process initialize failed: {}", error.message)),
+    };
+    let initialize_response = match initialize_response {
+        Ok(response) => response,
+        Err(message) => {
+            let _ = client.shutdown().await;
+            return Err(IoError::new(ErrorKind::InvalidData, message));
+        }
+    };
+    client.supports_expected_turn_interrupt = initialize_response.supports_expected_turn_interrupt;
     client.notify(ClientNotification::Initialized)?;
 
     Ok(client)
@@ -817,6 +829,7 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
 
     Ok(InProcessClientHandle {
         client: InProcessClientSender { client_tx },
+        supports_expected_turn_interrupt: None,
         event_rx,
         runtime_handle,
         #[cfg(test)]
@@ -912,6 +925,7 @@ mod tests {
     #[tokio::test]
     async fn in_process_start_initializes_and_handles_typed_v2_request() {
         let client = start_test_client(SessionSource::Cli).await;
+        assert_eq!(client.supports_expected_turn_interrupt(), Some(true));
         let response = client
             .request(ClientRequest::ConfigRequirementsRead {
                 request_id: RequestId::Integer(1),
@@ -1026,6 +1040,7 @@ mod tests {
         });
         let client = InProcessClientHandle {
             client: InProcessClientSender { client_tx },
+            supports_expected_turn_interrupt: None,
             event_rx,
             runtime_handle,
             _test_codex_home: None,
