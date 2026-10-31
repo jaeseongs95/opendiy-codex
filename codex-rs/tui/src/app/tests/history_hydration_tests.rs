@@ -813,12 +813,28 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
         app.enqueue_primary_thread_session(original_session, Vec::new())
             .await?;
         let mut session_headers = 0;
+        let mut empty_startup_warnings = 0;
         let mut unexpected_history_cells = Vec::new();
         while let Ok(event) = events.try_recv() {
             if let AppEvent::InsertHistoryCell(cell) = &event {
-                // 재부착의 정상 머리말도 이 이벤트를 사용한다. 그 밖의 셀은 허용하지 않는다.
                 if cell.as_any().is::<history_cell::SessionInfoCell>() {
                     session_headers += 1;
+                } else if let Some(warnings) = cell
+                    .as_any()
+                    .downcast_ref::<history_cell::StartupWarningsCell>()
+                {
+                    // 재부착의 ListSkills 응답은 빈 시작 경고 셀을 하나 보낸다.
+                    // 이 타입은 실제 경고가 있어도 display_lines가 비므로 내용을 확인한다.
+                    assert!(
+                        warnings.messages.is_empty()
+                            && warnings.other_sources.is_empty()
+                            && warnings.mcp_servers.is_empty()
+                            && warnings.mcp_details.is_empty()
+                            && warnings.sign_in_servers.is_empty()
+                            && !warnings.pending_header,
+                        "정상 저장 대기는 시작 경고를 만들지 않는다: {warnings:?}"
+                    );
+                    empty_startup_warnings += 1;
                 } else {
                     unexpected_history_cells
                         .push(lines_to_single_string(&cell.display_lines(1000)));
@@ -829,6 +845,10 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
         assert_eq!(
             session_headers, 1,
             "재부착은 정상 세션 머리말을 한 번 표시한다"
+        );
+        assert_eq!(
+            empty_startup_warnings, 1,
+            "재부착은 경고 없는 기술 목록 응답 셀을 한 번 보낸다"
         );
         assert!(
             unexpected_history_cells.is_empty(),
