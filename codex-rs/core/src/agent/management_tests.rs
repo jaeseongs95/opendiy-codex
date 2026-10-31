@@ -506,6 +506,7 @@ async fn managed_close_preserves_runtime_and_admission_after_real_writer_shutdow
             .local_agent_runtime
             .control(parent.session.session_id());
         let registry = &control.runtime.registry;
+        registry.register_root_thread(parent.session.thread_id);
         let path = AgentPath::root().join("worker").unwrap();
         let mut reservation = registry.reserve_spawn_slot(None).unwrap();
         reservation.reserve_agent_path(&path).unwrap();
