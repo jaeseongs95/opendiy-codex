@@ -9,7 +9,7 @@ use crate::agent::registry::AgentRegistry;
 use crate::codex_thread::CodexThread;
 use crate::config::RolloutBudgetConfig;
 use crate::rollout_budget::RolloutBudget;
-use crate::session::Session;
+use crate::session::session::Session;
 use crate::thread_manager::AgentTreeShutdownFailure;
 use crate::thread_manager::AgentTreeShutdownFailureReason;
 use crate::thread_manager::AgentTreeShutdownReport;

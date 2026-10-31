@@ -38,6 +38,7 @@ pub struct ThreadSubagentsListResponse {
 pub struct SubagentManagementAgent {
     pub id: String,
     pub parent_thread_id: String,
+    #[schemars(schema_with = "required_nullable_runtime_schema")]
     pub runtime_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
@@ -166,7 +167,12 @@ mod tests {
         assert!(serde_json::from_value::<ThreadSubagentsControlParams>(request.clone()).is_err());
         request["expectedRuntimeId"] = serde_json::Value::Null;
         let parsed = serde_json::from_value::<ThreadSubagentsControlParams>(request).unwrap();
-        assert!(serde_json::to_value(parsed).unwrap()["expectedRuntimeId"].is_null());
+        assert_eq!(
+            serde_json::to_value(parsed)
+                .unwrap()
+                .get("expectedRuntimeId"),
+            Some(&serde_json::Value::Null)
+        );
     }
 
     #[test]
@@ -184,6 +190,40 @@ mod tests {
         let declaration = <ThreadSubagentsControlParams as ts_rs::TS>::decl();
         assert!(declaration.contains("expectedRuntimeId: string | null"));
         assert!(!declaration.contains("expectedRuntimeId?:"));
+    }
+
+    #[test]
+    fn agent_schema_and_output_require_a_nullable_runtime() {
+        let schema = serde_json::to_value(schemars::schema_for!(SubagentManagementAgent)).unwrap();
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("runtimeId"))
+        );
+        let types = schema["properties"]["runtimeId"]["type"]
+            .as_array()
+            .unwrap();
+        assert_eq!(types.len(), 2);
+        assert!(types.contains(&json!("string")));
+        assert!(types.contains(&json!("null")));
+        let declaration = <SubagentManagementAgent as ts_rs::TS>::decl();
+        assert!(declaration.contains("runtimeId: string | null"));
+        assert!(!declaration.contains("runtimeId?:"));
+
+        // Response decoding retains Option's tolerance; wire output always carries runtimeId.
+        let decoded: SubagentManagementAgent = serde_json::from_value(json!({
+            "id": "child",
+            "parentThreadId": "parent",
+            "status": "unknown",
+            "capabilities": { "send": false, "interrupt": false, "close": false, "resume": true }
+        }))
+        .unwrap();
+        assert!(decoded.runtime_id.is_none());
+        assert_eq!(
+            serde_json::to_value(decoded).unwrap().get("runtimeId"),
+            Some(&serde_json::Value::Null)
+        );
     }
 
     #[test]
