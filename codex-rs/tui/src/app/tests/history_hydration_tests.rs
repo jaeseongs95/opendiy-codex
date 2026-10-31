@@ -812,16 +812,27 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
         app.clear_active_thread().await;
         app.enqueue_primary_thread_session(original_session, Vec::new())
             .await?;
-        let mut displayed_errors = String::new();
+        let mut session_headers = 0;
+        let mut unexpected_history_cells = Vec::new();
         while let Ok(event) = events.try_recv() {
             if let AppEvent::InsertHistoryCell(cell) = &event {
-                displayed_errors.push_str(&lines_to_single_string(&cell.display_lines(1000)));
+                // 재부착의 정상 머리말도 이 이벤트를 사용한다. 그 밖의 셀은 허용하지 않는다.
+                if cell.as_any().is::<history_cell::SessionInfoCell>() {
+                    session_headers += 1;
+                } else {
+                    unexpected_history_cells
+                        .push(lines_to_single_string(&cell.display_lines(1000)));
+                }
             }
             app.handle_event(&mut tui, &mut server, event).await?;
         }
+        assert_eq!(
+            session_headers, 1,
+            "재부착은 정상 세션 머리말을 한 번 표시한다"
+        );
         assert!(
-            displayed_errors.is_empty(),
-            "정상 저장 대기는 오류 셀을 만들지 않는다"
+            unexpected_history_cells.is_empty(),
+            "정상 저장 대기는 오류 셀을 만들지 않는다: {unexpected_history_cells:?}"
         );
         assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
         assert_ne!(app.transcript_view.history, TranscriptHistoryState::Failed);
