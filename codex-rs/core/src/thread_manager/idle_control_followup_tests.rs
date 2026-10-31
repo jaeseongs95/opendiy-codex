@@ -112,12 +112,13 @@ async fn idle_compact_real_parent_admission_preserves_running_child_and_relation
         }
     ));
     assert!(!child_cancellation.is_cancelled());
-    assert!(root
-        .thread
-        .session
-        .services
-        .local_agent_runtime
-        .shares_registry(&worker.thread.session.services.local_agent_runtime));
+    assert!(
+        root.thread
+            .session
+            .services
+            .local_agent_runtime
+            .shares_registry(&worker.thread.session.services.local_agent_runtime)
+    );
     assert!(Arc::ptr_eq(
         &manager.get_thread(worker.thread_id).await.unwrap(),
         &worker.thread
@@ -164,7 +165,10 @@ async fn idle_compact_runtime_guard_blocks_raw_remove_and_retained_core_queue_re
     drop(registry);
     let retained = removal.await.expect("removed runtime remains retained");
     assert!(Arc::ptr_eq(&retained, &root.thread));
-    assert!(retained.is_running(), "raw removal must not close the Core queue");
+    assert!(
+        retained.is_running(),
+        "raw removal must not close the Core queue"
+    );
 
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -348,7 +352,13 @@ async fn expected_interrupt_actual_core_queue_keeps_replacement_task_and_mail() 
         .unwrap();
     assert!(!decision.await.expect("Core must reject the stale turn ID"));
     assert!(!cancellation.is_cancelled());
-    assert!(root.thread.session.input_queue.has_pending_mailbox_items().await);
+    assert!(
+        root.thread
+            .session
+            .input_queue
+            .has_pending_mailbox_items()
+            .await
+    );
     assert_eq!(
         root.thread
             .session

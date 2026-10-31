@@ -305,9 +305,10 @@ impl Session {
     ) -> bool {
         if let Some(expected) = &reservation {
             let active = self.active_turn.lock().await;
-            if active.as_ref().is_none_or(|turn| {
-                turn.task.is_some() || !Arc::ptr_eq(&turn.turn_state, expected)
-            }) {
+            if active
+                .as_ref()
+                .is_none_or(|turn| turn.task.is_some() || !Arc::ptr_eq(&turn.turn_state, expected))
+            {
                 return false;
             }
         }
