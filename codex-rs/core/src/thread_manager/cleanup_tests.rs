@@ -1246,119 +1246,95 @@ async fn loaded_runtime_read_guard_linearizes_raw_removal_without_touching_activ
 #[path = "idle_control_followup_tests.rs"]
 mod idle_control_followup_tests;
 
-#[tokio::test]
-async fn managed_close_preserves_runtime_and_admission_after_real_writer_shutdown_failure() {
-    use crate::ManagedSubagentAction;
-    use crate::ManagedSubagentControlOutcome;
+// Shared only by the management-owned regression; no production accessors are exposed.
+impl ThreadManager {
+    pub(crate) async fn assert_managed_close_shutdown_failure_for_test(
+        register_child: impl FnOnce(&CodexThread, ThreadId),
+    ) {
+        use crate::ManagedSubagentAction;
+        use crate::ManagedSubagentControlOutcome;
 
-    let ((_home, manager, config, root), faults) = fixture_with_faults().await;
-    let done = child(&manager, &config, &root).await;
-    complete(&done.thread).await;
-    // Bind the real loaded child through the same metadata reservation used by spawn,
-    // without starting model work in this persistence failure test.
-    let registry = &root.thread.session.services.local_agent_runtime.registry;
-    let path = codex_protocol::AgentPath::root().join("worker").unwrap();
-    let mut reservation = registry.reserve_spawn_slot(None).unwrap();
-    reservation.reserve_agent_path(&path).unwrap();
-    reservation.commit(crate::AgentMetadata {
-        agent_id: Some(done.thread_id),
-        agent_path: Some(path),
-        ..Default::default()
-    });
-    assert!(
-        manager
-            .list_managed_subagents(root.thread_id)
-            .await
-            .unwrap()
-            .agents
-            .iter()
-            .any(|entry| entry.thread_id == done.thread_id)
-    );
-    assert!(stored(&manager, done.thread_id).await);
-    assert!(!done.thread.io.admission.is_closing());
-    *faults.shutdown.lock().unwrap() = Some((done.thread_id, None));
+        let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+        let done = child(&manager, &config, &root).await;
+        complete(&done.thread).await;
+        register_child(&root.thread, done.thread_id);
+        assert!(
+            manager
+                .list_managed_subagents(root.thread_id)
+                .await
+                .unwrap()
+                .agents
+                .iter()
+                .any(|entry| entry.thread_id == done.thread_id)
+        );
+        assert!(stored(&manager, done.thread_id).await);
+        assert!(!done.thread.io.admission.is_closing());
+        *faults.shutdown.lock().unwrap() = Some((done.thread_id, None));
 
-    let outcome = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        manager.control_managed_subagent(
-            root.thread_id,
-            root.thread.runtime_id(),
-            done.thread_id,
-            Some(done.thread.runtime_id()),
-            ManagedSubagentAction::Close,
-        ),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(outcome, ManagedSubagentControlOutcome::Unknown);
-    assert!(faults.shutdown.lock().unwrap().is_none());
-    assert_eq!(
-        done.thread
-            .io
-            .admission
-            .shutdown_result
-            .load(Ordering::Acquire),
-        2
-    );
-    assert!(!done.thread.io.admission.shutdown_confirmed());
-    assert!(done.thread.io.admission.is_closing());
-    assert!(
-        done.thread
-            .io
-            .admission
-            .managed_close_owner
-            .lock()
-            .unwrap()
-            .is_none()
-    );
-    assert!(registry.is_managed_closed(done.thread_id));
-    assert!(!done.thread.is_running());
-    assert!(Arc::ptr_eq(
-        &manager.get_thread(done.thread_id).await.unwrap(),
-        &done.thread
-    ));
-    assert!(stored(&manager, done.thread_id).await);
-    assert!(faults.deletes.lock().unwrap().is_empty());
-    assert!(done.thread.submit(Op::Interrupt).await.is_err());
-    assert!(
-        !done
-            .thread
-            .io
-            .admission
-            .reserve_managed_close(uuid::Uuid::new_v4())
-    );
-    assert_eq!(
-        manager
-            .control_managed_subagent(
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            manager.control_managed_subagent(
                 root.thread_id,
                 root.thread.runtime_id(),
                 done.thread_id,
                 Some(done.thread.runtime_id()),
-                ManagedSubagentAction::Close
-            )
+                ManagedSubagentAction::Close,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(outcome, ManagedSubagentControlOutcome::Unknown);
+        assert!(faults.shutdown.lock().unwrap().is_none());
+        assert!(!done.thread.io.admission.shutdown_confirmed());
+        assert!(done.thread.io.admission.is_closing());
+        assert!(!done.thread.is_running());
+        assert!(Arc::ptr_eq(
+            &manager.get_thread(done.thread_id).await.unwrap(),
+            &done.thread
+        ));
+        assert!(stored(&manager, done.thread_id).await);
+        assert!(faults.deletes.lock().unwrap().is_empty());
+        assert!(done.thread.submit(Op::Interrupt).await.is_err());
+        assert!(
+            !done
+                .thread
+                .io
+                .admission
+                .reserve_managed_close(uuid::Uuid::new_v4())
+        );
+        assert_eq!(
+            manager
+                .control_managed_subagent(
+                    root.thread_id,
+                    root.thread.runtime_id(),
+                    done.thread_id,
+                    Some(done.thread.runtime_id()),
+                    ManagedSubagentAction::Close
+                )
+                .await
+                .unwrap(),
+            ManagedSubagentControlOutcome::NotApplied
+        );
+        let listed = manager
+            .list_managed_subagents(root.thread_id)
             .await
-            .unwrap(),
-        ManagedSubagentControlOutcome::NotApplied
-    );
-    let listed = manager
-        .list_managed_subagents(root.thread_id)
-        .await
-        .unwrap();
-    let entry = listed
-        .agents
-        .iter()
-        .find(|entry| entry.thread_id == done.thread_id)
-        .unwrap();
-    assert_eq!(entry.runtime_id, Some(done.thread.runtime_id()));
-    assert!(!entry.capabilities.send);
-    assert!(!entry.capabilities.resume);
-    // The one-shot fault is consumed; close the retained real writer during fixture teardown.
-    manager
-        .state
-        .thread_store
-        .shutdown_thread(done.thread_id)
-        .await
-        .unwrap();
-    root.thread.shutdown_and_wait().await.unwrap();
+            .unwrap();
+        let entry = listed
+            .agents
+            .iter()
+            .find(|entry| entry.thread_id == done.thread_id)
+            .unwrap();
+        assert_eq!(entry.runtime_id, Some(done.thread.runtime_id()));
+        assert!(!entry.capabilities.send);
+        assert!(!entry.capabilities.resume);
+        // The one-shot fault is consumed; close the retained real writer during fixture teardown.
+        manager
+            .state
+            .thread_store
+            .shutdown_thread(done.thread_id)
+            .await
+            .unwrap();
+        root.thread.shutdown_and_wait().await.unwrap();
+    }
 }

@@ -495,3 +495,25 @@ fn generic_close_cannot_be_reopened_by_managed_rollback() {
     assert!(admission.is_closing());
     assert!(!admission.reserve_managed_close(Uuid::new_v4()));
 }
+
+#[tokio::test]
+async fn managed_close_preserves_runtime_and_admission_after_real_writer_shutdown_failure() {
+    ThreadManager::assert_managed_close_shutdown_failure_for_test(|parent, child_id| {
+        // Metadata stays inside its owning control module; persistence uses the real FaultStore.
+        let control = parent
+            .session
+            .services
+            .local_agent_runtime
+            .control(parent.session.session_id());
+        let registry = &control.runtime.registry;
+        let path = AgentPath::root().join("worker").unwrap();
+        let mut reservation = registry.reserve_spawn_slot(None).unwrap();
+        reservation.reserve_agent_path(&path).unwrap();
+        reservation.commit(crate::AgentMetadata {
+            agent_id: Some(child_id),
+            agent_path: Some(path),
+            ..Default::default()
+        });
+    })
+    .await;
+}
