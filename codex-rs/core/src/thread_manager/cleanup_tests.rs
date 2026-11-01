@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 use codex_agent_graph_store::AgentGraphStore as _;
 use codex_thread_store as store;
@@ -1242,4 +1242,104 @@ async fn loaded_runtime_read_guard_linearizes_raw_removal_without_touching_activ
     ));
     assert_eq!(root.thread.io.admission.activity_revision(), revision);
     removed.shutdown_and_wait().await.unwrap();
+}
+
+#[path = "idle_control_followup_tests.rs"]
+mod idle_control_followup_tests;
+
+// Shared only by the management-owned regression; no production accessors are exposed.
+impl ThreadManager {
+    pub(crate) async fn assert_managed_close_shutdown_failure_for_test(
+        register_child: impl FnOnce(&CodexThread, ThreadId),
+    ) {
+        use crate::ManagedSubagentAction;
+        use crate::ManagedSubagentControlOutcome;
+
+        let ((_home, manager, config, root), faults) = fixture_with_faults().await;
+        let done = child(&manager, &config, &root).await;
+        complete(&done.thread).await;
+        register_child(&root.thread, done.thread_id);
+        assert!(
+            manager
+                .list_managed_subagents(root.thread_id)
+                .await
+                .unwrap()
+                .agents
+                .iter()
+                .any(|entry| entry.thread_id == done.thread_id)
+        );
+        assert!(stored(&manager, done.thread_id).await);
+        assert!(!done.thread.io.admission.is_closing());
+        *faults.shutdown.lock().unwrap() = Some((done.thread_id, None));
+
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            manager.control_managed_subagent(
+                root.thread_id,
+                root.thread.runtime_id(),
+                done.thread_id,
+                Some(done.thread.runtime_id()),
+                ManagedSubagentAction::Close,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(outcome, ManagedSubagentControlOutcome::Unknown);
+        assert!(faults.shutdown.lock().unwrap().is_none());
+        assert!(!done.thread.io.admission.shutdown_confirmed());
+        assert!(done.thread.io.admission.is_closing());
+        assert!(!done.thread.is_running());
+        assert!(Arc::ptr_eq(
+            &manager.get_thread(done.thread_id).await.unwrap(),
+            &done.thread
+        ));
+        assert!(stored(&manager, done.thread_id).await);
+        assert!(faults.deletes.lock().unwrap().is_empty());
+        assert!(done.thread.submit(Op::Interrupt).await.is_err());
+        assert!(
+            !done
+                .thread
+                .io
+                .admission
+                .reserve_managed_close(uuid::Uuid::new_v4())
+        );
+        assert_eq!(
+            manager
+                .control_managed_subagent(
+                    root.thread_id,
+                    root.thread.runtime_id(),
+                    done.thread_id,
+                    Some(done.thread.runtime_id()),
+                    ManagedSubagentAction::Close
+                )
+                .await
+                .unwrap(),
+            ManagedSubagentControlOutcome::NotApplied
+        );
+        let listed = manager
+            .list_managed_subagents(root.thread_id)
+            .await
+            .unwrap();
+        let entry = listed
+            .agents
+            .iter()
+            .find(|entry| entry.thread_id == done.thread_id)
+            .unwrap();
+        assert_eq!(entry.runtime_id, Some(done.thread.runtime_id()));
+        assert_eq!(entry.status, crate::ManagedSubagentStatus::Unknown);
+        assert!(entry.active_turn_id.is_none());
+        assert!(!entry.capabilities.send);
+        assert!(!entry.capabilities.interrupt);
+        assert!(!entry.capabilities.close);
+        assert!(!entry.capabilities.resume);
+        // The one-shot fault is consumed; close the retained real writer during fixture teardown.
+        manager
+            .state
+            .thread_store
+            .shutdown_thread(done.thread_id)
+            .await
+            .unwrap();
+        root.thread.shutdown_and_wait().await.unwrap();
+    }
 }

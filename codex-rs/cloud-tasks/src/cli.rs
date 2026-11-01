@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use clap::Args;
 use clap::Parser;
 use codex_utils_cli::CliConfigOverrides;

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::AnalyticsEventsClient;
 use super::AnalyticsEventsDestination;
 use super::AnalyticsEventsQueue;
@@ -95,6 +96,7 @@ use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 #[cfg(debug_assertions)]
 use codex_login::AuthManager;
+use codex_model_provider::ChatgptBaseUrl;
 use codex_protocol::protocol::RealtimeConversationVersion;
 use codex_utils_absolute_path::test_support::PathBufExt;
 use codex_utils_absolute_path::test_support::test_path_buf;
@@ -308,7 +310,7 @@ fn client_with_receiver() -> (
 fn analytics_destination_uses_explicit_capture_file() {
     let capture_path = unique_capture_path("destination");
     let destination = AnalyticsEventsDestination::from_base_url_and_capture_file(
-        "https://chatgpt.com/backend-api/".to_string(),
+        "https://chatgpt.com/backend-api/".into(),
         Some(capture_path.clone()),
     );
 
@@ -337,31 +339,53 @@ fn analytics_destination_uses_explicit_capture_file() {
 
 #[test]
 fn analytics_destination_uses_http_without_capture_file() {
-    let destination = AnalyticsEventsDestination::from_base_url_and_capture_file(
-        "https://chatgpt.com/backend-api/".to_string(),
-        /*capture_file*/ None,
-    );
+    let commercial_url = "https://chatgpt.com/backend-api/codex/analytics-events/events";
+    let gov_url = "https://gov.chatgpt.com/backend-api/codex/analytics-events/events";
+    for (base_url, expected_urls) in [
+        (
+            ChatgptBaseUrl::Default,
+            [commercial_url, gov_url, commercial_url],
+        ),
+        (
+            ChatgptBaseUrl::from("https://chatgpt.com/backend-api/"),
+            [commercial_url; 3],
+        ),
+        (
+            ChatgptBaseUrl::from("https://proxy.example/backend-api/"),
+            ["https://proxy.example/backend-api/codex/analytics-events/events"; 3],
+        ),
+    ] {
+        let destination = AnalyticsEventsDestination::from_base_url_and_capture_file(
+            base_url.clone(),
+            /*capture_file*/ None,
+        );
+        assert_eq!(destination, AnalyticsEventsDestination::Http { base_url });
 
-    assert_eq!(
-        destination,
-        AnalyticsEventsDestination::Http {
-            url: "https://chatgpt.com/backend-api/codex/analytics-events/events".to_string()
+        for (api_key, expected_url) in ["sk-test", "sk-proj-fedramp-test", "sk-test"]
+            .into_iter()
+            .zip(expected_urls)
+        {
+            let auth = codex_login::CodexAuth::from_api_key(api_key);
+            assert_eq!(
+                destination.url_for_auth(&auth).as_deref(),
+                Some(expected_url)
+            );
         }
-    );
+    }
 }
 
 #[test]
 #[cfg(not(debug_assertions))]
 fn analytics_destination_ignores_capture_file_in_release() {
     let destination = AnalyticsEventsDestination::from_base_url_and_capture_file(
-        "https://chatgpt.com/backend-api/".to_string(),
+        "https://chatgpt.com/backend-api/".into(),
         Some(std::path::PathBuf::from("ignored.jsonl")),
     );
 
     assert_eq!(
         destination,
         AnalyticsEventsDestination::Http {
-            url: "https://chatgpt.com/backend-api/codex/analytics-events/events".to_string()
+            base_url: "https://chatgpt.com/backend-api/".into()
         }
     );
 }
@@ -681,6 +705,10 @@ fn sample_thread_start_response() -> ClientResponsePayload {
 
 fn sample_thread_resume_response() -> ClientResponsePayload {
     ClientResponsePayload::ThreadResume(ThreadResumeResponse {
+        runtime_dynamic_tools_applied: None,
+        runtime_dynamic_tools_runtime_id: None,
+        supports_compact_if_idle: None,
+        supports_expected_turn_interrupt: None,
         disabled_plugin_ids: Vec::new(),
         thread: sample_thread("thread-2"),
         model: "gpt-5".to_string(),
@@ -1172,7 +1200,7 @@ async fn account_switch_between_batches_does_not_send_old_credentials() {
     assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let destination = AnalyticsEventsDestination::Http {
-        url: format!("http://{}/events", listener.local_addr().unwrap()),
+        base_url: format!("http://{}", listener.local_addr().unwrap()).into(),
     };
     let requests = Arc::new(Mutex::new(Vec::new()));
     let captured = Arc::clone(&requests);

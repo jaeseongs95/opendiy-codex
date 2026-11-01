@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 use crate::McpPluginAttribution;
 use crate::McpServerRegistration;
@@ -132,6 +132,7 @@ async fn status_snapshot_only_downgrades_oauth_and_ema_authentication_failures()
         is_authentication_required: true,
         is_ema_authentication_required: false,
         is_termination_unconfirmed: false,
+        shutdown: None,
     };
     let mut manager = McpConnectionSet::empty(/*prefix_mcp_tool_names*/ true);
     let mut auth_status_entries = HashMap::new();
@@ -150,6 +151,7 @@ async fn status_snapshot_only_downgrades_oauth_and_ema_authentication_failures()
                 is_authentication_required: false,
                 is_ema_authentication_required: false,
                 is_termination_unconfirmed: false,
+                shutdown: None,
             }),
         ),
         (
@@ -239,6 +241,7 @@ pub(crate) fn test_mcp_config(codex_home: PathBuf) -> McpConfig {
         prefix_mcp_tool_names: true,
         non_prefixed_mcp_tool_servers: Vec::new(),
         protocol_mode: McpProtocolMode::Legacy,
+        discover_local_stdio: false,
         mcp_tool_list_changed: true,
         host_owned_apps_protocol_mode: McpProtocolMode::Legacy,
         client_elicitation_capability: ElicitationCapability::default(),

@@ -1,13 +1,13 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Retain dynamic tool state in either renderer; the app emits only finished rows to terminal history.
 
 use super::*;
 
 impl ChatWidget {
-    pub(super) fn on_dynamic_tool_item(&mut self, item: ThreadItem) {
+    pub(super) fn on_dynamic_tool_item(&mut self, item: ThreadItemPayload) {
         let started = matches!(
             &item,
-            ThreadItem::DynamicToolCall {
+            ThreadItemPayload::DynamicToolCall {
                 status: codex_app_server_protocol::DynamicToolCallStatus::InProgress,
                 ..
             }
@@ -25,8 +25,8 @@ impl ChatWidget {
         );
     }
 
-    pub(crate) fn handle_dynamic_tool_item_now(&mut self, item: ThreadItem) {
-        let ThreadItem::DynamicToolCall { id, .. } = &item else {
+    pub(crate) fn handle_dynamic_tool_item_now(&mut self, item: ThreadItemPayload) {
+        let ThreadItemPayload::DynamicToolCall { id, .. } = &item else {
             return;
         };
         let id = id.clone();

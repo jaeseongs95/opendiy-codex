@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Startup bootstrap, draft handoff, and protected-input orchestration for the TUI app.
 //!
 //! Owns the main app run loop from app-server bootstrap through terminal shutdown. Startup input
@@ -54,6 +54,7 @@ fn spawn_startup_thread_start(
 pub(super) struct FreshStartupDefaults {
     pub(super) server_defaults_read: bool,
     pub(super) prompt_windows_sandbox: bool,
+    pub(super) approval_policy: Option<codex_protocol::protocol::AskForApproval>,
 }
 
 pub(super) async fn prepare_fresh_startup_config(
@@ -75,7 +76,7 @@ pub(super) async fn prepare_fresh_startup_config(
         defaults_cwd,
     )
     .await?;
-    let mut prompt_windows_sandbox = false;
+    let mut projectless = crate::projectless::AppliedDefaults::default();
     if let Some(defaults) = defaults.as_ref() {
         super::new_session::overlay_new_session_defaults(
             config,
@@ -83,7 +84,7 @@ pub(super) async fn prepare_fresh_startup_config(
             cli_kv_overrides,
             harness_overrides,
         );
-        prompt_windows_sandbox = crate::projectless::apply_defaults(
+        projectless = crate::projectless::apply_defaults(
             config,
             harness_overrides,
             app_server,
@@ -99,7 +100,8 @@ pub(super) async fn prepare_fresh_startup_config(
     );
     Ok(FreshStartupDefaults {
         server_defaults_read: defaults.is_some(),
-        prompt_windows_sandbox,
+        prompt_windows_sandbox: projectless.prompt_windows_sandbox,
+        approval_policy: projectless.approval_policy,
     })
 }
 
@@ -254,6 +256,7 @@ impl App {
         mut startup_draft: StartupDraftPump,
         managed_worktree: Option<crate::ManagedTuiWorktree>,
         daemon_cli_executable: Option<AbsolutePathBuf>,
+        desktop_cron_bootstrap: crate::DesktopCronBootstrap,
     ) -> Result<AppExitInfo> {
         use tokio_stream::StreamExt;
 
@@ -419,6 +422,10 @@ impl App {
                 }
             },
         };
+        launch_choices.apply_projectless_approval_policy(
+            startup_defaults.approval_policy,
+            bootstrap.allowed_approval_policies.as_deref(),
+        );
         tracing::debug!(
             has_platform_family = app_server.app_server_platform_family().is_some(),
             has_platform_os = app_server.app_server_platform_os().is_some(),
@@ -917,10 +924,7 @@ impl App {
             &app_server_target,
             environment_manager.as_ref(),
         ));
-        chat_widget.set_agents_navigation_enabled(matches!(
-            app_server_target,
-            AppServerTarget::LocalDaemon { .. }
-        ));
+        chat_widget.set_command_center_enabled(app_server_target.supports_command_center());
         let thread_and_widget_ms = thread_and_widget_started_at.elapsed().as_millis();
         chat_widget.windows_sandbox_local_server = !app_server_target.uses_remote_workspace()
             && app_server.app_server_platform_os() == Some("windows");
@@ -938,6 +942,14 @@ impl App {
             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                 history_cell::StartupWarningsCell::new(vec![warning]),
             )));
+        }
+        // Automatic NFS detection is Linux-only; manual migration supports Unix.
+        #[cfg(target_os = "linux")]
+        if !app_server_target.uses_remote_workspace() {
+            tokio::spawn(startup_warnings::warn_about_nfs_migration(
+                config.sqlite_config().clone(),
+                app_event_tx.clone(),
+            ));
         }
         let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
         let runtime_keymap =
@@ -1086,6 +1098,14 @@ See the Codex keymap documentation for supported actions and examples."
             // Prewarm WSL interop off the UI thread, without accessing clipboard contents.
             let _ = tui.clipboard.warm_text_reader(tui.frame_requester());
         }
+        #[cfg(windows)]
+        let desktop_cron_task = crate::desktop_cron::start(
+            desktop_cron_bootstrap,
+            app.cron.desktop.owner.clone(),
+            app.app_event_tx.clone(),
+        );
+        #[cfg(not(windows))]
+        drop(desktop_cron_bootstrap);
         app.remember_launch_permissions();
         if !tui.is_terminal_focused() {
             app.recap.note_focus_lost(Instant::now());
@@ -1100,7 +1120,7 @@ See the Codex keymap documentation for supported actions and examples."
         }
         if start_in_agents_overview {
             app.open_agents_overview(&app_server);
-        } else if !matches!(app.app_server_target, AppServerTarget::Embedded) {
+        } else if app.app_server_target.supports_command_center() {
             app.refresh_agents_overview_threads(&app_server);
         }
         if let Some(entry) = startup_hooks_browser {
@@ -1288,7 +1308,7 @@ See the Codex keymap documentation for supported actions and examples."
                     if !tui.is_owned_screen() && tui.is_alt_screen_active() {
                         app.close_transcript_overlay(tui);
                     } else if let Err(err) =
-                        tui.set_overlay_input(crate::tui::OverlayInput::Default)
+                        tui.set_mouse_capture(app.chat_widget.mouse_capture(tui.is_owned_screen()))
                     {
                         break Err(err.into());
                     }
@@ -1375,7 +1395,9 @@ See the Codex keymap documentation for supported actions and examples."
                             && wait_for_drain
                         {
                             tokio::time::sleep_until(deadline).await;
-                            color_eyre::eyre::bail!("Server connection could not be restored");
+                            color_eyre::eyre::bail!(
+                                "Automatic reconnect timed out waiting for the server to finish shutting down."
+                            );
                         }
                         attempt.await
                     }));
@@ -1689,6 +1711,12 @@ See the Codex keymap documentation for supported actions and examples."
                 }
             }
         };
+        // Let the pending terminal poll unwind while the app server shuts down.
+        tui.pause_events();
+        #[cfg(windows)]
+        if let Some(task) = desktop_cron_task {
+            task.stop().await;
+        }
         app.cron.stop();
         app.chat_widget.mention_usage_mut().flush().await;
         if let Err(err) = backends.shutdown().await {

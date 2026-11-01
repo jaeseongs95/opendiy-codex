@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Key routing and composer-adjacent UI interaction for `ChatWidget`.
 
 use super::clipboard::PendingCopy;
@@ -66,8 +66,8 @@ impl ChatWidget {
         self.bottom_pane.prepare_composer_mouse(event)
     }
 
-    pub(crate) fn set_agents_navigation_enabled(&mut self, enabled: bool) {
-        self.bottom_pane.set_agents_navigation_enabled(enabled);
+    pub(crate) fn set_command_center_enabled(&mut self, enabled: bool) {
+        self.bottom_pane.set_command_center_enabled(enabled);
     }
 
     pub(crate) fn agents_navigation_key_available(&self) -> bool {

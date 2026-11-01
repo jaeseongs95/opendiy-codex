@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Bounded, compatibility-aware transport for modern locally spawned MCP servers.
 
 use std::future::Future;
@@ -11,6 +11,8 @@ use rmcp::service::RxJsonRpcMessage;
 use rmcp::service::TxJsonRpcMessage;
 use rmcp::transport::Transport;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::process::ChildStdin;
@@ -38,6 +40,20 @@ impl BoundedStdioTransport {
             pending_line: Vec::new(),
             program_name,
         }
+    }
+
+    /// Pass both a partial line and buffered read-ahead to the SDK's legacy codec.
+    pub(super) fn into_legacy_pipes(
+        self,
+    ) -> io::Result<(Box<dyn AsyncRead + Send + Unpin>, ChildStdin)> {
+        let stdin = self
+            .stdin
+            .try_lock()
+            .map_err(io::Error::other)?
+            .take()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "MCP stdin closed"))?;
+        let stdout = io::Cursor::new(self.pending_line).chain(self.stdout);
+        Ok((Box::new(stdout), stdin))
     }
 
     async fn receive_message(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {

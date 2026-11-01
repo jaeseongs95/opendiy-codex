@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 pub use binding::McpBinding;
 pub use binding::PreparedMcpCall;
 pub use client_capabilities::client_mcp_extensions;
@@ -7,6 +7,7 @@ pub use codex_rmcp_client::McpProtocolMode;
 pub use connection_manager::NetworkPolicyMetadata;
 pub use connection_manager::NetworkPolicyMetadataProvider;
 pub use connection_manager::tool_is_model_visible;
+pub use connection_pool::McpConnectionPool;
 pub use elicitation::ElicitationLifecycle;
 pub use elicitation::ElicitationReviewRequest;
 pub use elicitation::ElicitationReviewer;
@@ -122,6 +123,7 @@ mod client_capabilities;
 mod client_tool_catalog;
 pub(crate) mod codex_apps;
 pub(crate) mod connection_manager;
+mod connection_pool;
 pub(crate) mod elicitation;
 mod ema_account;
 mod ema_auth;

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::ApprovalsReviewer;
 use super::AskForApproval;
 use super::SandboxPolicy;
@@ -117,6 +117,9 @@ pub enum AdditionalContextKind {
 pub struct AdditionalContextEntry {
     pub value: String,
     pub kind: AdditionalContextKind,
+    /// Optional name for untrusted context, used to label its tool output.
+    #[ts(optional = nullable)]
+    pub name: Option<String>,
 }
 
 /// Requested cyber treatment for an OpenAI model turn.

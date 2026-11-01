@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use crate::outgoing_message::ConnectionId;
 use crate::outgoing_message::OutgoingError;
 use crate::outgoing_message::OutgoingMessage;
@@ -382,6 +383,8 @@ mod tests {
             id: RequestId::Integer(7),
             result: Box::new(ClientResponsePayload::Initialize(
                 codex_app_server_protocol::InitializeResponse {
+                    supports_subagent_management: false,
+                    supports_expected_turn_interrupt: None,
                     user_agent: "codex-test-agent".to_string(),
                     codex_home,
                     platform_family: "unix".to_string(),

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Restricted updates to a running turn's immutable settings snapshots.
 
 use super::environment::ensure_configs_stay_owner_provided;
@@ -155,6 +155,8 @@ fn check_legacy_model_safety(
                     .as_ref()
                     .and_then(|messages| messages.guardian_v2.clone())
                     .unwrap_or_default();
+                // The legacy mode is accepted for compatibility but no longer selects behavior.
+                settings.async_classifier_mode = None;
                 // Missing and empty transcript records supply the same defaults.
                 if settings.transcript.as_ref().is_some_and(|transcript| {
                     *transcript == GuardianV2TranscriptModelConfig::default()

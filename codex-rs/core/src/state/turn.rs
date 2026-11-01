@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Turn-scoped state, input waiters, and active turn metadata.
 
 use std::collections::HashMap;
@@ -77,6 +78,8 @@ pub(crate) struct RunningTask {
     pub(crate) kind: TaskKind,
     pub(crate) task: Arc<dyn AnySessionTask>,
     pub(crate) cancellation_token: CancellationToken,
+    /// Exact-abort snapshot; None preserves ordinary interrupt policy.
+    pub(crate) interrupted_code_mode_cells: Option<Vec<codex_code_mode::CellId>>,
     pub(crate) handle: AbortOnDropHandle<()>,
     pub(crate) turn_context: Arc<TurnContext>,
     pub(crate) _agent_execution_guard: Option<AgentExecutionGuard>,

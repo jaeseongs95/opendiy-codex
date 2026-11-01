@@ -1,10 +1,11 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! TUI-only out-of-process reconnection. Each attempt initializes a fresh client and rejoins existing
 //! threads using ordinary resume/history semantics. Confirmed submissions are reconciled before
 //! unsent queues resume; uncertain submissions and old async completions remain quarantined.
 
 use super::*;
 use crate::app_server_session::ResumeModelSettings;
+use crate::app_server_session::is_server_shutting_down_error;
 use crate::dynamic_tools_mcp::ThreadToolTransport;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -63,16 +64,21 @@ pub(super) async fn reconnect(
             tokio::time::Instant::now() + Duration::from_secs(/*secs*/ 120)
         }
     };
+    // Track only the stage. Transport errors can contain endpoint credentials.
+    let mut stage = "connecting to the server";
     for delay in [0, 1, 2, 4].into_iter().chain(std::iter::repeat(/*elt*/ 8)) {
         let attempt = async {
             tokio::time::sleep(Duration::from_secs(delay)).await;
+            stage = "connecting to the server";
             let client = crate::app_server_connection::connect(&target).await?;
             let mut session = AppServerSession::new(backend_id, client, mode)
                 .with_local_codex_home(&config.codex_home)
                 .with_remote_cwd_override(remote_cwd.clone())
                 .with_thread_tool_transport(task_tools.clone());
+            stage = "loading session settings";
             let bootstrap = session.bootstrap(&config).await?;
             let thread = if let Some(thread_id) = thread_id {
+                stage = "resuming the conversation";
                 match session
                     .resume_thread(
                         &local_settings,
@@ -91,14 +97,14 @@ pub(super) async fn reconnect(
                     {
                         return Err(error);
                     }
-                    // Unloading threads use the same code as unavailable conversations, but
-                    // ordinary resume can reattach once the unload finishes.
+                    // Draining servers and unloading threads both reject resume temporarily.
                     Err(error)
                         if matches!(
                             error.downcast_ref::<TypedRequestError>(),
                             Some(TypedRequestError::Server { method, source })
                                 if method == "thread/resume" && source.code == -32600
-                                    && source.message.starts_with(&format!("thread {thread_id} is closing;"))
+                                    && (is_server_shutting_down_error(source)
+                                        || source.message.starts_with(&format!("thread {thread_id} is closing;")))
                         ) =>
                     {
                         return Err(error);
@@ -128,9 +134,9 @@ pub(super) async fn reconnect(
             Ok(Err(_)) => {}
             Err(_) => break,
         }
-        // Transport errors can contain endpoint credentials. Do not render or log them.
     }
-    color_eyre::eyre::bail!("Server connection could not be restored");
+    tracing::warn!(stage, "automatic reconnect timed out");
+    color_eyre::eyre::bail!("Automatic reconnect timed out while {stage}.")
 }
 
 impl App {
@@ -362,8 +368,10 @@ impl App {
             .cron_tool_connection()
             .live
             .store(false, std::sync::atomic::Ordering::Release);
-        self.cron
-            .invalidate_backend(app_server.backend_id(), "원래 연결 교체: 예약 실행 중지");
+        self.cron.invalidate_backend(
+            app_server.backend_id(),
+            crate::i18n::text("Original connection replaced: cron execution stopped"),
+        );
         *app_server = session;
         #[cfg(any(target_os = "windows", test))]
         let interrupted_windows_setup = self.windows_sandbox.pending_setup.take().is_some();
@@ -460,7 +468,7 @@ impl App {
             );
             store.pending_interactive_replay = Default::default();
             store.pending_interrupt_turn_id = None;
-            store.active = false;
+            store.set_active(false);
             store
                 .buffer
                 .retain(|event| matches!(event, ThreadBufferedEvent::Notification(_)));

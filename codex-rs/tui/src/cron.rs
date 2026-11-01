@@ -1,6 +1,7 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Process-local scheduling. The caller supplies monotonic time and an immutable target.
 //! No worker, persistence, or fallback submission path lives here.
+use crate::i18n::text;
 use std::collections::BTreeSet;
 use std::time::Duration;
 use std::time::Instant;
@@ -8,7 +9,7 @@ use std::time::Instant;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Schedule {
     Every(Duration),
-    Once(Instant),
+    Once { deadline: Instant, at_unix_ms: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub(crate) struct Job<T> {
     pub(crate) id: u64,
     pub(crate) target: T,
     pub(crate) prompt: String,
+    pub(crate) schedule: Schedule,
     pub(crate) phase: Phase,
     pub(crate) paused: bool,
     pub(crate) removed: bool,
@@ -93,23 +95,46 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         schedule: Schedule,
         now: Instant,
     ) -> Result<u64, String> {
-        if prompt.trim().is_empty() {
-            return Err("예약 프롬프트가 비어 있습니다.".into());
+        if self.jobs.len() >= 100 {
+            return Err(text(
+                "At most 100 cron jobs are allowed, including removed jobs that still own a run.",
+            )
+            .into());
+        }
+        if prompt.trim().is_empty() || prompt.len() > 64 * 1024 || prompt.contains('\0') {
+            return Err(text(
+                "The cron prompt must be nonempty, contain no NUL, and be at most 64KiB.",
+            )
+            .into());
         }
         let (interval, next_due) = match schedule {
-            Schedule::Every(interval) if !interval.is_zero() => {
+            Schedule::Every(interval)
+                if !interval.is_zero()
+                    && (1..=9_007_199_254_740_991).contains(&interval.as_secs()) =>
+            {
                 (Some(interval), now.checked_add(interval))
             }
-            Schedule::Every(_) => return Err("예약 간격은 0보다 커야 합니다.".into()),
-            Schedule::Once(deadline) => (None, Some(deadline)),
+            Schedule::Every(_) => {
+                return Err(text("The cron interval must be greater than zero.").into());
+            }
+            Schedule::Once {
+                deadline,
+                at_unix_ms,
+            } if (1..=9_007_199_254_740_991).contains(&at_unix_ms) => (None, Some(deadline)),
+            Schedule::Once { .. } => {
+                return Err(text("The scheduled time is outside the supported range.").into());
+            }
         };
-        let next_due = next_due.ok_or("예약 간격이 너무 큽니다.")?;
+        let next_due = next_due.ok_or(text("The cron interval is too large."))?;
         let id = self.next_id;
-        self.next_id = id.checked_add(1).ok_or("예약 ID를 더 만들 수 없습니다.")?;
+        self.next_id = id
+            .checked_add(1)
+            .ok_or(text("No more cron job IDs are available."))?;
         self.jobs.push(Job {
             id,
             target,
             prompt,
+            schedule,
             phase: Phase::Ready,
             paused: false,
             removed: false,
@@ -125,7 +150,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         self.jobs
             .iter_mut()
             .find(|job| job.id == id)
-            .ok_or_else(|| format!("예약 {id}를 찾을 수 없습니다."))
+            .ok_or_else(|| text("Cron job {id} was not found.").replace("{id}", &id.to_string()))
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
@@ -195,7 +220,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         }
         job.phase = match submission {
             Submission::Started(turn_id) if terminal_turns.contains(&turn_id) => {
-                Self::after_terminal(job.interval, "종료")
+                Self::after_terminal(job.interval, text("Finished"))
             }
             Submission::Started(turn_id) => Phase::Running {
                 turn_id,
@@ -203,11 +228,11 @@ impl<T: Clone + PartialEq> Scheduler<T> {
             },
             Submission::Busy => {
                 job.skipped = job.skipped.saturating_add(1);
-                Self::after_terminal(job.interval, "대상 busy: 건너뜀")
+                Self::after_terminal(job.interval, text("Target busy: skipped"))
             }
             Submission::NotStarted(reason) => {
                 job.paused = true;
-                Phase::Finished(format!("미입장: {reason}"))
+                Phase::Finished(format!("{} {reason}", text("Not admitted:")))
             }
             Submission::Unknown(reason) => Phase::Unknown(reason),
         };
@@ -230,7 +255,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
                     terminal_turns.insert(turn_id.to_string());
                 }
                 Phase::Running { turn_id: owned, .. } if owned == turn_id => {
-                    job.phase = Self::after_terminal(job.interval, "종료");
+                    job.phase = Self::after_terminal(job.interval, text("Finished"));
                 }
                 _ => {}
             }
@@ -256,7 +281,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
     pub(crate) fn resume(&mut self, id: u64, now: Instant) -> Result<(), String> {
         let job = self.job_mut(id)?;
         if job.removed {
-            return Err("제거한 예약은 다시 시작할 수 없습니다.".into());
+            return Err(text("A removed cron job cannot be resumed.").into());
         }
         if matches!(
             job.phase,
@@ -265,10 +290,12 @@ impl<T: Clone + PartialEq> Scheduler<T> {
                 | Phase::BlockedConnection(_)
                 | Phase::Pending { .. }
         ) {
-            return Err("실행 상태가 미확인입니다. 자동 재전송하지 않습니다.".into());
+            return Err(
+                text("The run state is unknown. It will not be retried automatically.").into(),
+            );
         }
         if matches!(job.phase, Phase::Finished(_)) && job.interval.is_none() {
-            return Err("종료한 일회성 예약입니다. 새로 등록하세요.".into());
+            return Err(text("This one-shot cron job has finished. Register a new job.").into());
         }
         job.paused = false;
         if !matches!(job.phase, Phase::Running { .. }) {
@@ -277,7 +304,7 @@ impl<T: Clone + PartialEq> Scheduler<T> {
         job.next_due = Some(match job.interval {
             Some(interval) => now
                 .checked_add(interval)
-                .ok_or("예약 간격이 너무 큽니다.")?,
+                .ok_or(text("The cron interval is too large."))?,
             None => job.next_due.unwrap_or(now).max(now),
         });
         Ok(())
@@ -289,7 +316,8 @@ impl<T: Clone + PartialEq> Scheduler<T> {
             .iter_mut()
             .filter(|job| target_matches(&job.target))
         {
-            job.phase = Phase::BlockedUnsupported("turn/startIfIdle 미지원: 실행되지 않음".into());
+            job.phase =
+                Phase::BlockedUnsupported(text("turn/startIfIdle unsupported: not run").into());
             job.next_due = None;
         }
     }
@@ -315,6 +343,94 @@ impl<T: Clone + PartialEq> Scheduler<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduler_errors_and_one_shot_status_follow_locale() {
+        use crate::i18n::{Locale, with_locale};
+        for locale in [Locale::English, Locale::Korean] {
+            with_locale(locale, || {
+                let korean = locale == Locale::Korean;
+                let now = Instant::now();
+                let mut scheduler = Scheduler::default();
+                assert_eq!(
+                    scheduler.pause(42).unwrap_err(),
+                    if korean {
+                        "예약 42를 찾을 수 없습니다."
+                    } else {
+                        "Cron job 42 was not found."
+                    }
+                );
+                assert_eq!(
+                    scheduler
+                        .add(
+                            "target",
+                            String::new(),
+                            Schedule::Every(Duration::from_secs(1)),
+                            now
+                        )
+                        .unwrap_err(),
+                    if korean {
+                        "예약 프롬프트는 비어 있지 않은 NUL 없는 64KiB 이하 문자열이어야 합니다."
+                    } else {
+                        "The cron prompt must be nonempty, contain no NUL, and be at most 64KiB."
+                    }
+                );
+                for busy in [false, true] {
+                    let id = scheduler
+                        .add(
+                            "target",
+                            "original 대기".into(),
+                            Schedule::Once {
+                                deadline: now,
+                                at_unix_ms: 1,
+                            },
+                            now,
+                        )
+                        .unwrap();
+                    let dispatch = scheduler.due(now).pop().unwrap();
+                    assert_eq!(dispatch.prompt, "original 대기");
+                    scheduler.submitted(
+                        id,
+                        dispatch.attempt,
+                        if busy {
+                            Submission::Busy
+                        } else {
+                            Submission::Started("turn".into())
+                        },
+                    );
+                    if !busy {
+                        scheduler.terminal(&"target", "turn");
+                    }
+                    assert_eq!(
+                        scheduler.job_mut(id).unwrap().phase,
+                        Phase::Finished(
+                            if busy {
+                                if korean {
+                                    "대상 busy: 건너뜀"
+                                } else {
+                                    "Target busy: skipped"
+                                }
+                            } else if korean {
+                                "종료"
+                            } else {
+                                "Finished"
+                            }
+                            .into()
+                        )
+                    );
+                    assert_eq!(
+                        scheduler.resume(id, now).unwrap_err(),
+                        if korean {
+                            "종료한 일회성 예약입니다. 새로 등록하세요."
+                        } else {
+                            "This one-shot cron job has finished. Register a new job."
+                        }
+                    );
+                }
+            });
+        }
+    }
+
     fn recurring(s: &mut Scheduler<&str>, now: Instant) -> u64 {
         s.add(
             "thread-A/epoch-1",
@@ -323,6 +439,42 @@ mod tests {
             now,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn common_admission_caps_jobs_prompt_and_keeps_original_once_time() {
+        let now = Instant::now();
+        let mut scheduler = Scheduler::default();
+        let once = Schedule::Once {
+            deadline: now,
+            at_unix_ms: 1_900_000_000_123,
+        };
+        for prompt in [" ".to_owned(), "x\0y".to_owned(), "가".repeat(22_000)] {
+            assert!(scheduler.add("A", prompt, once, now).is_err());
+        }
+        assert!(scheduler.jobs.is_empty());
+        let id = scheduler
+            .add("A", "x".repeat(64 * 1024), once, now)
+            .unwrap();
+        assert!(matches!(
+            scheduler.jobs[0].schedule,
+            Schedule::Once {
+                at_unix_ms: 1_900_000_000_123,
+                ..
+            }
+        ));
+        let attempt = scheduler.due(now).pop().unwrap().attempt;
+        scheduler.submitted(id, attempt, Submission::Started("owned".into()));
+        scheduler.remove(id).unwrap();
+        for _ in 1..100 {
+            recurring(&mut scheduler, now);
+        }
+        assert_eq!(scheduler.jobs.len(), 100);
+        assert!(scheduler.add("B", "new".into(), once, now).is_err());
+        assert_eq!(scheduler.jobs.len(), 100);
+        scheduler.terminal(&"A", "owned");
+        assert_eq!(scheduler.jobs.len(), 99);
+        assert!(scheduler.add("B", "new".into(), once, now).is_ok());
     }
 
     #[test]
@@ -376,7 +528,15 @@ mod tests {
         let now = Instant::now();
         let mut s = Scheduler::default();
         let id = s
-            .add("A", "prompt".into(), Schedule::Once(now), now)
+            .add(
+                "A",
+                "prompt".into(),
+                Schedule::Once {
+                    deadline: now,
+                    at_unix_ms: 1,
+                },
+                now,
+            )
             .unwrap();
         let d = s.due(now).pop().unwrap();
         s.submitted(id, d.attempt, Submission::Busy);
@@ -464,7 +624,10 @@ mod tests {
             .add(
                 "thread-A/epoch-2",
                 "new prompt".into(),
-                Schedule::Once(now),
+                Schedule::Once {
+                    deadline: now,
+                    at_unix_ms: 1,
+                },
                 now,
             )
             .unwrap();

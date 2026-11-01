@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! App-server event stream handling for the TUI app.
 //! Hidden structured threads reject requests instead of entering interactive routing.
 
@@ -26,7 +26,7 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SessionSource;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadSource;
@@ -176,8 +176,18 @@ impl App {
     async fn handle_server_notification_event(
         &mut self,
         app_server_client: &AppServerSession,
-        notification: ServerNotification,
+        mut notification: ServerNotification,
     ) {
+        if let ServerNotification::TurnModerationMetadata(metadata) = &mut notification
+            && (!super::safety_recourse::supports_server(app_server_client)
+                || self
+                    .primary_thread_id
+                    .is_none_or(|id| id.to_string() != metadata.thread_id))
+            && let Some(metadata) = metadata.metadata.as_object_mut()
+        {
+            metadata.remove("safety_block");
+            metadata.remove("safety_recourse");
+        }
         // A picker can leave an old runtime's close notification queued while the same thread
         // is resumed. Thread IDs survive reloads, so confirm that the displayed thread is still
         // unloaded before routing a close that would exit the TUI or switch away from it.
@@ -236,6 +246,24 @@ impl App {
 
         if let ServerNotification::ThreadStatusChanged(status) = &notification {
             let _ = self.dynamic_tool_status_updates.send(status.clone());
+            if matches!(status.status, codex_app_server_protocol::ThreadStatus::Idle) {
+                let selection = self
+                    .current_displayed_thread_id()
+                    .and_then(|id| self.thread_event_channels.get(&id));
+                let selection = if let Some(channel) = selection {
+                    let store = channel.store.lock().await;
+                    store.active.then(|| store.runtime_tool_selection.clone())
+                } else {
+                    None
+                };
+                app_server_client
+                    .retry_runtime_tools_on_idle(
+                        &status.thread_id,
+                        self.current_displayed_thread_id(),
+                        selection,
+                    )
+                    .await;
+            }
         }
 
         if let ServerNotification::ThreadStarted(started) = &notification
@@ -488,10 +516,10 @@ impl App {
             ServerNotificationThreadTarget::Thread(thread_id) => {
                 if self.current_displayed_thread_id() != Some(thread_id)
                     && let ServerNotification::ItemCompleted(item) = &notification
-                    && let ThreadItem::UserMessage {
+                    && let ThreadItemPayload::UserMessage {
                         client_id: Some(client_id),
                         ..
-                    } = &item.item
+                    } = &item.item.payload
                 {
                     // Acknowledge by ID before routing can discard the receipt. ID-less receipts
                     // cannot safely distinguish identical pending submissions.
@@ -640,11 +668,7 @@ impl App {
         }
         if let ServerRequest::DynamicToolCall { request_id, params } = &request {
             if params.namespace.as_deref() == Some(crate::dynamic_tools::NAMESPACE)
-                && params.tool == crate::cron_tools::NAME
-                && !matches!(
-                    app_server_client.thread_tool_transport(),
-                    crate::dynamic_tools_mcp::ThreadToolTransport::Mcp(_)
-                )
+                && crate::cron_tools::is_owned_tool(&params.tool)
             {
                 let key = (app_server_client.backend_id(), request_id.clone());
                 self.cron

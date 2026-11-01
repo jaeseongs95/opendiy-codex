@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use codex_protocol::ThreadId;
 use sqlx::QueryBuilder;
 use sqlx::Row;
@@ -68,7 +68,7 @@ pub(super) async fn page_turn_rows(
         // Read count-limited metadata first; even a very large error body stays in SQLite
         // until its UTF-8 size is admitted in this same read transaction.
         let mut query = QueryBuilder::<Sqlite>::new(
-            "SELECT turn_id, root_turn_id, rollout_ordinal, status, length(CAST(error_json AS BLOB)) AS error_bytes, started_at, completed_at, duration_ms, first_user_item_id, final_agent_item_id FROM thread_turns WHERE thread_id = ",
+            "SELECT turn_id, root_turn_id, rollout_ordinal, status, octet_length(error_json) AS error_bytes, started_at, completed_at, duration_ms, first_user_item_id, final_agent_item_id FROM thread_turns WHERE thread_id = ",
         );
         query.push_bind(segment.rollout_id().to_string());
         push_segment_range(&mut query, segment)?;
@@ -246,7 +246,7 @@ pub(super) async fn page_item_rows(
         }
         let mut query = QueryBuilder::<Sqlite>::new(
             r#"
-SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes
+SELECT turn_id, item_id, rollout_ordinal, octet_length(item_json) AS item_json_bytes
 FROM thread_items"#,
         );
         if params.turn_id.is_some()
@@ -326,7 +326,7 @@ async fn page_updated_item_rows(
     )?;
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-SELECT turn_id, item_id, updated_at_ordinal AS rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes
+SELECT turn_id, item_id, updated_at_ordinal AS rollout_ordinal, octet_length(item_json) AS item_json_bytes
 FROM thread_items
 WHERE thread_id =
         "#,

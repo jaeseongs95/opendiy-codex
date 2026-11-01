@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "SubagentManagementAction": {
+      "enum": [
+        "send",
+        "interrupt",
+        "close",
+        "resume"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "An operator command, admitted through the authenticated app-server connection.",
+  "properties": {
+    "action": {
+      "$ref": "#/definitions/SubagentManagementAction"
+    },
+    "agentId": {
+      "type": "string"
+    },
+    "expectedParentRuntimeId": {
+      "type": "string"
+    },
+    "expectedRuntimeId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expectedTurnId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parentThreadId": {
+      "type": "string"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "action",
+    "agentId",
+    "expectedParentRuntimeId",
+    "expectedRuntimeId",
+    "parentThreadId",
+    "requestId"
+  ],
+  "title": "ThreadSubagentsControlParams",
+  "type": "object"
+}

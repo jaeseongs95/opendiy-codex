@@ -1,8 +1,9 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Approval-gated MCP transport for task tools owned by a local-daemon TUI.
 
 use crate::app_event_sender::AppEventSender;
 use crate::dynamic_tools;
+use crate::i18n::text;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::State;
@@ -60,6 +61,17 @@ pub(crate) enum ThreadToolTransport {
 }
 
 impl ThreadToolTransport {
+    /// Reuse the native handler even when remote task tools use MCP. This does not
+    /// rewrite the resumed thread's MCP configuration or persisted tool catalog.
+    pub(crate) fn configure_resume(
+        &self,
+        params: &mut codex_app_server_protocol::ThreadResumeParams,
+    ) {
+        params.runtime_dynamic_tools = Some(crate::cron_tools::specs());
+        params.previous_runtime_dynamic_tools = crate::cron_tools::previous_specs();
+        self.configure_mcp(&mut params.config);
+    }
+
     pub(crate) fn validate_config(
         &self,
         config: &crate::legacy_core::config::Config,
@@ -349,7 +361,7 @@ impl ServerHandler for DynamicToolMcpHandler {
                 Value::String(value) => serde_json::from_str(value).ok(),
                 _ => None,
             });
-        if request.name == crate::cron_tools::NAME {
+        if crate::cron_tools::is_owned_tool(&request.name) {
             for (direct, nested) in [("threadId", "thread_id"), ("turnId", "turn_id")] {
                 let direct_value = metadata.get(direct).and_then(Value::as_str);
                 let nested_value = turn_metadata
@@ -358,7 +370,7 @@ impl ServerHandler for DynamicToolMcpHandler {
                     .and_then(Value::as_str);
                 if direct_value.zip(nested_value).is_some_and(|(a, b)| a != b) {
                     return Err(McpError::invalid_params(
-                        "호출 메타데이터가 서로 다릅니다.",
+                        text("Calling metadata does not match."),
                         None,
                     ));
                 }
@@ -374,7 +386,7 @@ impl ServerHandler for DynamicToolMcpHandler {
                     .is_none_or(str::is_empty)
             {
                 return Err(McpError::invalid_params(
-                    "예약에는 실제 turn·call 메타데이터가 필요합니다.",
+                    text("Local control requires actual turn and call metadata."),
                     None,
                 ));
             }
@@ -384,7 +396,7 @@ impl ServerHandler for DynamicToolMcpHandler {
             .and_then(Value::as_str)
             .or_else(|| turn_metadata.as_ref()?.get("thread_id")?.as_str())
             .filter(|thread_id| !thread_id.is_empty())
-            .ok_or_else(|| McpError::invalid_params("missing task metadata", None))?;
+            .ok_or_else(|| McpError::invalid_params(text("missing task metadata"), None))?;
         let turn_id = metadata
             .get("turnId")
             .and_then(Value::as_str)
@@ -414,15 +426,18 @@ impl ServerHandler for DynamicToolMcpHandler {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
             .ok_or_else(|| {
-                McpError::internal_error("TUI is reconnecting; tool was not sent", None)
+                McpError::internal_error(text("TUI is reconnecting; tool was not sent"), None)
             })?;
-        let response = if params.tool == crate::cron_tools::NAME {
+        let response = if crate::cron_tools::is_owned_tool(&params.tool) {
             let connection = cron.ok_or_else(|| {
-                McpError::invalid_params("예약 도구가 이 연결에서 제공되지 않습니다.", None)
+                McpError::invalid_params(
+                    text("Local control tools are unavailable on this connection."),
+                    None,
+                )
             })?;
             tokio::select! {
                 response = crate::cron_tools::execute(connection, request_handle, params, &app_event_tx, context.ct.clone()) => response,
-                _ = context.ct.cancelled() => dynamic_tools::failure_response("예약 요청이 중단되었습니다. 결과가 불명확하면 list로 확인하세요."),
+                _ = context.ct.cancelled() => dynamic_tools::failure_response(text("The local control request was cancelled. If the outcome is unclear, query the relevant setting and do not retry automatically.")),
             }
         } else if matches!(
             params.tool.as_str(),

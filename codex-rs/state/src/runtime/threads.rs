@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use super::*;
 use crate::SortDirection;
 use crate::sqlite::SqlitePoolWriteExt;
@@ -133,6 +132,22 @@ WHERE id = ? AND preview = ''
         .execute_with_busy_retry(self.pool.as_ref())
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    /// List saved threads attached directly to the given parent, including archived threads.
+    pub async fn list_attached_thread_ids(
+        &self,
+        parent: ThreadId,
+    ) -> anyhow::Result<Vec<ThreadId>> {
+        let ids = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM threads WHERE attached_thread_parent_id = ?",
+        )
+        .bind(parent.to_string())
+        .fetch_all(self.pool.as_ref())
+        .await?;
+        ids.into_iter()
+            .map(|id| ThreadId::try_from(id).map_err(Into::into))
+            .collect()
     }
 
     /// Persist or replace the directional parent-child edge for a spawned thread.
@@ -1405,6 +1420,7 @@ pub(super) fn extract_memory_mode(items: &[RolloutItem]) -> Option<String> {
         | RolloutItem::WorldState(_)
         | RolloutItem::RealtimeItem(_)
         | RolloutItem::RetainedContext(_)
+        | RolloutItem::DynamicToolsUpdated { .. }
         | RolloutItem::SecurityRiskScore(_)
         | RolloutItem::TokenUsageRecord(_)
         | RolloutItem::EventMsg(_) => None,

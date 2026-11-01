@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use anyhow::Result;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
@@ -55,13 +56,17 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
         anyhow::bail!("expected initialize response, got {message:?}");
     };
     let InitializeResponse {
+        supports_subagent_management,
+        supports_expected_turn_interrupt,
         user_agent,
         codex_home: response_codex_home,
         platform_family,
         platform_os,
     } = to_response::<InitializeResponse>(response)?;
 
+    assert!(supports_subagent_management);
     assert!(user_agent.starts_with("codex_vscode/"));
+    assert_eq!(supports_expected_turn_interrupt, Some(true));
     assert_eq!(response_codex_home, expected_codex_home);
     assert_eq!(platform_family, std::env::consts::FAMILY);
     assert_eq!(platform_os, std::env::consts::OS);
@@ -167,12 +172,15 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
         anyhow::bail!("expected initialize response, got {message:?}");
     };
     let InitializeResponse {
+        supports_subagent_management,
+        supports_expected_turn_interrupt: _,
         user_agent,
         codex_home: response_codex_home,
         platform_family,
         platform_os,
     } = to_response::<InitializeResponse>(response)?;
 
+    assert!(supports_subagent_management);
     assert!(user_agent.starts_with("codex_originator_via_env_var/"));
     assert_eq!(response_codex_home, expected_codex_home);
     assert_eq!(platform_family, std::env::consts::FAMILY);

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Project identity and artifact paths shared by memory readers and writers.
 use codex_git_utils::repository_identity;
 use codex_utils_absolute_path::AbsolutePathBuf;

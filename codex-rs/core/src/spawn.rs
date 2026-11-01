@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use codex_network_proxy::NetworkProxy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::HashMap;
@@ -133,5 +134,6 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
         }
     }
 
+    codex_protocol::shell_environment::scrub_non_inheritable_env_vars(cmd.as_std_mut());
     cmd.kill_on_drop(true).spawn()
 }

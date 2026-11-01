@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Runtime-refresh regressions; pure authority resolution is tested with Config.
 
 use super::*;
@@ -342,4 +342,95 @@ async fn reload_plugins_invalid_policy_reports_failure_and_keeps_denials() -> an
     assert_eq!(config.config_layer_stack.effective_user_config(), before);
     assert!(!config.plugins.allows_plugin("sample@test"));
     Ok(())
+}
+
+#[test_case::test_case(RuntimeConfigRefresh::User, false; "host enables")]
+#[test_case::test_case(RuntimeConfigRefresh::User, true; "host disables")]
+#[test_case::test_case(RuntimeConfigRefresh::Mcp, false; "MCP retains disabled")]
+#[test_case::test_case(RuntimeConfigRefresh::Mcp, true; "MCP retains enabled")]
+#[test_case::test_case(RuntimeConfigRefresh::UserFiles, false; "file retains disabled")]
+#[test_case::test_case(RuntimeConfigRefresh::UserFiles, true; "file retains enabled")]
+#[tokio::test]
+async fn critical_path_refresh_changes_only_future_turns(
+    scope: RuntimeConfigRefresh,
+    initially_enabled: bool,
+) {
+    let (session, _) = make_session_and_context().await;
+    let mut initial = session.get_config().await.as_ref().clone();
+    initial
+        .features
+        .set_enabled(Feature::CriticalPathTiming, initially_enabled)
+        .unwrap();
+    let original = Arc::new(initial);
+    session
+        .state
+        .lock()
+        .await
+        .session_configuration
+        .original_config_do_not_use = Arc::clone(&original);
+    let active_turn = session.new_default_turn().await;
+    let mut next_config = original.as_ref().clone();
+    next_config
+        .features
+        .set_enabled(Feature::CriticalPathTiming, !initially_enabled)
+        .unwrap();
+
+    assert_eq!(
+        session.refresh_config(original, next_config, scope).await,
+        crate::ConfigRefreshOutcome::Published
+    );
+
+    let next_turn = session.new_default_turn().await;
+    assert_eq!(
+        active_turn
+            .config
+            .features
+            .enabled(Feature::CriticalPathTiming),
+        initially_enabled
+    );
+    assert_eq!(
+        next_turn
+            .config
+            .features
+            .enabled(Feature::CriticalPathTiming),
+        initially_enabled != matches!(scope, RuntimeConfigRefresh::User)
+    );
+}
+
+#[tokio::test]
+async fn critical_path_refresh_respects_managed_disable() {
+    let (session, _) = make_session_and_context().await;
+    let mut initial = session.get_config().await.as_ref().clone();
+    initial.features = crate::config::ManagedFeatures::from_configured(
+        initial.features.get().clone(),
+        Some(Sourced::new(
+            serde_json::from_value(json!({"critical_path_timing": false})).unwrap(),
+            RequirementSource::LegacyManagedConfigTomlFromMdm,
+        )),
+    )
+    .unwrap();
+    let original = Arc::new(initial);
+    session
+        .state
+        .lock()
+        .await
+        .session_configuration
+        .original_config_do_not_use = Arc::clone(&original);
+    let mut next_config = original.as_ref().clone();
+    let mut incoming_features = original.features.get().clone();
+    incoming_features.enable(Feature::CriticalPathTiming);
+    next_config.features = incoming_features.into();
+
+    assert_eq!(
+        session.refresh_runtime_config(original, next_config).await,
+        crate::ConfigRefreshOutcome::Published
+    );
+    assert!(
+        !session
+            .new_default_turn()
+            .await
+            .config
+            .features
+            .enabled(Feature::CriticalPathTiming)
+    );
 }

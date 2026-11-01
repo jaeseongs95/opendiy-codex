@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::time::Duration;
 use std::time::Instant;
 
@@ -339,7 +339,8 @@ impl ThreadMetadataSync {
                     update.approval_mode = Some(settings.approval_policy);
                     update.permission_profile = Some(settings.permission_profile.clone());
                 }
-                RolloutItem::SessionMeta(_)
+                RolloutItem::DynamicToolsUpdated { .. }
+                | RolloutItem::SessionMeta(_)
                 | RolloutItem::EventMsg(_)
                 | RolloutItem::ResponseItem(_)
                 | RolloutItem::InterAgentCommunication(_)

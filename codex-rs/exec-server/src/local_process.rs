@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -1548,6 +1549,22 @@ mod tests {
 
             assert_eq!(error, invalid_params("argv must not be empty".to_string()));
         }
+    }
+
+    #[test]
+    fn child_env_rejects_desktop_bootstrap_overrides() {
+        let params = test_exec_params(HashMap::from([
+            (
+                "CODEX_DESKTOP_CRON_BOOTSTRAP".into(),
+                "synthetic-bootstrap".into(),
+            ),
+            ("Codex_Desktop_Cron_Token".into(), "synthetic-token".into()),
+            ("SAFE".into(), "retained".into()),
+        ]));
+        assert_eq!(
+            child_env(&params),
+            HashMap::from([("SAFE".into(), "retained".into())])
+        );
     }
 
     #[test]

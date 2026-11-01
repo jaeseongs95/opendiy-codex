@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 use crate::legacy_core::config::ConfigOverrides;
 use crate::test_support::boxed_future;
@@ -105,6 +105,7 @@ async fn start_server(
         names,
         vec![
             "cron",
+            "session_control",
             "create_worktree",
             "get_worktree_creation_status",
             "list_worktrees"

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 pub(crate) mod startup;
 
 use crate::PromptCacheKey;
@@ -170,7 +170,6 @@ use codex_protocol::protocol::W3cTraceContext;
 use codex_protocol::protocol::WorldStateItem;
 use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
-use codex_protocol::request_permissions::RequestPermissionsArgs;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::request_permissions::RequestPermissionsResponse;
 use codex_protocol::request_user_input::RequestUserInputArgs;
@@ -335,12 +334,12 @@ use crate::stream_events_utils::HandleOutputCtx;
 use crate::stream_events_utils::handle_output_item_done;
 use crate::tasks::ReviewTask;
 use crate::tools::ApprovalContext;
+use crate::tools::handlers::PreparedPermissionRequest;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::network_approval::build_blocked_request_observer;
 use crate::tools::network_approval::build_network_policy_decider;
 #[cfg(test)]
 use crate::tools::parallel::ToolCallRuntime;
-use crate::tools::sandboxing::ApprovalAction;
 use crate::tools::sandboxing::ApprovalStore;
 use crate::turn_timing::TurnTimingState;
 use crate::turn_timing::record_turn_ttfm_metric;
@@ -355,6 +354,7 @@ use codex_git_utils::get_git_repo_root;
 use codex_history::CodexHarnessMetadata;
 use codex_history::CompactedItem;
 use codex_history::CompactionResumeMetadata;
+use codex_history::DynamicToolsSnapshot;
 use codex_history::InitialHistory;
 pub(crate) use codex_history::PreviousTurnSettings;
 use codex_history::ResponseItemEnvelope;
@@ -439,7 +439,75 @@ pub(crate) struct SessionIo {
     pub(crate) session_loop_termination: SessionLoopTermination,
 }
 
-pub(crate) type SessionLoopTermination = Shared<BoxFuture<'static, ()>>;
+pub(crate) type SessionLoopTermination =
+    Shared<BoxFuture<'static, Result<(), Arc<SessionLoopFailure>>>>;
+
+#[derive(Debug)]
+pub(crate) enum SessionLoopFailure {
+    Loop {
+        source: tokio::task::JoinError,
+        cleanup_error: Option<tokio::task::JoinError>,
+        cleanup_confirmed: bool,
+    },
+    CleanupUnconfirmed,
+    Supervisor(tokio::task::JoinError),
+}
+
+impl SessionLoopFailure {
+    fn shutdown_result(&self) -> CodexResult<()> {
+        // The original loop failure remains in the shared outcome. Shutdown only
+        // confirms resource release, so a fully cleaned failed loop can be unloaded.
+        if matches!(
+            self,
+            Self::Loop {
+                cleanup_confirmed: true,
+                ..
+            }
+        ) {
+            Ok(())
+        } else {
+            Err(self.to_codex_error())
+        }
+    }
+
+    fn to_codex_error(&self) -> CodexErr {
+        let message = match self {
+            Self::Loop {
+                source,
+                cleanup_error,
+                cleanup_confirmed,
+            } => format!(
+                "session loop {}; cleanup {}{}",
+                if source.is_panic() {
+                    "panicked"
+                } else {
+                    "was cancelled"
+                },
+                if *cleanup_confirmed {
+                    "confirmed"
+                } else {
+                    "unconfirmed"
+                },
+                if cleanup_error.is_some() {
+                    " (cleanup task failed)"
+                } else {
+                    ""
+                },
+            ),
+            Self::CleanupUnconfirmed => "session loop stopped; cleanup unconfirmed".to_string(),
+            Self::Supervisor(source) => format!(
+                "session loop supervisor {}; cleanup unconfirmed",
+                if source.is_panic() {
+                    "panicked"
+                } else {
+                    "was cancelled"
+                },
+            ),
+        };
+        // A stopped session must never enter model/network retry handling.
+        CodexErr::Fatal(message)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GitEnrichmentPolicy {
@@ -871,8 +939,10 @@ impl Session {
             .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
             .unwrap_or_else(|| render_model_instructions(&model_info));
 
-        // Dynamic tools are defined at thread start and persisted in rollout session metadata.
-        let dynamic_tools = if dynamic_tools.is_empty() {
+        // A fork records its initial catalog in the new thread's creation metadata.
+        let dynamic_tools = if dynamic_tools.is_empty()
+            && matches!(conversation_history, InitialHistory::Forked(_))
+        {
             conversation_history.get_dynamic_tools().unwrap_or_default()
         } else {
             dynamic_tools
@@ -1082,24 +1152,23 @@ impl Session {
             .as_ref()
             .and_then(|startup| startup.session_teardown(thread_id));
         let session_for_loop = Arc::clone(&session);
-        let loop_admission = Arc::clone(&session.cleanup_admission);
         let session_loop_handle = tokio::spawn(Box::pin(storage_originator.scope(async move {
             submission_loop(session_for_loop, configured_config, rx_sub)
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
-            loop_admission
-                .loop_completed
-                .store(true, std::sync::atomic::Ordering::Release);
-            if let Some(tree_teardown) = tree_teardown {
-                tree_teardown.complete();
-            }
         })));
+        let session_loop_termination = supervise_session_loop(
+            Arc::clone(&session),
+            session_loop_handle,
+            storage_originator,
+            tree_teardown,
+        );
         let io = SessionIo {
             admission: Arc::clone(&session.cleanup_admission),
             tx_sub,
             rx_event,
             agent_status: agent_status_rx,
-            session_loop_termination: session_loop_termination_from_handle(session_loop_handle),
+            session_loop_termination,
         };
 
         if let Some(startup) = startup {
@@ -1168,7 +1237,7 @@ impl SessionIo {
             Op::TurnInput {
                 mode: TurnInputMode::StartUserIfIdle,
                 ..
-            }
+            } | Op::CompactIfIdle { .. }
         ) {
             self.admission.touch();
         }
@@ -1184,8 +1253,9 @@ impl SessionIo {
 
     /// Submits an ordered turn-input call and waits only for Core's routing decision.
     ///
-    /// Once queued, dropping the waiter does not retract the call. If the
-    /// session loop exits before replying, the caller gets `InternalAgentDied`.
+    /// Once queued, dropping the waiter does not retract the call.
+    /// Failed delivery is distinct from a lost routing reply: the latter may already
+    /// have started a task and must not cause automatic input replay.
     pub(crate) async fn submit_turn_input(
         &self,
         request: impl Into<WithTurnExtensionData<TurnInputRequest>>,
@@ -1212,8 +1282,11 @@ impl SessionIo {
             residency_guard: None,
             message_delivery: None,
         })
-        .await?;
-        reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+        .await
+        .map_err(turn_input_delivery_error)?;
+        reply_rx
+            .await
+            .unwrap_or_else(|_| Err(turn_input_reply_lost()))
     }
 
     pub(crate) async fn submit_recover_turn(
@@ -1239,8 +1312,11 @@ impl SessionIo {
             residency_guard: None,
             message_delivery: None,
         })
-        .await?;
-        reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+        .await
+        .map_err(turn_input_delivery_error)?;
+        reply_rx
+            .await
+            .unwrap_or_else(|_| Err(turn_input_reply_lost()))
     }
 
     pub(crate) async fn shutdown_for_cleanup(
@@ -1257,23 +1333,41 @@ impl SessionIo {
             residency_guard: None,
             message_delivery: None,
         };
-        self.tx_sub
-            .send(sub)
-            .await
-            .map_err(|_| CodexErr::InternalAgentDied)?;
-        self.session_loop_termination.clone().await;
-        Ok(())
+        // Failed delivery to a stopped loop is not itself evidence about cleanup.
+        let _ = self.tx_sub.send(sub).await;
+        self.wait_for_shutdown().await
     }
 
     pub(crate) async fn shutdown_and_wait(&self) -> CodexResult<()> {
-        let session_loop_termination = self.session_loop_termination.clone();
+        if self.tx_sub.is_closed() {
+            return self.wait_for_shutdown().await;
+        }
         match self.submit(Op::Shutdown).await {
             Ok(_) => {}
             Err(err) if matches!(err.details(), CodexErrorDetails::InternalAgentDied) => {}
+            Err(_) if self.tx_sub.is_closed() => {}
             Err(err) => return Err(err),
         }
-        session_loop_termination.await;
-        Ok(())
+        self.wait_for_shutdown().await
+    }
+
+    pub(crate) async fn wait_for_shutdown(&self) -> CodexResult<()> {
+        self.session_loop_termination
+            .clone()
+            .await
+            .or_else(|failure| failure.shutdown_result())
+    }
+
+    /// Nonblocking check used while the registry is locked. A closed input channel
+    /// alone does not prove that the old task and persistence writer have stopped.
+    pub(crate) fn ensure_shutdown_complete(&self) -> CodexResult<()> {
+        match self.session_loop_termination.clone().now_or_never() {
+            Some(Ok(())) => Ok(()),
+            Some(Err(failure)) => failure.shutdown_result(),
+            None => Err(CodexErr::Fatal(
+                "thread runtime cleanup is still in progress".into(),
+            )),
+        }
     }
 
     pub(crate) async fn next_event(&self) -> CodexResult<Event> {
@@ -1341,14 +1435,106 @@ fn session_permission_profile_state_from_config(
 
 #[cfg(test)]
 pub(crate) fn completed_session_loop_termination() -> SessionLoopTermination {
-    futures::future::ready(()).boxed().shared()
+    futures::future::ready(Ok(())).boxed().shared()
 }
 
+#[cfg(test)]
 pub(crate) fn session_loop_termination_from_handle(
     handle: JoinHandle<()>,
 ) -> SessionLoopTermination {
+    share_session_loop_supervisor(tokio::spawn(async move {
+        handle.await.map_err(|source| {
+            Arc::new(SessionLoopFailure::Loop {
+                source,
+                cleanup_error: None,
+                cleanup_confirmed: false,
+            })
+        })
+    }))
+}
+
+fn turn_input_delivery_error(error: CodexErr) -> CodexErr {
+    if matches!(error.details(), CodexErrorDetails::InternalAgentDied) {
+        CodexErr::Fatal("turn input was not accepted: session input channel is closed".into())
+    } else {
+        error
+    }
+}
+
+fn turn_input_reply_lost() -> CodexErr {
+    CodexErr::Fatal(
+        "turn input outcome is unknown: session routing reply was lost; do not automatically resend input".into(),
+    )
+}
+
+fn supervise_session_loop(
+    session: Arc<Session>,
+    handle: JoinHandle<()>,
+    storage_originator: AuthStorageOriginator,
+    tree_teardown: Option<crate::agent::control::AgentTreeTeardownGuard>,
+) -> SessionLoopTermination {
+    // Spawn eagerly: cleanup must not depend on a client polling a shutdown waiter.
+    let supervisor = tokio::spawn(storage_originator.scope(async move {
+        let loop_error = handle.await.err();
+        let mut cleanup_error = None;
+        if let Some(source) = &loop_error {
+            session.cleanup_admission.close();
+            error!(
+                thread_id = %session.thread_id,
+                panicked = source.is_panic(),
+                cancelled = source.is_cancelled(),
+                "session loop exited abnormally"
+            );
+            if let Some(teardown) = &tree_teardown {
+                teardown.record_shutdown_failure(
+                    "session_loop",
+                    if source.is_panic() {
+                        "panic"
+                    } else {
+                        "cancelled"
+                    },
+                );
+            }
+            // A task boundary observes a second panic without continuing through a
+            // partially unwound handler. Reuse normal cleanup, never restart the loop.
+            let cleanup_session = Arc::clone(&session);
+            cleanup_error = tokio::spawn(storage_originator.scope(async move {
+                handlers::shutdown(&cleanup_session, new_submission_id()).await;
+            }))
+            .await
+            .err();
+            if cleanup_error.is_some() {
+                session.cleanup_admission.shutdown_failed();
+            }
+        }
+        session
+            .cleanup_admission
+            .loop_completed
+            .store(true, std::sync::atomic::Ordering::Release);
+        let cleanup_confirmed = session.cleanup_admission.shutdown_confirmed();
+        if cleanup_confirmed && let Some(teardown) = tree_teardown {
+            teardown.complete();
+        }
+        match loop_error {
+            Some(source) => Err(Arc::new(SessionLoopFailure::Loop {
+                source,
+                cleanup_error,
+                cleanup_confirmed,
+            })),
+            None if cleanup_confirmed => Ok(()),
+            None => Err(Arc::new(SessionLoopFailure::CleanupUnconfirmed)),
+        }
+    }));
+    share_session_loop_supervisor(supervisor)
+}
+
+fn share_session_loop_supervisor(
+    handle: JoinHandle<Result<(), Arc<SessionLoopFailure>>>,
+) -> SessionLoopTermination {
     async move {
-        let _ = handle.await;
+        handle
+            .await
+            .unwrap_or_else(|source| Err(Arc::new(SessionLoopFailure::Supervisor(source))))
     }
     .boxed()
     .shared()
@@ -1999,9 +2185,21 @@ impl Session {
             .zip(metadata)
             .map(|(item, metadata)| ResponseItemEnvelope { item, metadata })
             .collect();
-        let context = crate::guardian::GuardianReviewContext::from(turn_context);
-        let (_, reviewer) = crate::guardian::resolve_review_model(self, &context).await;
-        let reviewer_compaction_hash = reviewer.comp_hash.clone();
+        // Ordinary replay needs no reviewer or network refresh. Only an opaque
+        // checkpoint can make reconstruction depend on reviewer compatibility.
+        let reviewer_compaction_hash = if codex_history::CompactionCheckpoint::latest(&history)
+            .is_some_and(codex_history::CompactionCheckpoint::is_usable)
+            && turn_context
+                .config
+                .features
+                .enabled(Feature::GuardianReuseParentCompaction)
+        {
+            let context = crate::guardian::GuardianReviewContext::from(turn_context);
+            let (_, reviewer) = crate::guardian::resolve_review_model(self, &context).await;
+            reviewer.comp_hash.clone()
+        } else {
+            None
+        };
         {
             let mut state = self.state.lock().await;
             state.replace_annotated_history(
@@ -2677,6 +2875,14 @@ impl Session {
 
     /// Persist the event to rollout and send it to clients.
     pub(crate) async fn send_event(&self, turn_context: &TurnContext, msg: EventMsg) {
+        if let Some((item_id, started_at_ms)) = msg.command_approval_start() {
+            // The client can see the command before execution. Keep its first start
+            // for the canonical lifecycle events that will be saved in history.
+            turn_context
+                .turn_timing_state
+                .record_item_started(item_id.to_owned(), started_at_ms)
+                .await;
+        }
         let legacy_source = msg.clone();
         if let EventMsg::Error(error) = &legacy_source
             && error
@@ -3167,6 +3373,44 @@ impl Session {
             .await;
     }
 
+    fn user_wait_timing_owner(
+        &self,
+        turn_context: &TurnContext,
+        call_id: Option<&str>,
+    ) -> Option<Arc<codex_direct_tool_timing::ToolTimingGuard>> {
+        if !turn_context
+            .config
+            .features
+            .enabled(Feature::CriticalPathTiming)
+        {
+            return None;
+        }
+        // Retain the invocation identity before request preparation can suspend.
+        call_id.and_then(|call_id| {
+            turn_context
+                .turn_timing_state
+                .direct_tool_timings
+                .owner_for_turn(call_id, &turn_context.sub_id)
+        })
+    }
+
+    fn start_user_wait_timing(
+        &self,
+        turn_context: &TurnContext,
+        owner: Option<&codex_direct_tool_timing::ToolTimingGuard>,
+    ) -> Option<codex_direct_tool_timing::ToolBlockingTimingGuard> {
+        let timing = owner.and_then(codex_direct_tool_timing::ToolTimingGuard::start_user_wait);
+        if timing.is_none()
+            && turn_context
+                .config
+                .features
+                .enabled(Feature::CriticalPathTiming)
+        {
+            turn_context.turn_timing_state.invalidate_critical_path();
+        }
+        timing
+    }
+
     /// Emit an exec approval request event and await the user's decision.
     ///
     /// The request is keyed by `call_id` + `approval_id` so matching responses
@@ -3188,6 +3432,7 @@ impl Session {
         kind: ExecApprovalKind,
         model_context: ModelInvocationContext,
         call_id: String,
+        timing_call_id: Option<&str>,
         approval_id: Option<String>,
         environment_id: Option<String>,
         command: Vec<String>,
@@ -3199,6 +3444,7 @@ impl Session {
         available_decisions: Option<Vec<ReviewDecision>>,
         plugin_attribution_override: Option<PluginCommandAttribution>,
     ) -> ReviewDecision {
+        let user_wait_owner = self.user_wait_timing_owner(turn_context, timing_call_id);
         let _elicitation = self.services.elicitations.register();
         //  command-level approvals use `call_id`.
         // `approval_id` identifies subcommand callbacks and stdin writes.
@@ -3269,6 +3515,7 @@ impl Session {
             available_decisions: Some(available_decisions),
             parsed_cmd,
         });
+        let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context, event).await;
         rx_approve.await.unwrap_or(ReviewDecision::Abort)
     }
@@ -3285,6 +3532,7 @@ impl Session {
         reason: Option<String>,
         grant_root: Option<PathBuf>,
     ) -> ReviewDecision {
+        let user_wait_owner = self.user_wait_timing_owner(turn_context, Some(&call_id));
         let _elicitation = self.services.elicitations.register();
         // Add the tx_approve callback to the map before sending the request.
         let (tx_approve, rx_approve) = oneshot::channel();
@@ -3311,6 +3559,7 @@ impl Session {
             reason,
             grant_root,
         });
+        let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context, event).await;
         rx_approve.await.unwrap_or(ReviewDecision::Abort)
     }
@@ -3323,18 +3572,16 @@ impl Session {
         self: &Arc<Self>,
         step_context: &Arc<StepContext>,
         call_id: String,
-        args: RequestPermissionsArgs,
-        environment_selection: TurnEnvironmentSelection,
+        request: PreparedPermissionRequest,
         cancellation_token: CancellationToken,
     ) -> Option<RequestPermissionsResponse> {
         let turn_context = &step_context.turn;
+        let user_wait_owner = self.user_wait_timing_owner(turn_context, Some(&call_id));
         let approval_policy = step_context.settings.approval_policy();
         let Some(environment) = step_context
             .environments
             .turn_environments()
-            .find(|candidate| {
-                candidate.selection.environment_id == environment_selection.environment_id
-            })
+            .find(|candidate| candidate.selection.environment_id == request.environment_id)
             .cloned()
         else {
             return Some(RequestPermissionsResponse {
@@ -3366,17 +3613,11 @@ impl Session {
             | AskForApproval::Granular(_) => {}
         }
 
-        let requested_permissions = args.permissions;
+        let action = request.approval_action(&call_id, &turn_context.sub_id);
+        let requested_permissions = request.permissions;
         let sandbox_context = environment.sandbox_context(/*additional_permissions*/ None);
         let context = sandbox_context.policy_context();
         {
-            let action = ApprovalAction::RequestPermissions {
-                id: call_id.clone(),
-                environment_id: environment_selection.environment_id.clone(),
-                turn_id: turn_context.sub_id.clone(),
-                reason: args.reason.clone(),
-                permissions: requested_permissions.clone(),
-            };
             let approval_context = ApprovalContext {
                 review_context: crate::guardian::GuardianReviewContext::from(step_context),
                 cancellation_token: Some(cancellation_token.clone()),
@@ -3472,14 +3713,16 @@ impl Session {
             turn_id: turn_context.sub_id.clone(),
             environment_id: Some(environment.selection.environment_id.clone()),
             started_at_ms: now_unix_timestamp_ms(),
-            reason: args.reason,
+            reason: request.reason,
             permissions: requested_permissions,
             cwd: Some(cwd.clone().into()),
         });
+        let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context.as_ref(), event).await;
         tokio::select! {
             biased;
             _ = cancellation_token.cancelled() => {
+                drop(_user_wait);
                 let mut active = self.active_turn.lock().await;
                 if let Some(at) = active.as_mut() {
                     let mut ts = at.turn_state.lock().await;
@@ -3501,6 +3744,7 @@ impl Session {
         call_id: String,
         args: RequestUserInputArgs,
     ) -> Option<AcceptedUserInputResponse> {
+        let user_wait_owner = self.user_wait_timing_owner(turn_context, Some(&call_id));
         let _elicitation = self.services.elicitations.register();
         let sub_id = turn_context.sub_id.clone();
         let (tx_response, rx_response) = oneshot::channel();
@@ -3529,6 +3773,7 @@ impl Session {
         turn_context
             .turn_metadata_state
             .mark_user_input_requested_during_turn();
+        let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context, event).await;
         rx_response.await.ok()
     }
@@ -4192,6 +4437,7 @@ impl Session {
                 settings = Arc::new(inherited_settings);
             }
         }
+        let dynamic_tools = self.dynamic_tools().await;
         let token_budget = token_budget::resolve_token_budget(
             turn_context.configured_token_budget.as_ref(),
             turn_context.use_model_token_budget_defaults,
@@ -4228,6 +4474,7 @@ impl Session {
                     &turn_context.config,
                     &selected_capability_roots,
                     &environments,
+                    executor_capability_discovery_v2.as_deref(),
                 )
                 .await
             };
@@ -4236,6 +4483,7 @@ impl Session {
             }
             let extension_data =
                 codex_extension_api::ExtensionData::new(turn_context.sub_id.clone());
+            extension_data.insert_arc(Arc::clone(&settings.model_info));
             if let Some(messages) = settings
                 .model_info
                 .model_messages
@@ -4317,6 +4565,7 @@ impl Session {
                 &mcp,
                 &extension_data,
                 prepared_recommendations,
+                &dynamic_tools,
             )
             .await?;
             Ok::<_, CodexErr>((executor_hook_sources, mcp, tool_router, extension_data))
@@ -4357,6 +4606,14 @@ impl Session {
         communication: impl Into<crate::PendingAgentMessage>,
     ) {
         let communication = communication.into();
+        // Agent-message dependencies are not captured by direct-tool timing.
+        if turn_context
+            .config
+            .features
+            .enabled(Feature::CriticalPathTiming)
+        {
+            turn_context.turn_timing_state.invalidate_critical_path();
+        }
         let mut response_item = communication.to_model_input_item();
         if let ResponseItem::AgentMessage {
             content,
@@ -4659,6 +4916,10 @@ impl Session {
                 compaction_response_id: metadata.compaction_response_id,
                 latest_token_usage_record: state.latest_token_usage_record.clone(),
                 resume_metadata: Some(CompactionResumeMetadata {
+                    dynamic_tools: Some(Box::new(DynamicToolsSnapshot {
+                        thread_id: self.thread_id(),
+                        tools: state.persisted_dynamic_tools.to_vec(),
+                    })),
                     multi_agent_version: self.multi_agent_version(),
                     last_started_turn_id: state.last_started_turn_id.clone(),
                     turn_attribution: state.turn_attribution.clone(),
@@ -5591,6 +5852,9 @@ impl Session {
             input.to_vec(),
             &mut user_image_content_indices,
         );
+        if let Some(uuid) = metadata.response_item_uuid {
+            response_item.set_id(Some(ResponseItemId::for_admitted_user_input(uuid)));
+        }
         if metadata.origin == codex_history::UserInputOrigin::Heartbeat
             && let ResponseItem::Message {
                 content,
@@ -5835,6 +6099,9 @@ mod elicitation_holders_tests;
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod loop_lifecycle_tests;
 
 #[cfg(test)]
 #[path = "world_state_item_tests.rs"]

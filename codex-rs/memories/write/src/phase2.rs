@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use crate::MemoryWorkspaceLock;
 use crate::metrics::MEMORY_PHASE_TWO_E2E_MS;
 use crate::metrics::MEMORY_PHASE_TWO_INPUT;
@@ -370,6 +370,7 @@ mod agent {
                 .unwrap_or_else(|| provider.memory_consolidation_preferred_model().to_string()),
         );
         agent_config.model_reasoning_effort = Some(crate::stage_two::REASONING_EFFORT);
+        agent_config.service_tier = Some(config.memories.consolidation_service_tier.clone());
 
         Some(agent_config)
     }

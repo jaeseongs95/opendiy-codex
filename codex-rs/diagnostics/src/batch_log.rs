@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Content-free tracing batches. The producer never performs filesystem I/O.
 //! Completed local batches are copied once to an optional streaming-drive path.
 use chrono::Local;

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 // Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
 // The standalone `codex-tui` binary prints a short help message before the
 // alternate‑screen mode starts; that file opts‑out locally via `allow`.
@@ -48,7 +48,7 @@ use codex_app_server_protocol::ThreadListCwdFilter;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadSortKey as AppServerThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
-use codex_cloud_config::cloud_config_bundle_loader_for_storage;
+use codex_cloud_config::managed_config_bundle_loader_for_storage;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::ConfigLoadError;
 use codex_config::LoaderOverrides;
@@ -137,6 +137,9 @@ mod config_update;
 mod copy_input_guard;
 mod cron;
 mod cron_tools;
+mod desktop_cron;
+pub use cli::DesktopCronControl;
+pub use desktop_cron::{DesktopCronBootstrap, take_desktop_cron_bootstrap_from_env};
 pub(crate) mod custom_terminal;
 mod daybreak;
 mod experimental_features;
@@ -144,6 +147,7 @@ mod markdown_copy;
 mod permission_discovery;
 mod pets;
 mod security_setup;
+mod session_control;
 mod worktree_browser;
 pub use custom_terminal::Terminal;
 mod assistant_directives;
@@ -343,6 +347,13 @@ pub(crate) enum AppServerTarget {
 }
 
 impl AppServerTarget {
+    fn supports_command_center(&self) -> bool {
+        match self {
+            Self::Embedded => false,
+            Self::LocalDaemon { .. } | Self::Remote { .. } => true,
+        }
+    }
+
     fn preserve_selected_backend(&mut self, selection: &resume_picker::SessionSelection) {
         if matches!(
             selection,
@@ -1104,11 +1115,12 @@ async fn cloud_config_bundle_for_app_server_target(
     codex_home: &Path,
     embedded_network_policy: &codex_app_server_client::EmbeddedNetworkPolicy,
 ) -> std::io::Result<CloudConfigBundleLoader> {
-    cloud_config_bundle_loader_for_storage(
+    managed_config_bundle_loader_for_storage(
         embedded_network_policy
             .bind_bootstrap_auth(app_server_target.auth_config_for_cloud_loader(
                 bootstrap_auth_config(codex_home, bootstrap_config)?,
             )),
+        bootstrap_config.config_layer_stack.requirements_toml(),
         /*enable_codex_api_key_env*/ false,
     )
     .await
@@ -1145,7 +1157,14 @@ pub async fn run_main(
     arg0_paths: Arg0DispatchPaths,
     loader_overrides: LoaderOverrides,
     explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> std::io::Result<AppExitInfo> {
+    let desktop_cron_bootstrap = if cli.desktop_cron_control.is_some() {
+        desktop_cron_bootstrap
+    } else {
+        drop(desktop_cron_bootstrap);
+        DesktopCronBootstrap::default()
+    };
     i18n::initialize()?;
     system_motion::initialize().await;
     startup_recovery::scope(async move {
@@ -1156,6 +1175,7 @@ pub async fn run_main(
             arg0_paths,
             loader_overrides,
             explicit_remote_endpoint,
+            desktop_cron_bootstrap,
         ))
         .await
         {
@@ -1206,6 +1226,7 @@ async fn run_ratatui_app(
         impl FnOnce(&AppServerTarget, bool) -> terminal_size_telemetry::LaunchTags,
     >,
     startup_draft: startup_draft::StartupDraft,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> color_eyre::Result<AppExitInfo> {
     let backend_id = crate::backend_id::BackendId::new();
     let uses_remote_workspace = app_server_target.uses_remote_workspace();
@@ -1422,8 +1443,9 @@ async fn run_ratatui_app(
                 // bundle and rebuild config. This avoids missing newly available cloud-managed
                 // policy due to login status detection edge cases.
                 if show_login_screen && !uses_remote_workspace && !workload_identity_selected {
-                    cloud_config_bundle = cloud_config_bundle_loader_for_storage(
+                    cloud_config_bundle = managed_config_bundle_loader_for_storage(
                         embedded_network_policy.bind_bootstrap_auth(initial_config.auth_config()),
+                        initial_config.config_layer_stack.requirements_toml(),
                         /*enable_codex_api_key_env*/ false,
                     )
                     .await?;
@@ -1904,7 +1926,7 @@ async fn run_ratatui_app(
     if (!matches!(
         session_selection,
         resume_picker::SessionSelection::AgentsOverview
-    ) || matches!(app_server_target, AppServerTarget::Embedded))
+    ) || !app_server_target.supports_command_center())
         && (!uses_remote_workspace || remote_cwd_override.is_some())
     {
         let resumed_thread = if matches!(app_server_target, AppServerTarget::LocalDaemon { .. })
@@ -1984,7 +2006,7 @@ async fn run_ratatui_app(
                 trust_decision_was_made = true;
             }
         } else if consent.should_exit {
-            if matches!(app_server_target, AppServerTarget::Embedded) {
+            if !app_server_target.supports_command_center() {
                 shutdown_startup_session(Some(app_server), &mut terminal_restore_guard).await;
                 return Ok(AppExitInfo {
                     token_usage: crate::token_usage::TokenUsage::default(),
@@ -2199,6 +2221,7 @@ async fn run_ratatui_app(
         startup_draft,
         managed_worktree,
         daemon_cli_executable,
+        desktop_cron_bootstrap,
     ))
     .await;
 
@@ -2213,8 +2236,8 @@ async fn run_ratatui_app(
     clippy::print_stderr,
     reason = "TUI should no longer be displayed, so we can write to stderr."
 )]
-fn restore() {
-    if let Err(err) = tui::restore_after_exit() {
+fn report_restore_error(result: color_eyre::Result<()>) {
+    if let Err(err) = result {
         eprintln!(
             "failed to restore terminal. Run `reset` or restart your terminal to recover: {err}"
         );
@@ -2223,27 +2246,28 @@ fn restore() {
 
 struct TerminalRestoreGuard {
     active: bool,
+    events: Option<Arc<tui::EventBroker>>,
 }
 
 impl TerminalRestoreGuard {
     fn new() -> Self {
-        Self { active: true }
+        Self {
+            active: true,
+            events: None,
+        }
     }
 
-    #[cfg_attr(debug_assertions, allow(dead_code))]
     fn restore(&mut self) -> color_eyre::Result<()> {
         if self.active {
-            crate::tui::restore_after_exit()?;
+            tui::restore_after_exit_with_events(self.events.take().as_deref())?;
             self.active = false;
         }
         Ok(())
     }
 
     fn restore_silently(&mut self) {
-        if self.active {
-            restore();
-            self.active = false;
-        }
+        report_restore_error(self.restore());
+        self.active = false;
     }
 }
 
@@ -2457,11 +2481,6 @@ fn should_show_bedrock_setup_wizard(
         && should_show_login_screen(login_status, requires_openai_auth)
         && config.features.enabled(Feature::BedrockSetupWizard)
         && config.model_provider_id == "openai"
-        && config
-            .config_layer_stack
-            .effective_config()
-            .get("model_provider")
-            .is_none()
         && config
             .auth_config()
             .is_login_method_allowed(ForcedLoginMethod::Api)

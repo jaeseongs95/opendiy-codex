@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::ActivePermissionProfile;
 use super::ApprovalsReviewer;
 use super::AskForApproval;
@@ -388,6 +388,23 @@ pub struct ThreadSettingsUpdatedNotification {
 /// Prefer using thread_id whenever possible.
 pub struct ThreadResumeParams {
     pub thread_id: String,
+    /// Connection-lifetime tools, merged only while idle. Never persisted.
+    #[experimental("thread/resume.runtimeDynamicTools")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_dynamic_tools: Option<Vec<DynamicToolSpec>>,
+    /// Exact previous host specs eligible for replacement; unknown collisions are rejected.
+    #[experimental("thread/resume.runtimeDynamicTools")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_runtime_dynamic_tools: Vec<DynamicToolSpec>,
+    /// Refresh an already-loaded runtime without history, lifecycle, or pending-call replay.
+    #[experimental("thread/resume.runtimeDynamicTools")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub runtime_tools_only: bool,
+    /// Loaded runtime generation comparison, never an authority token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub expected_runtime_id: Option<String>,
 
     /// [UNSTABLE] FOR CODEX CLOUD - DO NOT USE.
     /// If specified, the thread will be resumed with the provided history
@@ -469,6 +486,30 @@ pub struct ThreadResumeParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadResumeResponse {
+    /// True only after runtime publication; false means busy with no change.
+    /// Null when no supplement was requested; missing fields from older servers are accepted.
+    #[serde(default)]
+    pub runtime_dynamic_tools_applied: Option<bool>,
+    #[serde(default)]
+    pub runtime_dynamic_tools_runtime_id: Option<String>,
+    /// Available only when Core supports non-destructive idle compaction.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_optional_bool"
+    )]
+    #[schemars(with = "bool")]
+    #[ts(optional)]
+    pub supports_compact_if_idle: Option<bool>,
+    /// Independent of compaction: exact turn cancellation is checked atomically in Core.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_optional_bool"
+    )]
+    #[schemars(with = "bool")]
+    #[ts(optional)]
+    pub supports_expected_turn_interrupt: Option<bool>,
     pub thread: Thread,
     pub model: String,
     pub model_provider: String,
@@ -659,7 +700,7 @@ pub struct ThreadForkParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ephemeral: bool,
     /// Persist the fork as an attached thread of its resolved source, hidden from ordinary
-    /// lists. The source cannot be deleted while attached threads exist. Requires local storage;
+    /// lists. The source cannot be deleted while attached threads exist. Requires a paginated source and local storage;
     /// incompatible with ephemeral and deferGoalContinuation. Omitted or false creates an ordinary fork.
     #[experimental("thread/fork.attachToSource")]
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1265,6 +1306,14 @@ pub struct ThreadCompactStartParams {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadCompactStartResponse {}
+
+/// Non-destructive compaction admission for an already loaded, idle runtime.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export_to = "v2/")]
+pub struct ThreadCompactStartIfIdleParams {
+    pub thread_id: String,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1955,6 +2004,16 @@ pub struct ThreadItemEntry {
     /// Unix timestamp (milliseconds) when the item completed, if recorded by the producer.
     #[ts(type = "number | null")]
     pub completed_at_ms: Option<i64>,
+}
+
+impl From<ThreadItemEntry> for ThreadItem {
+    fn from(entry: ThreadItemEntry) -> Self {
+        Self {
+            started_at_ms: entry.item.started_at_ms.or(entry.started_at_ms),
+            completed_at_ms: entry.item.completed_at_ms.or(entry.completed_at_ms),
+            ..entry.item
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

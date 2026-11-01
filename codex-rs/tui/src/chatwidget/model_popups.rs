@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Model, collaboration, and reasoning popups for `ChatWidget`.
 //!
 //! These surfaces are tightly related because changing one often redirects
@@ -327,14 +327,11 @@ impl ChatWidget {
                 });
             } else {
                 tx.send(
-                    AstraModelPickerAction::UpdateModel
-                        .into_picker_event(sparkle_thread, model_for_action.clone()),
+                    AstraModelPickerAction::ApplyModelSelection {
+                        effort: effort_for_action.clone(),
+                    }
+                    .into_picker_event(sparkle_thread, model_for_action.clone()),
                 );
-                tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
-                tx.send(AppEvent::PersistModelSelection {
-                    model: model_for_action.clone(),
-                    effort: effort_for_action.clone(),
-                });
             }
             if let Some(warning) = warning.clone() {
                 tx.send(AppEvent::InsertHistoryCell(Box::new(

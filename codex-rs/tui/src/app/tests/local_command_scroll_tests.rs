@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Explicit local commands return to their output without making background updates
 //! steal the reader's position in the owned transcript.
 
@@ -46,6 +46,117 @@ fn submit_local_command(app: &mut App, command: &str) {
         }
     }
     assert_eq!(app.chat_widget.composer_text_with_pending(), "");
+}
+
+#[tokio::test]
+async fn idle_runtime_tool_registration_preserves_draft_and_older_history_anchor() -> Result<()> {
+    let (mut app, _events, _op_rx) = make_test_app_with_channels().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(true)?;
+    let thread = ThreadId::new();
+    app.ensure_thread_channel(thread);
+    app.activate_thread_channel(thread).await;
+    app.chat_widget
+        .handle_thread_session(test_thread_session(thread, app.config.cwd.to_path_buf()));
+    hold_older_history(&mut app, &mut tui);
+    app.chat_widget
+        .apply_external_edit("draft preserved".into());
+    let held = transcript_buffer(&mut app);
+    let (client, mut commands, _server_events) = codex_app_server_client::CloudClient::channel(1);
+    let session = crate::app_server_session::AppServerSession::new(
+        crate::backend_id::BackendId::new(),
+        codex_app_server_client::AppServerClient::Cloud(client),
+        crate::app_server_session::ThreadParamsMode::Remote,
+    );
+    session.remember_runtime_tools_busy_for_test(thread).await;
+    tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        app.handle_app_server_event(
+            &session,
+            codex_app_server_client::AppServerEvent::ServerNotification(Box::new(
+                codex_app_server_protocol::ServerNotification::ThreadStatusChanged(
+                    codex_app_server_protocol::ThreadStatusChangedNotification {
+                        thread_id: thread.to_string(),
+                        status: codex_app_server_protocol::ThreadStatus::Idle,
+                    },
+                ),
+            )),
+        ),
+    )
+    .await
+    .expect("idle event must not wait for the server ACK");
+    let command = commands.recv().await.expect("single idle registration");
+    let codex_app_server_client::CloudOperation::Request(request) = command.operation else {
+        panic!("expected request")
+    };
+    let codex_app_server_protocol::ClientRequest::ThreadResume { params, .. } = *request else {
+        panic!("must not replay input or turns")
+    };
+    assert!(params.runtime_tools_only && params.exclude_turns);
+    // Keep the response pending while checking the input and viewport.
+    assert_eq!(
+        app.chat_widget.composer_text_with_pending(),
+        "draft preserved"
+    );
+    assert!(!app.transcript_view.is_following());
+    assert_eq!(transcript_buffer(&mut app), held);
+    assert!(commands.try_recv().is_err());
+    command
+        .response
+        .send(Ok(Err(codex_app_server_protocol::JSONRPCErrorError {
+            code: -32600,
+            message: "fixture rejects registration".into(),
+            data: None,
+        })))
+        .unwrap();
+    tui.set_owned_screen(false)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn changing_the_active_thread_cancels_a_queued_runtime_tool_worker() -> Result<()> {
+    let (mut app, _events, _ops) = make_test_app_with_channels().await;
+    let thread = ThreadId::new();
+    app.ensure_thread_channel(thread);
+    app.activate_thread_channel(thread).await;
+    let selection = app.thread_event_channels[&thread]
+        .store
+        .lock()
+        .await
+        .runtime_tool_selection
+        .clone();
+    let (client, mut commands, _events) = codex_app_server_client::CloudClient::channel(1);
+    let session = crate::app_server_session::AppServerSession::new(
+        crate::backend_id::BackendId::new(),
+        codex_app_server_client::AppServerClient::Cloud(client),
+        crate::app_server_session::ThreadParamsMode::Remote,
+    );
+    session.remember_runtime_tools_busy_for_test(thread).await;
+    session
+        .retry_runtime_tools_on_idle(&thread.to_string(), Some(thread), Some(selection.clone()))
+        .await;
+    app.clear_active_thread().await;
+    assert!(selection.is_cancelled());
+    let next = ThreadId::new();
+    app.ensure_thread_channel(next);
+    app.activate_thread_channel(next).await;
+    tokio::task::yield_now().await;
+    assert!(commands.try_recv().is_err());
+    assert_eq!(app.current_displayed_thread_id(), Some(next));
+    // Closing a side thread can remove its channel before clear_active_thread.
+    // A task retaining the store must not extend that channel's selection lifetime.
+    let store = app.thread_event_channels[&next].store.clone();
+    let selection = store.lock().await.runtime_tool_selection.clone();
+    session.remember_runtime_tools_busy_for_test(next).await;
+    session
+        .retry_runtime_tools_on_idle(&next.to_string(), Some(next), Some(selection.clone()))
+        .await;
+    app.thread_event_channels.remove(&next);
+    app.clear_active_thread().await;
+    assert!(selection.is_cancelled());
+    tokio::task::yield_now().await;
+    assert!(commands.try_recv().is_err());
+    Ok(())
 }
 
 #[tokio::test]

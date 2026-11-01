@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Streaming transcript updates for `ChatWidget`.
 //!
 //! This module owns assistant, plan, and reasoning deltas, including stream-tail
@@ -485,13 +485,14 @@ impl ChatWidget {
             }
         }
         let parsed = parse_assistant_markdown(&message, self.config.cwd.as_path());
+        let questions = item.questions.as_deref().unwrap_or_default();
         if completed_bytes > crate::history_window::MAX_HISTORY_BYTES
             || self.transcript.live_display_oversized[0]
         {
             self.reject_oversized_live_display(0);
             self.handle_stream_finished();
             self.request_redraw();
-        } else if from_replay
+        } else if (from_replay || !questions.is_empty())
             && self.stream_controller.is_none()
             && !parsed.visible_markdown.is_empty()
             && !self.completed_agent_message_was_flushed(&message)
@@ -511,6 +512,7 @@ impl ChatWidget {
                     self.config.cwd.as_path(),
                     context,
                 )
+                .with_questions(questions)
                 .with_copy_source(Some(message.clone())),
             );
             self.handle_stream_finished();

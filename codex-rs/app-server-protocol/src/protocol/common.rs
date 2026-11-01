@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -149,9 +149,12 @@ macro_rules! serialization_scope_expr {
     ($actual_params:ident, global_shared_read($key:literal)) => {
         Some(ClientRequestSerializationScope::GlobalSharedRead($key))
     };
-    ($actual_params:ident, thread_id($params:ident . $field:ident)) => {
+    // Match one or more dot-separated fields, allowing both `params.thread_id`
+    // and nested paths like `params.start.thread_id`. The resolved ID selects
+    // the per-thread request queue, preserving ordering with other thread operations.
+    ($actual_params:ident, thread_id($params:ident . $($field:ident).+)) => {
         Some(ClientRequestSerializationScope::Thread {
-            thread_id: $actual_params.$field.clone(),
+            thread_id: $actual_params.$($field).+.clone(),
         })
     };
     ($actual_params:ident, optional_thread_id($params:ident . $field:ident)) => {
@@ -835,6 +838,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadCompactStartResponse,
     },
+    ThreadCompactStartIfIdle => "thread/compact/startIfIdle" {
+        params: v2::ThreadCompactStartIfIdleParams,
+        serialization: thread_id(params.thread_id),
+        manual_payload_conversion: manual,
+        response: v2::TurnStartIfIdleResponse,
+    },
     ThreadShellCommand => "thread/shellCommand" {
         params: v2::ThreadShellCommandParams,
         serialization: thread_id(params.thread_id),
@@ -873,6 +882,16 @@ client_request_definitions! {
         params: v2::ThreadRevertParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadRevertResponse,
+    },
+    ThreadSubagentsList => "thread/subagents/list" {
+        params: v2::ThreadSubagentsListParams,
+        serialization: None,
+        response: v2::ThreadSubagentsListResponse,
+    },
+    ThreadSubagentsControl => "thread/subagents/control" {
+        params: v2::ThreadSubagentsControlParams,
+        serialization: thread_id(params.parent_thread_id),
+        response: v2::ThreadSubagentsControlResponse,
     },
     ThreadList => "thread/list" {
         params: v2::ThreadListParams,
@@ -1444,6 +1463,13 @@ client_request_definitions! {
         response: v2::BedrockSetupResponse,
     },
 
+    #[experimental("account/gcp/setup")]
+    GcpSetup => "account/gcp/setup" {
+        params: v2::GcpSetupParams,
+        serialization: global("account-auth"),
+        response: v2::GcpSetupResponse,
+    },
+
     #[experimental("account/bedrock/checkGovCloudRequirements")]
     BedrockCheckGovCloudRequirements => "account/bedrock/checkGovCloudRequirements" {
         params: v2::BedrockCheckGovCloudRequirementsParams,
@@ -1455,6 +1481,22 @@ client_request_definitions! {
         params: v2::CancelLoginAccountParams,
         serialization: global("account-auth"),
         response: v2::CancelLoginAccountResponse,
+    },
+
+    #[experimental("accountSession/list")]
+    AccountSessionsList => "accountSession/list" {
+        params: v2::AccountSessionsListParams,
+        serialization: global("account-auth"),
+        manual_payload_conversion: manual,
+        response: v2::AccountSessionsResponse,
+    },
+
+    #[experimental("accountSession/switch")]
+    AccountSessionsSwitch => "accountSession/switch" {
+        params: v2::AccountSessionsSwitchParams,
+        serialization: global("account-auth"),
+        manual_payload_conversion: manual,
+        response: v2::AccountSessionsSwitchResponse,
     },
 
     LogoutAccount => "account/logout" {
@@ -2553,7 +2595,7 @@ mod tests {
 
         let hooks_list = ClientRequest::HooksList {
             request_id: request_id(),
-            params: v2::HooksListParams { cwds: Vec::new() },
+            params: v2::HooksListParams::default(),
         };
         assert_eq!(
             hooks_list.serialization_scope(),
@@ -3760,12 +3802,14 @@ mod tests {
         let chatgpt = v2::Account::Chatgpt {
             email: Some("user@example.com".to_string()),
             plan_type: PlanType::Plus,
+            workspace_name: None,
         };
         assert_eq!(
             json!({
                 "type": "chatgpt",
                 "email": "user@example.com",
                 "planType": "plus",
+                "workspaceName": null,
             }),
             serde_json::to_value(&chatgpt)?,
         );
@@ -3773,12 +3817,14 @@ mod tests {
         let chatgpt_without_email = v2::Account::Chatgpt {
             email: None,
             plan_type: PlanType::Pro,
+            workspace_name: None,
         };
         assert_eq!(
             json!({
                 "type": "chatgpt",
                 "email": null,
                 "planType": "pro",
+                "workspaceName": null,
             }),
             serde_json::to_value(&chatgpt_without_email)?,
         );

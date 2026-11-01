@@ -143,6 +143,7 @@
             "flexUnavailable",
             "serverOverloaded",
             "modelNotFound",
+            "policyCapacityUnavailable",
             "cyberPolicy",
             "misalignmentPolicyViolation",
             "tooManyDenials",
@@ -1667,6 +1668,7 @@
       "type": "string"
     },
     "ThreadItem": {
+      "description": "A thread item and its recorded lifecycle times. The payload stays flat on the wire.",
       "oneOf": [
         {
           "properties": {
@@ -2449,6 +2451,14 @@
               ],
               "default": null
             },
+            "generationId": {
+              "default": null,
+              "description": "Image generation identifier for the generated image, when provided by the image backend.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -2569,7 +2579,28 @@
           "title": "ContextCompactionThreadItem",
           "type": "object"
         }
-      ]
+      ],
+      "properties": {
+        "completedAtMs": {
+          "default": null,
+          "description": "Unix timestamp in milliseconds when the item completed, if recorded.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "startedAtMs": {
+          "default": null,
+          "description": "Unix timestamp in milliseconds when the item started, if recorded.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ThreadSection": {
       "description": "An independently persisted, user-visible thread section.",
@@ -3244,6 +3275,21 @@
         }
       ]
     },
+    "runtimeDynamicToolsApplied": {
+      "default": null,
+      "description": "True only after runtime publication; false means busy with no change. Null when no supplement was requested; missing fields from older servers are accepted.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "runtimeDynamicToolsRuntimeId": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "sandbox": {
       "allOf": [
         {
@@ -3257,6 +3303,14 @@
         "string",
         "null"
       ]
+    },
+    "supportsCompactIfIdle": {
+      "description": "Available only when Core supports non-destructive idle compaction.",
+      "type": "boolean"
+    },
+    "supportsExpectedTurnInterrupt": {
+      "description": "Independent of compaction: exact turn cancellation is checked atomically in Core.",
+      "type": "boolean"
     },
     "thread": {
       "$ref": "#/definitions/Thread"

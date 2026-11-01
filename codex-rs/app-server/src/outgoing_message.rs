@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,6 +67,7 @@ pub(crate) struct RequestContext {
     request_id: ConnectionRequestId,
     pub(crate) cancellation: tokio_util::sync::CancellationToken,
     cancellation_scope: RequestCancellationScope,
+    is_process_request: bool,
     span: Span,
     parent_trace: Option<W3cTraceContext>,
     _diagnostics_guard: Arc<GaugeGuard>,
@@ -90,6 +91,10 @@ impl RequestContext {
         Self {
             request_id,
             cancellation: tokio_util::sync::CancellationToken::new(),
+            is_process_request: matches!(
+                method,
+                "process/spawn" | "process/writeStdin" | "process/resizePty" | "process/kill"
+            ),
             cancellation_scope: match method {
                 "userVerification/status"
                 | "userVerification/enroll"
@@ -144,6 +149,7 @@ pub(crate) struct OutgoingMessageSender {
     verification_connections: Mutex<HashSet<ConnectionId>>,
     next_server_request_id: AtomicI64,
     sender: mpsc::Sender<OutgoingEnvelope>,
+    process_reply_sender: mpsc::Sender<OutgoingEnvelope>,
     request_id_to_callback: Mutex<HashMap<RequestId, PendingCallbackEntry>>,
     /// Incoming requests that are still waiting on a final response or error.
     /// We keep them here because this is where responses, errors, and
@@ -160,6 +166,7 @@ pub(crate) struct ThreadScopedOutgoingMessageSender {
 }
 
 struct PendingCallbackEntry {
+    dynamic_tool_owner: Option<ConnectionId>,
     verification_owner: Option<ConnectionId>,
     verification_auth_revision: Option<u64>,
     verification_identity: Option<user_verification_auth::Identity>,
@@ -170,6 +177,39 @@ struct PendingCallbackEntry {
 }
 
 impl ThreadScopedOutgoingMessageSender {
+    pub(crate) async fn send_dynamic_tool_request_to_connection(
+        &self,
+        owner: ConnectionId,
+        payload: ServerRequestPayload,
+        disconnected: tokio_util::sync::CancellationToken,
+    ) -> (RequestId, oneshot::Receiver<ClientRequestResult>) {
+        let (id, receiver) = self
+            .outgoing
+            .send_request_to_connections_with_tool_owner(
+                Some(&[owner]),
+                payload,
+                Some(self.thread_id),
+                Some(owner),
+                Some(&disconnected),
+            )
+            .await;
+        let (tx, rx) = oneshot::channel();
+        let outgoing = Arc::clone(&self.outgoing);
+        let pending_id = id.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = disconnected.cancelled() => {
+                    outgoing.request_id_to_callback.lock().await.remove(&pending_id);
+                }
+                response = receiver => {
+                    if let Ok(response) = response { let _ = tx.send(response); }
+                }
+            }
+        });
+        (id, rx)
+    }
+
     pub(crate) fn new(
         outgoing: Arc<OutgoingMessageSender>,
         connection_ids: Vec<ConnectionId>,
@@ -265,11 +305,20 @@ impl OutgoingMessageSender {
             verification_auth: OnceLock::new(),
             verification_connections: Mutex::new(HashSet::new()),
             next_server_request_id: AtomicI64::new(0),
+            process_reply_sender: sender.clone(),
             sender,
             request_id_to_callback: Mutex::new(HashMap::new()),
             request_contexts: Mutex::new(HashMap::new()),
             analytics_events_client,
         }
+    }
+
+    pub(crate) fn with_process_reply_sender(
+        mut self,
+        sender: mpsc::Sender<OutgoingEnvelope>,
+    ) -> Self {
+        self.process_reply_sender = sender;
+        self
     }
 
     pub(crate) async fn register_request_context(&self, request_context: RequestContext) {
@@ -314,6 +363,11 @@ impl OutgoingMessageSender {
     pub(crate) async fn connection_closed(&self, connection_id: ConnectionId) {
         self.disconnect_user_verification_connection(connection_id)
             .await;
+        // Dropping a supplemented tool callback fails it; never replay it on another client.
+        self.request_id_to_callback
+            .lock()
+            .await
+            .retain(|_, entry| entry.dynamic_tool_owner != Some(connection_id));
         let mut request_contexts = self.request_contexts.lock().await;
         for (request_id, context) in request_contexts.iter() {
             if request_id.connection_id == connection_id
@@ -379,6 +433,24 @@ impl OutgoingMessageSender {
         request: ServerRequestPayload,
         thread_id: Option<ThreadId>,
     ) -> (RequestId, oneshot::Receiver<ClientRequestResult>) {
+        self.send_request_to_connections_with_tool_owner(
+            connection_ids,
+            request,
+            thread_id,
+            None,
+            None,
+        )
+        .await
+    }
+
+    async fn send_request_to_connections_with_tool_owner(
+        &self,
+        connection_ids: Option<&[ConnectionId]>,
+        request: ServerRequestPayload,
+        thread_id: Option<ThreadId>,
+        dynamic_tool_owner: Option<ConnectionId>,
+        disconnected: Option<&tokio_util::sync::CancellationToken>,
+    ) -> (RequestId, oneshot::Receiver<ClientRequestResult>) {
         let id = self.next_request_id();
         let outgoing_message_id = id.clone();
         let request = request.request_with_id(outgoing_message_id.clone());
@@ -401,6 +473,9 @@ impl OutgoingMessageSender {
                     || verification_identity != self.verification_identity())
         };
         let (tx_approve, rx_approve) = oneshot::channel();
+        if disconnected.is_some_and(|token| token.is_cancelled()) {
+            return (outgoing_message_id, rx_approve);
+        }
         // One app owns this ceremony. Reconnect and other subscribers cannot answer it.
         let verification_owner = if user_verification {
             let eligible = self.verification_connections.lock().await;
@@ -423,6 +498,7 @@ impl OutgoingMessageSender {
             request_id_to_callback.insert(
                 id,
                 PendingCallbackEntry {
+                    dynamic_tool_owner,
                     verification_owner,
                     verification_auth_revision,
                     verification_identity: verification_identity.clone(),
@@ -447,38 +523,52 @@ impl OutgoingMessageSender {
         }
 
         let outgoing_message = OutgoingMessage::Request(request.clone());
-        let send_result = match connection_ids {
-            None => {
-                self.sender
-                    .send(OutgoingEnvelope::Broadcast {
-                        message: outgoing_message,
-                    })
-                    .await
-            }
-            Some(connection_ids) => {
-                let mut send_error = None;
-                for connection_id in connection_ids {
-                    if let Err(err) = self
-                        .sender
-                        .send(OutgoingEnvelope::ToConnection {
-                            connection_id: *connection_id,
-                            message: outgoing_message.clone(),
-                            write_complete_tx: None,
+        let send = async {
+            match connection_ids {
+                None => {
+                    self.sender
+                        .send(OutgoingEnvelope::Broadcast {
+                            message: outgoing_message,
                         })
                         .await
-                    {
-                        send_error = Some(err);
-                        break;
-                    } else {
-                        self.analytics_events_client
-                            .track_server_request(connection_id.0, request.clone());
+                }
+                Some(connection_ids) => {
+                    let mut send_error = None;
+                    for connection_id in connection_ids {
+                        if let Err(err) = self
+                            .sender
+                            .send(OutgoingEnvelope::ToConnection {
+                                connection_id: *connection_id,
+                                message: outgoing_message.clone(),
+                                write_complete_tx: None,
+                            })
+                            .await
+                        {
+                            send_error = Some(err);
+                            break;
+                        } else {
+                            self.analytics_events_client
+                                .track_server_request(connection_id.0, request.clone());
+                        }
+                    }
+                    match send_error {
+                        Some(err) => Err(err),
+                        None => Ok(()),
                     }
                 }
-                match send_error {
-                    Some(err) => Err(err),
-                    None => Ok(()),
-                }
             }
+        };
+        let send_result = if let Some(disconnected) = disconnected {
+            tokio::select! {
+                biased;
+                _ = disconnected.cancelled() => {
+                    self.request_id_to_callback.lock().await.remove(&outgoing_message_id);
+                    return (outgoing_message_id, rx_approve);
+                }
+                result = send => result,
+            }
+        } else {
+            send.await
         };
 
         if let Err(err) = send_result {
@@ -611,6 +701,12 @@ impl OutgoingMessageSender {
     ) -> Option<(RequestId, PendingCallbackEntry)> {
         let mut callbacks = self.request_id_to_callback.lock().await;
         let entry = callbacks.get(id)?;
+        if entry
+            .dynamic_tool_owner
+            .is_some_and(|owner| owner != connection_id)
+        {
+            return None;
+        }
         if let Some(owner) = entry.verification_owner {
             if owner != connection_id {
                 return None;
@@ -633,8 +729,10 @@ impl OutgoingMessageSender {
         let mut requests = request_id_to_callback
             .values()
             .filter_map(|entry| {
-                (entry.thread_id == Some(thread_id) && entry.verification_owner.is_none())
-                    .then_some(entry.request.clone())
+                (entry.thread_id == Some(thread_id)
+                    && entry.verification_owner.is_none()
+                    && entry.dynamic_tool_owner.is_none())
+                .then_some(entry.request.clone())
             })
             .collect::<Vec<_>>();
         requests.sort_by(|left, right| left.id().cmp(right.id()));
@@ -918,10 +1016,23 @@ impl OutgoingMessageSender {
         message: OutgoingMessage,
         message_kind: &'static str,
     ) {
-        let send_fut = self.sender.send(OutgoingEnvelope::ToConnection {
+        // Process requests serialize by handle. A blocked resize reply would also block the next kill.
+        let sender = if request_context
+            .as_ref()
+            .is_some_and(|ctx| ctx.is_process_request)
+        {
+            &self.process_reply_sender
+        } else {
+            &self.sender
+        };
+        // The spawn reply must reach the embedder before the collectors can publish output.
+        let (written_tx, written_rx) = (!sender.same_channel(&self.sender))
+            .then(oneshot::channel)
+            .unzip();
+        let send_fut = sender.send(OutgoingEnvelope::ToConnection {
             connection_id,
             message,
-            write_complete_tx: None,
+            write_complete_tx: written_tx,
         });
         let send_result = if let Some(request_context) = request_context {
             send_fut.instrument(request_context.span()).await
@@ -931,6 +1042,8 @@ impl OutgoingMessageSender {
 
         if let Err(err) = send_result {
             warn!("failed to send {message_kind} to client: {err:?}");
+        } else if let Some(written_rx) = written_rx {
+            let _ = written_rx.await;
         }
     }
 }
@@ -1651,6 +1764,85 @@ mod tests {
             .expect("wait should not time out")
             .expect("waiter should receive a callback");
         assert_eq!(result, Err(error));
+    }
+
+    #[tokio::test]
+    async fn runtime_tool_calls_are_owner_scoped_never_replayed_and_cancel_on_disconnect() {
+        let (tx, mut rx) = mpsc::channel::<OutgoingEnvelope>(8);
+        let outgoing = Arc::new(OutgoingMessageSender::new(
+            tx,
+            codex_analytics::AnalyticsEventsClient::disabled(),
+        ));
+        let thread_id = ThreadId::new();
+        let thread_outgoing = ThreadScopedOutgoingMessageSender::new(
+            outgoing.clone(),
+            vec![ConnectionId(1), ConnectionId(2)],
+            thread_id,
+        );
+        let payload = || {
+            ServerRequestPayload::DynamicToolCall(DynamicToolCallParams {
+                thread_id: thread_id.to_string(),
+                turn_id: "turn-1".into(),
+                call_id: "call-runtime".into(),
+                namespace: None,
+                tool: "connection_only".into(),
+                arguments: json!({}),
+            })
+        };
+        let lifetime = tokio_util::sync::CancellationToken::new();
+        let (id, mut waiter) = thread_outgoing
+            .send_dynamic_tool_request_to_connection(ConnectionId(1), payload(), lifetime.clone())
+            .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(OutgoingEnvelope::ToConnection {
+                connection_id: ConnectionId(1),
+                ..
+            })
+        ));
+        assert!(
+            outgoing
+                .pending_requests_for_thread(thread_id)
+                .await
+                .is_empty()
+        );
+        for connection in [ConnectionId(1), ConnectionId(2)] {
+            outgoing
+                .replay_requests_to_connection_for_thread(connection, thread_id)
+                .await;
+        }
+        assert!(rx.try_recv().is_err());
+        outgoing
+            .notify_client_response(ConnectionId(2), id.clone(), json!({}))
+            .await;
+        assert!(matches!(
+            waiter.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        lifetime.cancel();
+        assert!(
+            timeout(Duration::from_secs(1), waiter)
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            !outgoing
+                .request_id_to_callback
+                .lock()
+                .await
+                .contains_key(&id)
+        );
+        let (_, waiter) = thread_outgoing
+            .send_dynamic_tool_request_to_connection(ConnectionId(1), payload(), lifetime)
+            .await;
+        assert!(
+            timeout(Duration::from_secs(1), waiter)
+                .await
+                .unwrap()
+                .is_err()
+        );
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

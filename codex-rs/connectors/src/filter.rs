@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use std::collections::HashSet;
 use std::sync::Arc;
 

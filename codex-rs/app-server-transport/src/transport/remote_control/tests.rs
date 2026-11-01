@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::auth::REMOTE_CONTROL_ACCOUNT_ID_HEADER;
 use super::enroll::RemoteControlEnrollment;
 use super::enroll::load_persisted_remote_control_enrollment;
@@ -1904,6 +1904,8 @@ async fn remote_control_http_mode_enrolls_before_connecting() {
                 result: Box::new(
                     codex_app_server_protocol::ClientResponsePayload::Initialize(
                         codex_app_server_protocol::InitializeResponse {
+                            supports_subagent_management: false,
+                            supports_expected_turn_interrupt: None,
                             user_agent: "codex-test-agent".to_string(),
                             codex_home: codex_home.path().abs(),
                             platform_family: "test-family".to_string(),

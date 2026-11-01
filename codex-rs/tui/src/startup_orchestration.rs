@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Orchestrates startup while the provisional composer owns terminal input.
 //!
 //! Lightweight validation runs before acquiring the terminal. Once the draft is visible, slow
@@ -13,6 +13,7 @@ pub(super) async fn run_main_inner(
     arg0_paths: Arg0DispatchPaths,
     loader_overrides: LoaderOverrides,
     mut explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
+    desktop_cron_bootstrap: DesktopCronBootstrap,
 ) -> std::io::Result<AppExitInfo> {
     if cli.no_daemon && explicit_remote_endpoint.is_some() {
         return Err(std::io::Error::other(
@@ -66,6 +67,7 @@ pub(super) async fn run_main_inner(
         .take_auto_review_config_overrides(&mut cli.config_overrides);
 
     // Map the legacy --search flag to the canonical web_search mode.
+    let overrides_before_search = cli.config_overrides.raw_overrides.len();
     if cli.web_search {
         cli.config_overrides
             .raw_overrides
@@ -222,6 +224,14 @@ pub(super) async fn run_main_inner(
         std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
     );
     let reuse_implicit_local_daemon = daemon_exclusion.is_none();
+    let search_forces_embedded = cli.web_search
+        && daemon_startup::config_exclusion(
+            &cli_kv_overrides[..overrides_before_search],
+            &launch_loader_overrides,
+            strict_config,
+            cli.bypass_hook_trust,
+        )
+        .is_none();
     let search_only_config_override = !workload_identity_selected
         && cli.web_search
         && startup_preflight::has_only_search_config_override(&cli_kv_overrides)
@@ -306,6 +316,19 @@ pub(super) async fn run_main_inner(
             err
         }
     })?;
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        codex_cloud_config::ensure_config_server_login(
+            embedded_network_policy.bind_bootstrap_auth(bootstrap_auth_config(
+                &codex_home,
+                &presentation.bootstrap_config,
+            )?),
+            presentation
+                .bootstrap_config
+                .config_layer_stack
+                .requirements_toml(),
+        )
+        .await?;
+    }
     // Keep normal terminal signals available until local configuration is ready. Once raw
     // mode begins, StartupDraft immediately takes ownership of input.
     let (initialized_terminal, terminal_restore_guard) = tokio::task::spawn_blocking(|| {
@@ -509,10 +532,11 @@ pub(super) async fn run_main_inner(
         cloud_config_bundle
     } else {
         startup_draft
-            .run_until(cloud_config_bundle_loader_for_storage(
+            .run_until(managed_config_bundle_loader_for_storage(
                 embedded_network_policy.bind_bootstrap_auth(
                     app_server_target.auth_config_for_cloud_loader(config.auth_config()),
                 ),
+                config.config_layer_stack.requirements_toml(),
                 /*enable_codex_api_key_env*/ false,
             ))
             .await??
@@ -737,6 +761,7 @@ pub(super) async fn run_main_inner(
             },
         ),
     ]);
+    let selected_local_daemon = matches!(app_server_target, AppServerTarget::LocalDaemon { .. });
     // Record the first connection attempt's actual mode, including embedded fallback; never reconnects.
     let launch_telemetry = move |target: &AppServerTarget, connected: bool| {
         let Some(metrics) = metrics else {
@@ -777,6 +802,43 @@ pub(super) async fn run_main_inner(
             ("multiplexer", multiplexer),
         ]);
         let _ = metrics.counter("codex.tui.start", /*inc*/ 1, &launch_tags);
+        if app_server_mode == "in_process" {
+            let reason = match daemon_exclusion {
+                _ if elevated_warning.is_some() => "windows_elevated",
+                Some("--no-daemon") => "explicit_no_daemon",
+                Some("--profile") => "profile",
+                Some("--oss") => "oss",
+                Some("--strict-config") => "strict_config",
+                Some("--dangerously-bypass-hook-trust") => "bypass_hook_trust",
+                Some("workload identity") => "workload_identity",
+                Some("executor selection (CODEX_EXEC_SERVER_URL)") => "exec_server_url",
+                Some("custom configuration loader") => "custom_config_loader",
+                Some(
+                    "command-line configuration overrides (-c, --enable, --disable, or --search)",
+                ) => {
+                    if search_forces_embedded {
+                        "search"
+                    } else {
+                        "config_override"
+                    }
+                }
+                Some("Bedrock sign-in") => "bedrock_sign_in",
+                Some(daemon_startup::WSL_DRVFS_EXCLUSION) => "wsl_drvfs",
+                Some("this Windows launcher") => "windows_detach_restricted",
+                Some("daemon feature settings") => "daemon_compatibility",
+                None if selection_reason == "auto_start_disabled" => {
+                    "auto_start_disabled_no_daemon"
+                }
+                None if selected_local_daemon => "daemon_connection_failed",
+                None if selection_reason == "agents" => "agents_no_daemon_discovered",
+                Some(_) | None => "unclassified",
+            };
+            let _ = metrics.counter(
+                "codex.tui.embedded_start",
+                /*inc*/ 1,
+                &[("reason", reason)],
+            );
+        }
         launch_tags.retain(|(key, _)| !matches!(*key, "terminal_columns" | "terminal_rows"));
         launch_tags
     };
@@ -919,8 +981,11 @@ pub(super) async fn run_main_inner(
         .map(|layer| layer.with_filter(log_db::default_filter()));
 
     let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
-    let batch_layer = batch_layer.map(|layer| layer.with_filter(
-        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
+    let batch_layer = batch_layer.map(|layer| {
+        layer.with_filter(tracing_subscriber::filter::filter_fn(
+            codex_diagnostics::batch_log::metadata_enabled,
+        ))
+    });
     let _ = tracing_subscriber::registry()
         .with(tui_file_layer)
         .with(feedback_layer)
@@ -958,6 +1023,7 @@ pub(super) async fn run_main_inner(
         managed_daemon,
         launch_telemetry,
         startup_draft,
+        desktop_cron_bootstrap,
     ))
     .await
     .map_err(|err| {

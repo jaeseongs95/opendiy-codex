@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use anyhow::Result;
 use anyhow::anyhow;
 use codex_config::types::McpServerEnvVar;
@@ -226,6 +227,14 @@ mod tests {
             Some(HashMap::from([
                 (OsString::from("TZ"), expected.clone()),
                 (
+                    OsString::from("Codex_Desktop_Cron_Bootstrap"),
+                    OsString::from("synthetic-bootstrap"),
+                ),
+                (
+                    OsString::from("codex_desktop_cron_token"),
+                    OsString::from("synthetic-token"),
+                ),
+                (
                     OsString::from("openai_identity_token_file"),
                     OsString::from("/run/identity-token"),
                 ),
@@ -235,6 +244,8 @@ mod tests {
         .expect("local MCP env should build");
         assert_eq!(env.get(OsStr::new("TZ")), Some(&expected));
         assert!(!env.contains_key(OsStr::new("openai_identity_token_file")));
+        assert!(!env.contains_key(OsStr::new("Codex_Desktop_Cron_Bootstrap")));
+        assert!(!env.contains_key(OsStr::new("codex_desktop_cron_token")));
     }
 
     #[test]
@@ -259,10 +270,20 @@ mod tests {
         let _custom_guard = EnvVarGuard::set(custom_var, &custom_value);
 
         let env = create_env_overlay_for_remote_mcp_server(
-            Some(HashMap::from([(
-                OsString::from("OpenAI_Federation_Rule_Id"),
-                OsString::from("rule"),
-            )])),
+            Some(HashMap::from([
+                (
+                    OsString::from("OpenAI_Federation_Rule_Id"),
+                    OsString::from("rule"),
+                ),
+                (
+                    OsString::from("CODEX_DESKTOP_CRON_BOOTSTRAP"),
+                    OsString::from("synthetic-bootstrap"),
+                ),
+                (
+                    OsString::from("Codex_Desktop_Cron_Token"),
+                    OsString::from("synthetic-token"),
+                ),
+            ])),
             &[custom_var.into()],
         );
 

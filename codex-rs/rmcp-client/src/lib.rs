@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 mod auth_status;
 mod bounded_stdio_transport;
 mod elicitation_client_service;
@@ -28,13 +28,13 @@ mod ordered_byte_transport;
 mod perform_oauth_login;
 mod program_resolver;
 mod protocol_mode;
+mod request_cancellation;
+mod request_input;
 mod rmcp_client;
 mod service_error;
 mod startup_error;
 mod stdio_server_launcher;
-mod tool_input;
 mod tool_list_changes;
-mod tool_request;
 mod trace_context;
 mod user_verification;
 mod utils;

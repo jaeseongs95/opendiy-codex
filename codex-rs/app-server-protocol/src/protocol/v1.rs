@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -72,6 +73,18 @@ pub struct InitializeCapabilities {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
+    /// This server provides fenced operator commands and body-free child snapshots.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub supports_subagent_management: bool,
+    /// Core atomically compares the expected turn ID before interrupting.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::protocol::serde_helpers::deserialize_optional_bool"
+    )]
+    #[schemars(with = "bool")]
+    #[ts(optional)]
+    pub supports_expected_turn_interrupt: Option<bool>,
     pub user_agent: String,
     /// Absolute path to the server's $CODEX_HOME directory.
     pub codex_home: AbsolutePathBuf,

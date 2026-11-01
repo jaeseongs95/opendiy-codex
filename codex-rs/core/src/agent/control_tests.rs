@@ -1,5 +1,7 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
+#[path = "management_tests.rs"]
+mod management_tests;
 use crate::CodexThread;
 use crate::StateDbHandle;
 use crate::ThreadManager;
@@ -490,7 +492,11 @@ async fn mcp_attribution_in_constructed_request(thread: &CodexThread) -> McpAttr
             .session
             .clone_history()
             .await
-            .for_prompt(&step_context.settings.model_info.input_modalities),
+            .for_prompt(
+                &step_context.settings.model_info.input_modalities,
+                thread.session.services.image_store.as_ref(),
+            )
+            .await,
         &step_context,
         thread.session.get_prompt_base_instructions().await,
         thread
@@ -2597,6 +2603,25 @@ async fn spawn_agent_without_fork_from_paginated_parent_stays_fresh_and_paginate
         .await
         .expect("inject parent-only context");
 
+    // Connection-only tools must not become a new child's persisted initial catalog.
+    let mut supplement = dynamic_tools.clone();
+    let codex_protocol::dynamic_tools::DynamicToolSpec::Function(tool) = &mut supplement[0] else {
+        unreachable!()
+    };
+    tool.name = "connection_only".into();
+    assert!(
+        parent_thread
+            .supplement_runtime_dynamic_tools(
+                7,
+                tokio_util::sync::CancellationToken::new(),
+                supplement,
+                &[],
+            )
+            .await
+            .expect("install parent runtime supplement")
+    );
+    assert_eq!(parent_thread.session.dynamic_tools().await.len(), 2);
+
     let child_thread_id = harness
         .spawn_anonymous_child(
             parent_thread_id,
@@ -2617,8 +2642,8 @@ async fn spawn_agent_without_fork_from_paginated_parent_stays_fresh_and_paginate
         Vec::new()
     };
     assert_eq!(
-        child_thread.session.dynamic_tools().await,
-        expected_dynamic_tools
+        child_thread.session.dynamic_tools().await.as_ref(),
+        expected_dynamic_tools.as_slice()
     );
     assert!(
         !history_contains_text(
@@ -2664,6 +2689,7 @@ async fn spawn_agent_fork_sanitizes_inherited_compaction_metadata() {
 
     let (parent_thread_id, parent_thread) = harness.start_paginated_thread().await;
     let parent_resume_metadata = codex_history::CompactionResumeMetadata {
+        dynamic_tools: None,
         multi_agent_version: Some(MultiAgentVersion::V2),
         last_started_turn_id: Some("parent-turn".to_string()),
         turn_attribution: Some(codex_history::TurnAttribution {
@@ -3821,6 +3847,7 @@ async fn spawn_agent_full_fork_legacy_compaction_rebuilds_child_instructions_onc
                 compaction_response_id: None,
                 latest_token_usage_record: None,
                 resume_metadata: Some(codex_history::CompactionResumeMetadata {
+                    dynamic_tools: None,
                     multi_agent_version: Some(MultiAgentVersion::V2),
                     last_started_turn_id: None,
                     turn_attribution: None,
@@ -3955,6 +3982,7 @@ async fn spawn_agent_full_fork_legacy_compaction_rebuilds_child_instructions_onc
         assert_eq!(
             inherited_state,
             Some(codex_history::CompactionResumeMetadata {
+                dynamic_tools: None,
                 multi_agent_version: Some(MultiAgentVersion::V2),
                 last_started_turn_id: None,
                 turn_attribution: None,

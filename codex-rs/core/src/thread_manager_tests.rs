@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 use crate::agent::types::SpawnAgentOptions;
 use crate::config::RolloutBudgetConfig;
@@ -56,6 +57,173 @@ use tempfile::tempdir;
 use wiremock::MockServer;
 
 const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
+
+#[tokio::test]
+async fn stopped_runtime_resume_requires_confirmed_cleanup_before_replacement() {
+    use futures::FutureExt;
+
+    let temp_dir = tempdir().expect("tempdir");
+    let mut config = test_config().await;
+    config.codex_home = temp_dir.path().join("codex-home").abs();
+    config.cwd = config.codex_home.abs();
+    std::fs::create_dir_all(&config.codex_home).expect("create codex home");
+    let manager = ThreadManager::with_models_provider_and_home_for_tests(
+        CodexAuth::from_api_key("dummy"),
+        config.model_provider.clone(),
+        config.codex_home.to_path_buf(),
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+    );
+    let source = manager
+        .start_thread(StartThreadOptions::new(config.clone()))
+        .await
+        .expect("start source");
+    source
+        .thread
+        .session
+        .try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard)
+        .await
+        .expect("persist the source before testing resume");
+    source.thread.flush_rollout().await.expect("flush source");
+    source
+        .thread
+        .shutdown_and_wait()
+        .await
+        .expect("normal cleanup");
+    let history = InitialHistory::Resumed(ResumedHistory {
+        history_revision: None,
+        conversation_id: source.thread_id,
+        history: Arc::new(Vec::new()),
+        rollout_path: source.thread.rollout_path(),
+    });
+    let resume_options = || {
+        let mut options = StartThreadOptions::new(config.clone());
+        options.initial_history = history.clone();
+        options
+    };
+    let mut io = source.thread.io.clone();
+    io.session_loop_termination = std::future::pending().boxed().shared();
+    let stale = Arc::new(CodexThread::new(
+        Arc::clone(&source.thread.session),
+        io,
+        (&source.session_configured).into(),
+        source.thread.rollout_path(),
+        source.thread.session_source.clone(),
+    ));
+    manager
+        .state
+        .threads
+        .write()
+        .await
+        .insert(source.thread_id, Arc::clone(&stale));
+    assert!(
+        stale.has_shutdown_status(),
+        "closed input is unusable even before cleanup is confirmed"
+    );
+    let error = manager
+        .start_thread(resume_options())
+        .await
+        .err()
+        .expect("reject unconfirmed cleanup");
+    assert!(error.to_string().contains("cleanup is still in progress"));
+    assert!(Arc::ptr_eq(
+        &manager
+            .get_thread(source.thread_id)
+            .await
+            .expect("preserved cleanup handle"),
+        &stale
+    ));
+    assert_eq!(manager.list_thread_ids().await, vec![source.thread_id]);
+
+    // Preserve ordinary shutdown/resume: only the fully stopped original can be replaced.
+    manager
+        .state
+        .threads
+        .write()
+        .await
+        .insert(source.thread_id, source.thread);
+    let resumed = manager
+        .start_thread(resume_options())
+        .await
+        .expect("resume after normal confirmed cleanup");
+    resumed
+        .thread
+        .shutdown_and_wait()
+        .await
+        .expect("stop replacement");
+}
+
+#[tokio::test]
+async fn bounded_shutdown_preserves_a_replacement_registered_while_waiting() {
+    use futures::FutureExt;
+
+    let temp_dir = tempdir().expect("tempdir");
+    let mut config = test_config().await;
+    config.codex_home = temp_dir.path().join("codex-home").abs();
+    config.cwd = config.codex_home.abs();
+    std::fs::create_dir_all(&config.codex_home).expect("create codex home");
+    let manager = ThreadManager::with_models_provider_and_home_for_tests(
+        CodexAuth::from_api_key("dummy"),
+        config.model_provider.clone(),
+        config.codex_home.to_path_buf(),
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+    );
+    let source = manager
+        .start_thread(StartThreadOptions::new(config))
+        .await
+        .expect("start source");
+    source
+        .thread
+        .shutdown_and_wait()
+        .await
+        .expect("stop source");
+    let (waiting_tx, waiting_rx) = tokio::sync::oneshot::channel();
+    let (complete_tx, complete_rx) = tokio::sync::oneshot::channel();
+    let mut io = source.thread.io.clone();
+    io.session_loop_termination = async move {
+        let _ = waiting_tx.send(());
+        complete_rx.await.expect("release old shutdown");
+        Ok(())
+    }
+    .boxed()
+    .shared();
+    let old = Arc::new(CodexThread::new(
+        Arc::clone(&source.thread.session),
+        io,
+        (&source.session_configured).into(),
+        source.thread.rollout_path(),
+        source.thread.session_source.clone(),
+    ));
+    manager
+        .state
+        .threads
+        .write()
+        .await
+        .insert(source.thread_id, old);
+
+    let (report, ()) = tokio::join!(
+        manager.shutdown_all_threads_bounded(Duration::from_secs(5)),
+        async {
+            waiting_rx.await.expect("old shutdown is being polled");
+            // Only the registry identity matters here; the replacement's writer was
+            // already closed so the test does not create concurrent live writers.
+            manager
+                .state
+                .threads
+                .write()
+                .await
+                .insert(source.thread_id, Arc::clone(&source.thread));
+            complete_tx.send(()).expect("finish old shutdown");
+        }
+    );
+    assert_eq!(report.completed, vec![source.thread_id]);
+    assert!(Arc::ptr_eq(
+        &manager
+            .get_thread(source.thread_id)
+            .await
+            .expect("replacement remains registered"),
+        &source.thread
+    ));
+}
 
 struct ParentInstructionsProvider(codex_extension_api::Instructions);
 
@@ -1288,6 +1456,7 @@ async fn spawn_internal_session_preserves_parent_lineage_without_forking_history
     let temp_dir = tempdir().expect("tempdir");
     let mut config = test_config().await;
     config.rollout_budget = Some(RolloutBudgetConfig {
+        enforce_limit: true,
         limit_tokens: 100,
         reminder_at_remaining_tokens: vec![75, 50, 25],
         sampling_token_weight: 1.0,

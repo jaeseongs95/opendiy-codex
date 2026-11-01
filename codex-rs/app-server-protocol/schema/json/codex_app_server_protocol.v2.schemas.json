@@ -40,6 +40,13 @@
               ],
               "title": "ChatgptAccountType",
               "type": "string"
+            },
+            "workspaceName": {
+              "description": "Display name of the selected ChatGPT workspace, when available.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -144,6 +151,103 @@
         "NO_CONSTRAINT",
         "us",
         "us_cr"
+      ],
+      "type": "string"
+    },
+    "AccountSession": {
+      "properties": {
+        "displayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "imageUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "lastUsedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "selectedWorkspaceAccountId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspaces": {
+          "items": {
+            "$ref": "#/definitions/AccountSessionWorkspace"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "isActive",
+        "lastUsedAt",
+        "sessionId",
+        "workspaces"
+      ],
+      "type": "object"
+    },
+    "AccountSessionWorkspace": {
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "imageUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AccountSessionWorkspaceKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accountId"
+      ],
+      "type": "object"
+    },
+    "AccountSessionWorkspaceKind": {
+      "enum": [
+        "personal",
+        "workspace"
       ],
       "type": "string"
     },
@@ -268,6 +372,13 @@
       "properties": {
         "kind": {
           "$ref": "#/definitions/AdditionalContextKind"
+        },
+        "name": {
+          "description": "Optional name for untrusted context, used to label its tool output.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "value": {
           "type": "string"
@@ -2342,6 +2453,30 @@
             },
             "method": {
               "enum": [
+                "thread/compact/startIfIdle"
+              ],
+              "title": "Thread/compact/startIfIdleRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadCompactStartIfIdleParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/compact/startIfIdleRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
                 "thread/shellCommand"
               ],
               "title": "Thread/shellCommandRequestMethod",
@@ -2405,6 +2540,54 @@
             "params"
           ],
           "title": "Thread/revertRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subagents/list"
+              ],
+              "title": "Thread/subagents/listRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadSubagentsListParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subagents/listRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/subagents/control"
+              ],
+              "title": "Thread/subagents/controlRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadSubagentsControlParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/subagents/controlRequest",
           "type": "object"
         },
         {
@@ -4526,6 +4709,7 @@
             "flexUnavailable",
             "serverOverloaded",
             "modelNotFound",
+            "policyCapacityUnavailable",
             "cyberPolicy",
             "misalignmentPolicyViolation",
             "tooManyDenials",
@@ -6288,6 +6472,16 @@
           "anyOf": [
             {
               "$ref": "#/definitions/ModelsRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "otel": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OtelRequirements"
             },
             {
               "type": "null"
@@ -9723,6 +9917,13 @@
         "enabled": {
           "type": "boolean"
         },
+        "environmentId": {
+          "description": "The owning execution environment, if this hook came from its requirements.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "eventName": {
           "$ref": "#/definitions/HookEventName"
         },
@@ -9890,7 +10091,7 @@
           "default": "unknown"
         },
         "sourcePath": {
-          "$ref": "#/definitions/AbsolutePathBuf"
+          "$ref": "#/definitions/LegacyAppPathString"
         },
         "startedAt": {
           "format": "int64",
@@ -10011,11 +10212,18 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
         "cwds": {
-          "description": "When empty, defaults to the current session working directory.",
+          "description": "Working directories to inspect when no thread is specified. An empty list uses the session cwd.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "threadId": {
+          "description": "List a loaded thread's hooks, including its selected environments. Omit `cwds` in this mode.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "title": "HooksListParams",
@@ -12173,6 +12381,81 @@
       "title": "ModelProviderCapabilitiesReadResponse",
       "type": "object"
     },
+    "ModelProviderError": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "description": "Structured JSON-RPC error data. Unknown errors must retain the client's normal fallback.",
+      "oneOf": [
+        {
+          "properties": {
+            "currentModelProvider": {
+              "type": "string"
+            },
+            "modelProvider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "modelProviderMismatch"
+              ],
+              "title": "ModelProviderMismatchv2::ModelProviderErrorType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "currentModelProvider",
+            "modelProvider",
+            "type"
+          ],
+          "title": "ModelProviderMismatchv2::ModelProviderError",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "modelProvider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "modelProviderNotConfigured"
+              ],
+              "title": "ModelProviderNotConfiguredv2::ModelProviderErrorType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "modelProvider",
+            "type"
+          ],
+          "title": "ModelProviderNotConfiguredv2::ModelProviderError",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "modelProvider": {
+              "type": "string"
+            },
+            "requiredModelProvider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "modelProviderPolicyConflict"
+              ],
+              "title": "ModelProviderPolicyConflictv2::ModelProviderErrorType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "modelProvider",
+            "requiredModelProvider",
+            "type"
+          ],
+          "title": "ModelProviderPolicyConflictv2::ModelProviderError",
+          "type": "object"
+        }
+      ],
+      "title": "ModelProviderError"
+    },
     "ModelRerouteReason": {
       "enum": [
         "highRiskCyberActivity"
@@ -12471,7 +12754,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/NetworkDomainPermission"
           },
-          "description": "Canonical network permission map for `experimental_network`.",
+          "description": "Canonical managed network permission map.",
           "type": [
             "object",
             "null"
@@ -12520,7 +12803,7 @@
           "additionalProperties": {
             "$ref": "#/definitions/NetworkUnixSocketPermission"
           },
-          "description": "Canonical unix socket permission map for `experimental_network`.",
+          "description": "Canonical managed unix socket permission map.",
           "type": [
             "object",
             "null"
@@ -12605,6 +12888,232 @@
         }
       ],
       "title": "Nullable_McpServerRefreshParams"
+    },
+    "OtelExporter": {
+      "oneOf": [
+        {
+          "enum": [
+            "none",
+            "statsig"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "otlp-http": {
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "headers": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Header names are retained; values are redacted by the server.",
+                  "type": "object"
+                },
+                "protocol": {
+                  "$ref": "#/definitions/OtelHttpProtocol"
+                },
+                "tls": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/OtelTlsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "endpoint",
+                "headers",
+                "protocol"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "otlp-http"
+          ],
+          "title": "OtlpHttpOtelExporter",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "otlp-grpc": {
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "headers": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Header names are retained; values are redacted by the server.",
+                  "type": "object"
+                },
+                "tls": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/OtelTlsConfig"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "endpoint",
+                "headers"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "otlp-grpc"
+          ],
+          "title": "OtlpGrpcOtelExporter",
+          "type": "object"
+        }
+      ]
+    },
+    "OtelHttpProtocol": {
+      "enum": [
+        "binary",
+        "json"
+      ],
+      "type": "string"
+    },
+    "OtelRequirements": {
+      "properties": {
+        "environment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exporter": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OtelExporter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "log_agent_responses": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "log_guardian_assessments": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "log_user_prompt": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "metrics_exporter": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OtelExporter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "span_attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tool_result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OtelToolResultLogConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trace_exporter": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OtelExporter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tracestate": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "OtelTlsConfig": {
+      "properties": {
+        "ca-certificate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client-certificate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client-private-key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "OtelToolResultLogConfig": {
+      "properties": {
+        "max_bytes": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_bytes"
+      ],
+      "type": "object"
     },
     "OverriddenMetadata": {
       "properties": {
@@ -14200,6 +14709,13 @@
           "description": "Process exit code.",
           "format": "int32",
           "type": "integer"
+        },
+        "outputDrainTimedOut": {
+          "description": "Whether output collection hit its post-exit deadline before seeing EOF or reaching the requested byte cap on either stream. Older servers omit this field.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "processHandle": {
           "description": "Client-supplied, connection-scoped `processHandle` from `process/spawn`.",
@@ -16178,8 +16694,7 @@
     },
     "ReviewDelivery": {
       "enum": [
-        "inline",
-        "detached"
+        "inline"
       ],
       "type": "string"
     },
@@ -16196,7 +16711,7 @@
             }
           ],
           "default": null,
-          "description": "Where to run the review: inline (default) on the current thread or detached on a new thread (returned in `reviewThreadId`). Detached delivery is deprecated and emits `deprecationNotice`. Use `thread/start` followed by an inline review for a separate review thread."
+          "description": "Reviews run inline on the supplied thread. Omit this field or pass `inline`. To review on a separate thread, start a thread first and use its id."
         },
         "target": {
           "$ref": "#/definitions/ReviewTarget"
@@ -16216,7 +16731,7 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
         "reviewThreadId": {
-          "description": "Identifies the thread where the review runs.\n\nFor inline reviews, this is the original thread id. For detached reviews, this is the id of the new review thread.",
+          "description": "The thread id supplied to `review/start`.",
           "type": "string"
         },
         "turn": {
@@ -19038,6 +19553,129 @@
         }
       ]
     },
+    "SubagentControlStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "notApplied",
+            "unknown",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Accepted by the runtime; this does not mean the agent completed the instruction.",
+          "enum": [
+            "applied"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SubagentManagementAction": {
+      "enum": [
+        "send",
+        "interrupt",
+        "close",
+        "resume"
+      ],
+      "type": "string"
+    },
+    "SubagentManagementAgent": {
+      "properties": {
+        "activeTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "$ref": "#/definitions/SubagentManagementCapabilities"
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nickname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/SubagentManagementStatus"
+        }
+      },
+      "required": [
+        "capabilities",
+        "id",
+        "parentThreadId",
+        "runtimeId",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementCapabilities": {
+      "properties": {
+        "close": {
+          "type": "boolean"
+        },
+        "interrupt": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "boolean"
+        },
+        "send": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "close",
+        "interrupt",
+        "resume",
+        "send"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "idle",
+        "completed",
+        "errored",
+        "closed",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "SubagentMigration": {
       "properties": {
         "name": {
@@ -19048,6 +19686,13 @@
         "name"
       ],
       "type": "object"
+    },
+    "SubagentMutationState": {
+      "enum": [
+        "clear",
+        "unknown"
+      ],
+      "type": "string"
     },
     "TerminalInteractionNotification": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -19747,6 +20392,21 @@
       "title": "ThreadClosedNotification",
       "type": "object"
     },
+    "ThreadCompactStartIfIdleParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "Non-destructive compaction admission for an already loaded, idle runtime.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadCompactStartIfIdleParams",
+      "type": "object"
+    },
     "ThreadCompactStartParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -20279,6 +20939,7 @@
       "type": "object"
     },
     "ThreadItem": {
+      "description": "A thread item and its recorded lifecycle times. The payload stays flat on the wire.",
       "oneOf": [
         {
           "properties": {
@@ -21061,6 +21722,14 @@
               ],
               "default": null
             },
+            "generationId": {
+              "default": null,
+              "description": "Image generation identifier for the generated image, when provided by the image backend.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -21181,7 +21850,28 @@
           "title": "ContextCompactionThreadItem",
           "type": "object"
         }
-      ]
+      ],
+      "properties": {
+        "completedAtMs": {
+          "default": null,
+          "description": "Unix timestamp in milliseconds when the item completed, if recorded.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "startedAtMs": {
+          "default": null,
+          "description": "Unix timestamp in milliseconds when the item started, if recorded.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ThreadItemEntry": {
       "properties": {
@@ -22477,6 +23167,13 @@
           "description": "When true, return only thread metadata and live-resume state without populating `thread.turns`. This is useful when the client plans to call `thread/turns/list` immediately after resuming. Full-history hydration is deprecated for paginated threads; use this with `thread/turns/list` and `thread/items/list` instead.",
           "type": "boolean"
         },
+        "expectedRuntimeId": {
+          "description": "Loaded runtime generation comparison, never an authority token.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
           "description": "Configuration overrides for the resumed thread, if any.",
           "type": [
@@ -22595,6 +23292,21 @@
             }
           ]
         },
+        "runtimeDynamicToolsApplied": {
+          "default": null,
+          "description": "True only after runtime publication; false means busy with no change. Null when no supplement was requested; missing fields from older servers are accepted.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "runtimeDynamicToolsRuntimeId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sandbox": {
           "allOf": [
             {
@@ -22608,6 +23320,14 @@
             "string",
             "null"
           ]
+        },
+        "supportsCompactIfIdle": {
+          "description": "Available only when Core supports non-destructive idle compaction.",
+          "type": "boolean"
+        },
+        "supportsExpectedTurnInterrupt": {
+          "description": "Independent of compaction: exact turn cancellation is checked atomically in Core.",
+          "type": "boolean"
         },
         "thread": {
           "$ref": "#/definitions/Thread"
@@ -23478,6 +24198,144 @@
       "title": "ThreadStatusChangedNotification",
       "type": "object"
     },
+    "ThreadSubagentsControlParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "An operator command, admitted through the authenticated app-server connection.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/SubagentManagementAction"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "expectedParentRuntimeId": {
+          "type": "string"
+        },
+        "expectedRuntimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "agentId",
+        "expectedParentRuntimeId",
+        "expectedRuntimeId",
+        "parentThreadId",
+        "requestId"
+      ],
+      "title": "ThreadSubagentsControlParams",
+      "type": "object"
+    },
+    "ThreadSubagentsControlResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/SubagentControlStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ThreadSubagentsControlResponse",
+      "type": "object"
+    },
+    "ThreadSubagentsListParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "description": "Read only direct children. Responses contain no conversation or filesystem data.",
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "reconcileRequestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "parentThreadId"
+      ],
+      "title": "ThreadSubagentsListParams",
+      "type": "object"
+    },
+    "ThreadSubagentsListResponse": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/definitions/SubagentManagementAgent"
+          },
+          "type": "array"
+        },
+        "mutationState": {
+          "$ref": "#/definitions/SubagentMutationState"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentRuntimeId": {
+          "type": "string"
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "reconciledRequestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "agents",
+        "mutationState",
+        "parentRuntimeId",
+        "parentThreadId"
+      ],
+      "title": "ThreadSubagentsListResponse",
+      "type": "object"
+    },
     "ThreadSubscribePassiveParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -23905,6 +24763,14 @@
             "$ref": "#/definitions/ThreadUsageBreakdownGroup"
           },
           "type": "array"
+        },
+        "nativeUsageUsdMicros": {
+          "description": "Native dollar usage, independent of credit estimates. None means unknown, not zero.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "threadId": {
           "type": "string"

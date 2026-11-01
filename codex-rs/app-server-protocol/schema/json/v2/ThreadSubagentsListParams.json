@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Read only direct children. Responses contain no conversation or filesystem data.",
+  "properties": {
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "parentThreadId": {
+      "type": "string"
+    },
+    "reconcileRequestId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "parentThreadId"
+  ],
+  "title": "ThreadSubagentsListParams",
+  "type": "object"
+}

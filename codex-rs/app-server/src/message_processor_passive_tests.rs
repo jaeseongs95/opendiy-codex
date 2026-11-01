@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! New method contracts through the real initialized JSON-RPC dispatcher and listener.
 use super::message_processor_tracing_tests::{
     build_test_processor_with_state_db, read_response_from,
@@ -479,7 +479,7 @@ async fn passive_listener_replays_general_pending_but_emits_no_idle_lifecycle() 
     let created = manager
         .start_thread(codex_core::StartThreadOptions::new((*config).clone()))
         .await?;
-    host.try_attach_thread_listener(created.thread_id, vec![owner])
+    host.try_attach_thread_listener(created.thread_id, Arc::clone(&created.thread), vec![owner])
         .await;
     processor
         .outgoing

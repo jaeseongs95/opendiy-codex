@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Cache captured shell state in executor memory. Replay through a per-launch
 //! unnamed reader when the capture sandbox permits it; otherwise retain env replay.
 //! Command metrics exclude prewarm and measure lookup/capture wait before replay.
@@ -474,6 +475,7 @@ done
             });
         }
     }
+    shell_environment::scrub_non_inheritable_env_vars(command.as_std_mut());
     let mut child = SnapshotCapture::spawn(&mut command).map_err(|err| {
         (
             "spawn_failed",

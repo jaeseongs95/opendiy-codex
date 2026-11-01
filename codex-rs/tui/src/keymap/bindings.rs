@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Shared inventory of resolved runtime bindings.
 //!
 //! `/keymap` lookup and chord-prefix conflict detection must inspect the same
@@ -115,9 +115,15 @@ impl KeymapActionId {
             (Chat, List) => self.action != "open_presets",
             (List, Chat) => other.action != "open_presets",
 
-            // Activity focus and Find remain available during list navigation.
-            (Global, List) => matches!(self.action, "focus_activity" | "find_transcript"),
-            (List, Global) => matches!(other.action, "focus_activity" | "find_transcript"),
+            // Activity focus, Find, and selection remain available during list navigation.
+            (Global, List) => matches!(
+                self.action,
+                "focus_activity" | "find_transcript" | "select_transcript"
+            ),
+            (List, Global) => matches!(
+                other.action,
+                "focus_activity" | "find_transcript" | "select_transcript"
+            ),
 
             _ => self.context.overlaps(other.context),
         }
@@ -282,6 +288,7 @@ define_runtime_action_bindings! {
         open_agents,
         open_transcript,
         find_transcript,
+        select_transcript,
         focus_activity,
         open_warnings => runtime_only,
         open_external_editor,

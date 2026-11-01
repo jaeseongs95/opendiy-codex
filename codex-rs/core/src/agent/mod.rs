@@ -1,7 +1,11 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 pub(crate) mod agent_resolver;
 pub(crate) mod api;
 pub(crate) mod child_config;
 pub(crate) mod control;
+mod history;
+pub(crate) mod host;
+pub mod management;
 mod registry;
 pub(crate) mod role;
 pub(crate) mod status;

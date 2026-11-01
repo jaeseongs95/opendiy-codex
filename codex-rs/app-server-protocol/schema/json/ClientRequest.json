@@ -17,6 +17,13 @@
         "kind": {
           "$ref": "#/definitions/AdditionalContextKind"
         },
+        "name": {
+          "description": "Optional name for untrusted context, used to label its tool output.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "value": {
           "type": "string"
         }
@@ -1719,11 +1726,18 @@
     "HooksListParams": {
       "properties": {
         "cwds": {
-          "description": "When empty, defaults to the current session working directory.",
+          "description": "Working directories to inspect when no thread is specified. An empty list uses the session cwd.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "threadId": {
+          "description": "List a loaded thread's hooks, including its selected environments. Omit `cwds` in this mode.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -3988,8 +4002,7 @@
     },
     "ReviewDelivery": {
       "enum": [
-        "inline",
-        "detached"
+        "inline"
       ],
       "type": "string"
     },
@@ -4005,7 +4018,7 @@
             }
           ],
           "default": null,
-          "description": "Where to run the review: inline (default) on the current thread or detached on a new thread (returned in `reviewThreadId`). Detached delivery is deprecated and emits `deprecationNotice`. Use `thread/start` followed by an inline review for a separate review thread."
+          "description": "Reviews run inline on the supplied thread. Omit this field or pass `inline`. To review on a separate thread, start a thread first and use its id."
         },
         "target": {
           "$ref": "#/definitions/ReviewTarget"
@@ -4377,6 +4390,15 @@
       ],
       "type": "string"
     },
+    "SubagentManagementAction": {
+      "enum": [
+        "send",
+        "interrupt",
+        "close",
+        "resume"
+      ],
+      "type": "string"
+    },
     "SubagentMigration": {
       "properties": {
         "name": {
@@ -4566,6 +4588,19 @@
       "required": [
         "currentThreadId",
         "parentThreadId"
+      ],
+      "type": "object"
+    },
+    "ThreadCompactStartIfIdleParams": {
+      "additionalProperties": false,
+      "description": "Non-destructive compaction admission for an already loaded, idle runtime.",
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
       ],
       "type": "object"
     },
@@ -5385,6 +5420,13 @@
           "description": "When true, return only thread metadata and live-resume state without populating `thread.turns`. This is useful when the client plans to call `thread/turns/list` immediately after resuming. Full-history hydration is deprecated for paginated threads; use this with `thread/turns/list` and `thread/items/list` instead.",
           "type": "boolean"
         },
+        "expectedRuntimeId": {
+          "description": "Loaded runtime generation comparison, never an authority token.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
           "description": "Configuration overrides for the resumed thread, if any.",
           "type": [
@@ -5788,6 +5830,87 @@
         "clear"
       ],
       "type": "string"
+    },
+    "ThreadSubagentsControlParams": {
+      "additionalProperties": false,
+      "description": "An operator command, admitted through the authenticated app-server connection.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/SubagentManagementAction"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "expectedParentRuntimeId": {
+          "type": "string"
+        },
+        "expectedRuntimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "agentId",
+        "expectedParentRuntimeId",
+        "expectedRuntimeId",
+        "parentThreadId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "ThreadSubagentsListParams": {
+      "additionalProperties": false,
+      "description": "Read only direct children. Responses contain no conversation or filesystem data.",
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "reconcileRequestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "parentThreadId"
+      ],
+      "type": "object"
     },
     "ThreadSubscribePassiveParams": {
       "additionalProperties": false,
@@ -6922,6 +7045,30 @@
         },
         "method": {
           "enum": [
+            "thread/compact/startIfIdle"
+          ],
+          "title": "Thread/compact/startIfIdleRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadCompactStartIfIdleParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/compact/startIfIdleRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
             "thread/shellCommand"
           ],
           "title": "Thread/shellCommandRequestMethod",
@@ -6985,6 +7132,54 @@
         "params"
       ],
       "title": "Thread/revertRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/subagents/list"
+          ],
+          "title": "Thread/subagents/listRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSubagentsListParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/subagents/listRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/subagents/control"
+          ],
+          "title": "Thread/subagents/controlRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadSubagentsControlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/subagents/controlRequest",
       "type": "object"
     },
     {

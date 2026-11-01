@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::sync::Arc;
 
 use crate::session::Submission;
@@ -414,7 +414,9 @@ async fn forward_one_shot_events(
         if let Err(error) = result {
             tracing::warn!(%error, "failed to shut down one-shot delegate");
         }
-        io.session_loop_termination.clone().await;
+        if let Err(error) = io.wait_for_shutdown().await {
+            tracing::warn!(%error, "one-shot delegate cleanup remains unconfirmed");
+        }
     };
     if let Some(event) = terminal {
         // A full consumer queue must not delay teardown, and cancellation may

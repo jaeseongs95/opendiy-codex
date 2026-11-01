@@ -1,14 +1,25 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use clap::Args;
 use clap::FromArgMatches;
 use clap::Parser;
+use clap::ValueEnum;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::ApprovalModeCliArg;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_cli::SharedCliOptions;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum DesktopCronControl {
+    PipeV1,
+}
+
 #[derive(Parser, Clone, Debug)]
 #[command(version)]
 pub struct Cli {
+    /// 인증된 로컬 통로로 Desktop이 소유한 예약 제어를 켭니다.
+    #[arg(long, global = true, value_enum)]
+    pub desktop_cron_control: Option<DesktopCronControl>,
+
     /// Internal: launching CLI that handles daemon updates after the TUI exits.
     #[clap(skip)]
     pub daemon_cli_executable: Option<AbsolutePathBuf>,

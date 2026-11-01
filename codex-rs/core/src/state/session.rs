@@ -1,12 +1,14 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Session-wide mutable state.
 
+use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::BaseInstructionsProvenance;
 #[cfg(test)]
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use super::AdditionalContextStore;
 use super::auto_compact_window::AutoCompactWindow;
@@ -66,9 +68,20 @@ impl ReasoningEffortPin {
     }
 }
 
+/// A connection-owned catalog overlay. Never written to thread history or inherited by children.
+pub(crate) struct RuntimeDynamicTools {
+    pub(crate) owner: u64,
+    pub(crate) disconnected: CancellationToken,
+    pub(crate) tools: Arc<[DynamicToolSpec]>,
+    pub(crate) keys: Vec<(Option<String>, String)>,
+}
+
 /// Persistent, session-scoped state previously stored directly on `Session`.
 pub(crate) struct SessionState {
     pub(crate) session_configuration: SessionConfiguration,
+    /// Catalog to carry across compaction, independent of an explicit resume override.
+    pub(crate) persisted_dynamic_tools: Arc<[DynamicToolSpec]>,
+    pub(crate) runtime_dynamic_tools: Option<RuntimeDynamicTools>,
     /// Plugin selection of the last admitted task; settings updates take effect on the next task.
     pub(crate) active_disabled_plugin_ids: Vec<String>,
     /// Persisted origin of the session base instructions, when known.
@@ -108,6 +121,21 @@ pub(crate) struct SessionState {
 }
 
 impl SessionState {
+    pub(crate) fn set_runtime_dynamic_tools(
+        &mut self,
+        owner: u64,
+        disconnected: CancellationToken,
+        tools: Arc<[DynamicToolSpec]>,
+        keys: Vec<(Option<String>, String)>,
+    ) {
+        self.runtime_dynamic_tools = Some(RuntimeDynamicTools {
+            owner,
+            disconnected,
+            tools,
+            keys,
+        });
+    }
+
     /// Create a new session state mirroring previous `State::default()` semantics.
     #[cfg(test)]
     pub(crate) fn new(session_configuration: SessionConfiguration) -> Self {
@@ -125,6 +153,8 @@ impl SessionState {
     ) -> Self {
         Self {
             active_disabled_plugin_ids: Vec::new(),
+            persisted_dynamic_tools: Arc::clone(&session_configuration.dynamic_tools),
+            runtime_dynamic_tools: None,
             session_configuration,
             base_instructions_provenance: None,
             history,

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Exact, preview-bound cleanup of terminal local child runtimes.
 //!
 //! The manager fence covers a UUID's reload, child creation and unloaded mail;
@@ -115,6 +115,10 @@ pub(crate) struct RuntimeAdmission {
     pub(crate) runtime_id: String,
     revision: AtomicU64,
     closing: AtomicBool,
+    managed_close_owner: std::sync::Mutex<Option<Uuid>>,
+    #[cfg(test)]
+    pub(crate) managed_close_flush_hook:
+        StdMutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     pub(crate) shutdown_result: AtomicU8,
     pub(crate) loop_completed: AtomicBool,
 }
@@ -125,6 +129,9 @@ impl Default for RuntimeAdmission {
             runtime_id: Uuid::new_v4().to_string(),
             revision: AtomicU64::new(0),
             closing: AtomicBool::new(false),
+            managed_close_owner: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            managed_close_flush_hook: StdMutex::new(None),
             shutdown_result: AtomicU8::new(0),
             loop_completed: AtomicBool::new(false),
         }
@@ -142,7 +149,34 @@ impl RuntimeAdmission {
         self.revision.fetch_add(1, Ordering::AcqRel);
     }
     pub(crate) fn close(&self) {
+        let mut owner = self
+            .managed_close_owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *owner = None;
         self.closing.store(true, Ordering::Release);
+    }
+    pub(crate) fn reserve_managed_close(&self, token: Uuid) -> bool {
+        let mut owner = self
+            .managed_close_owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.is_closing() {
+            return false;
+        }
+        *owner = Some(token);
+        self.closing.store(true, Ordering::Release);
+        true
+    }
+    pub(crate) fn rollback_managed_close(&self, token: Uuid) {
+        let mut owner = self
+            .managed_close_owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *owner == Some(token) {
+            *owner = None;
+            self.closing.store(false, Ordering::Release);
+        }
     }
     pub(crate) fn shutdown_failed(&self) {
         self.shutdown_result.store(2, Ordering::Release);
@@ -152,7 +186,7 @@ impl RuntimeAdmission {
             .shutdown_result
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
     }
-    fn shutdown_confirmed(&self) -> bool {
+    pub(crate) fn shutdown_confirmed(&self) -> bool {
         self.shutdown_result.load(Ordering::Acquire) == 1
             && self.loop_completed.load(Ordering::Acquire)
     }
