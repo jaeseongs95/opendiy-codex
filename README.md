@@ -65,7 +65,7 @@ Logging is off unless explicitly enabled in `CODEX_HOME/cli-logging.toml`. Categ
 | Project | Responsibility |
 | --- | --- |
 | **OpenDIY Codex** | CLI, Rust App Server, protocol changes, and build tools |
-| [**Agent Grid**](https://github.com/jaeseongs95/agent-grid) | Desktop interface and multi-session management |
+| [**OpenDIY Desktop**](https://github.com/jaeseongs95/opendiy-desktop) | Desktop interface and multi-session management |
 
 The projects coordinate around the same backend. This repository does not distribute private ChatGPT desktop assets. Source and build tools live in Git; executable packages are published separately in Releases. Credentials and operational logs are excluded.
 
