@@ -1035,7 +1035,7 @@ mod tests {
         let other = ThreadId::new();
         let prompts = [
             format!(
-                "첫 요청 \"인용\" \\ 경로\n다음 줄\t탭\0널\u{1b}ESC\u{7f}DEL\u{85}C1 {}",
+                "첫 요청 \"인용\" \\ 경로\n다음 줄\t탭\u{1b}ESC\u{7f}DEL\u{85}C1 {}",
                 "긴 요청".repeat(1_500)
             ),
             "둘째 요청: 같은 주기, 다른 작업".to_string(),
@@ -1048,6 +1048,13 @@ mod tests {
                 .await
                 .set_active_turn_id("caller-turn".into());
         }
+        app.active_thread_id = Some(caller);
+        let error = app
+            .cron_command(&session, Some(caller), "add --every 1m -- 거부\0요청")
+            .await
+            .expect_err("NUL input must not become a scheduled prompt");
+        assert!(error.contains("NUL"), "{error}");
+        assert!(app.cron.scheduler.jobs.is_empty());
         for (thread, prompt) in [caller, caller, other].into_iter().zip(&prompts) {
             app.active_thread_id = Some(thread);
             app.cron_command(
@@ -1604,7 +1611,8 @@ mod tests {
                 app.handle_polled_backend_event(backends.session(owner).unwrap(), owner, event)
                     .await;
             } else {
-                assert!(connection.live.load(std::sync::atomic::Ordering::Acquire));
+                // next_event fences the closed transport before the queued UI callback runs.
+                assert!(!connection.live.load(std::sync::atomic::Ordering::Acquire));
                 assert_eq!(
                     app.active_turn_id_for_thread(caller).await.as_deref(),
                     Some("caller-turn")

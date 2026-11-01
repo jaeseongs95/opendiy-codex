@@ -36751,7 +36751,7 @@ index 000000000..86daa23b1
 +    }
 +}
 diff --git a/codex-rs/codex-mcp/src/connection_manager_tests.rs b/codex-rs/codex-mcp/src/connection_manager_tests.rs
-index dc184f7ce..19b643551 100644
+index dc184f7ce..f22086d16 100644
 --- a/codex-rs/codex-mcp/src/connection_manager_tests.rs
 +++ b/codex-rs/codex-mcp/src/connection_manager_tests.rs
 @@ -112,6 +112,7 @@ impl McpConnectionSet {
@@ -36762,7 +36762,50 @@ index dc184f7ce..19b643551 100644
              tool_plugin_context: Arc::new(ToolPluginContext::default()),
              prefix_mcp_tool_names,
              non_prefixed_mcp_tool_servers: Vec::new(),
-@@ -621,6 +622,7 @@ async fn connection_statuses_observe_clients_without_starting_them() {
+@@ -129,42 +130,6 @@ impl McpConnectionSet {
+         }
+     }
+ 
+-    pub(crate) fn insert_test_client(
+-        &mut self,
+-        name: impl Into<String>,
+-        client: AsyncManagedClient,
+-    ) {
+-        let name = name.into();
+-        self.servers.insert(
+-            name,
+-            McpServerView {
+-                refresh_tool_list: true,
+-                refresh_timeout: DEFAULT_STARTUP_TIMEOUT,
+-                tool_filter: ToolFilter::default(),
+-                protocol_mode: crate::McpProtocolMode::Legacy,
+-                startup_readiness: Default::default(),
+-                connection: Arc::new(McpServerConnection {
+-                    identity: None,
+-                    client,
+-                    startup_timeout: DEFAULT_STARTUP_TIMEOUT,
+-                    startup_trigger: None,
+-                    legacy_fallback: None,
+-                    _diagnostics_guard: LIVE_CONNECTIONS.track(),
+-                }),
+-                metadata: McpServerMetadata {
+-                    environment_id: String::new(),
+-                    pollutes_memory: true,
+-                    origin: None,
+-                    supports_parallel_tool_calls: false,
+-                    default_tools_approval_mode: None,
+-                    tool_approval_modes: HashMap::new(),
+-                },
+-                tool_timeout: None,
+-                catalog_item_limit: crate::pagination::MAX_MCP_CATALOG_ITEMS,
+-            },
+-        );
+-    }
+-
+     fn test_client(&self, name: &str) -> &AsyncManagedClient {
+         &self.servers[name].connection.client
+     }
+@@ -621,6 +586,7 @@ async fn connection_statuses_observe_clients_without_starting_them() {
                  error: "broken".to_string(),
                  is_authentication_required: false,
                  is_ema_authentication_required: false,
@@ -36770,7 +36813,7 @@ index dc184f7ce..19b643551 100644
                  shutdown: None,
              },
          ),
-@@ -630,6 +632,7 @@ async fn connection_statuses_observe_clients_without_starting_them() {
+@@ -630,6 +596,7 @@ async fn connection_statuses_observe_clients_without_starting_them() {
                  error: "login".to_string(),
                  is_authentication_required: true,
                  is_ema_authentication_required: false,
@@ -36778,7 +36821,7 @@ index dc184f7ce..19b643551 100644
                  shutdown: None,
              },
          ),
-@@ -706,6 +709,7 @@ async fn connection_statuses_follow_latest_reconnect_outcome() {
+@@ -706,6 +673,7 @@ async fn connection_statuses_follow_latest_reconnect_outcome() {
                          error: "retry failed".to_string(),
                          is_authentication_required: attempt == 0,
                          is_ema_authentication_required: false,
@@ -36786,7 +36829,7 @@ index dc184f7ce..19b643551 100644
                          shutdown: None,
                      }),
                      _ => Ok(recovered),
-@@ -877,6 +881,7 @@ fn create_test_manager_with_failed_apps_startup(
+@@ -877,6 +845,7 @@ fn create_test_manager_with_failed_apps_startup(
          error: "startup failed".to_string(),
          is_authentication_required: false,
          is_ema_authentication_required: false,
@@ -36794,15 +36837,7 @@ index dc184f7ce..19b643551 100644
          shutdown: None,
      }))
      .boxed()
-@@ -3046,6 +3051,7 @@ async fn capture_binding_skips_pending_optional_servers_after_configured_shared_
-                 startup_complete: Arc::new(AtomicBool::new(false)),
-                 connection_slot: None,
-                 startup_reconnect: None,
-+                connection_slot: None,
-                 cancel_token: CancellationToken::new(),
-             },
-         );
-@@ -3222,6 +3228,7 @@ async fn stable_catalog_revisions_ignore_terminal_optional_server_failures() {
+@@ -3222,6 +3191,7 @@ async fn stable_catalog_revisions_ignore_terminal_optional_server_failures() {
              error: "optional startup failed".to_string(),
              is_authentication_required: false,
              is_ema_authentication_required: false,
@@ -36810,15 +36845,7 @@ index dc184f7ce..19b643551 100644
              shutdown: None,
          },
      ))
-@@ -3302,6 +3309,7 @@ async fn capture_binding_shares_optional_startup_grace_across_connection_sets()
-                 startup_complete: Arc::new(AtomicBool::new(false)),
-                 connection_slot: None,
-                 startup_reconnect: None,
-+                connection_slot: None,
-                 cancel_token: CancellationToken::new(),
-             },
-         );
-@@ -4188,6 +4196,7 @@ async fn list_all_tools_uses_shared_codex_apps_cache_when_client_startup_fails()
+@@ -4188,6 +4158,7 @@ async fn list_all_tools_uses_shared_codex_apps_cache_when_client_startup_fails()
              error: "startup failed".to_string(),
              is_authentication_required: false,
              is_ema_authentication_required: false,
@@ -36826,7 +36853,7 @@ index dc184f7ce..19b643551 100644
              shutdown: None,
          },
      ))
-@@ -4350,6 +4359,7 @@ async fn later_tool_list_retries_after_failed_reconnect_and_keeps_cached_tools()
+@@ -4350,6 +4321,7 @@ async fn later_tool_list_retries_after_failed_reconnect_and_keeps_cached_tools()
                      error: "recreated startup failed".to_string(),
                      is_authentication_required: false,
                      is_ema_authentication_required: false,
@@ -36834,7 +36861,7 @@ index dc184f7ce..19b643551 100644
                      shutdown: None,
                  })
              } else {
-@@ -5157,6 +5167,7 @@ fn mcp_init_error_display_prompts_for_login_when_auth_required() {
+@@ -5157,6 +5129,7 @@ fn mcp_init_error_display_prompts_for_login_when_auth_required() {
              error: "OAuth refresh token was rejected: invalid_grant".to_string(),
              is_authentication_required: true,
              is_ema_authentication_required: false,
@@ -36842,7 +36869,7 @@ index dc184f7ce..19b643551 100644
              shutdown: None,
          },
      ] {
-@@ -5190,6 +5201,7 @@ fn mcp_init_error_display_identifies_oauth_reauthentication() {
+@@ -5190,6 +5163,7 @@ fn mcp_init_error_display_identifies_oauth_reauthentication() {
          error: "authorization required: Bearer error=\"invalid_token\"".to_string(),
          is_authentication_required: true,
          is_ema_authentication_required: false,
@@ -36850,7 +36877,7 @@ index dc184f7ce..19b643551 100644
          shutdown: None,
      };
      let executor_config: McpServerConfig = serde_json::from_value(serde_json::json!({
-@@ -5255,6 +5267,7 @@ fn mcp_startup_failure_reason_requires_existing_oauth_and_auth_failure() {
+@@ -5255,6 +5229,7 @@ fn mcp_startup_failure_reason_requires_existing_oauth_and_auth_failure() {
              error: "startup failed".to_string(),
              is_authentication_required,
              is_ema_authentication_required: false,
@@ -36858,7 +36885,7 @@ index dc184f7ce..19b643551 100644
              shutdown: None,
          };
  
-@@ -6187,6 +6200,7 @@ async fn reconciliation_retries_non_oauth_authentication_failures() {
+@@ -6187,6 +6162,7 @@ async fn reconciliation_retries_non_oauth_authentication_failures() {
          error: "bearer token rejected".to_string(),
          is_authentication_required: true,
          is_ema_authentication_required: false,
@@ -36866,7 +36893,7 @@ index dc184f7ce..19b643551 100644
          shutdown: None,
      }))
      .boxed()
-@@ -7033,3 +7047,47 @@ async fn view_only_changes_reuse_connection_and_preserve_the_old_step() {
+@@ -7033,3 +7009,47 @@ async fn view_only_changes_reuse_connection_and_preserve_the_old_step() {
      );
      assert_eq!(new_call.tool_approval_mode(), AppToolApproval::Approve);
  }
@@ -49669,10 +49696,10 @@ index e622f4102..118ea91f1 100644
          ThreadStoreError::InvalidRequest { .. } => "thread_store_invalid_request",
          ThreadStoreError::Conflict { .. } => "thread_store_conflict",
 diff --git a/codex-rs/core/src/thread_manager_tests.rs b/codex-rs/core/src/thread_manager_tests.rs
-index b46fe16e2..d7820e702 100644
+index b46fe16e2..d4e373414 100644
 --- a/codex-rs/core/src/thread_manager_tests.rs
 +++ b/codex-rs/core/src/thread_manager_tests.rs
-@@ -57,6 +57,166 @@ use wiremock::MockServer;
+@@ -57,6 +57,172 @@ use wiremock::MockServer;
  
  const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
  
@@ -49697,6 +49724,12 @@ index b46fe16e2..d7820e702 100644
 +        .expect("start source");
 +    source
 +        .thread
++        .checkpoint_preparation()
++        .await
++        .expect("persist the source before testing resume");
++    source.thread.flush_rollout().await.expect("flush source");
++    source
++        .thread
 +        .shutdown_and_wait()
 +        .await
 +        .expect("normal cleanup");
@@ -49704,7 +49737,7 @@ index b46fe16e2..d7820e702 100644
 +        history_revision: None,
 +        conversation_id: source.thread_id,
 +        history: Arc::new(Vec::new()),
-+        rollout_path: None,
++        rollout_path: source.thread.rollout_path(),
 +    });
 +    let resume_options = || {
 +        let mut options = StartThreadOptions::new(config.clone());
@@ -50320,7 +50353,7 @@ index 2a2eb2afe..7fef5a112 100644
          );
          span.record(
 diff --git a/codex-rs/core/src/unified_exec/process_manager_tests.rs b/codex-rs/core/src/unified_exec/process_manager_tests.rs
-index f17801b2f..b8cb69fff 100644
+index f17801b2f..6ee2feaba 100644
 --- a/codex-rs/core/src/unified_exec/process_manager_tests.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager_tests.rs
 @@ -639,6 +639,7 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
@@ -50331,7 +50364,7 @@ index f17801b2f..b8cb69fff 100644
                  hook_command: format!("command-{process_id}"),
                  tty: false,
                  environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
-@@ -670,3 +671,311 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
+@@ -670,3 +671,319 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
          (None, MAX_UNIFIED_EXEC_PROCESSES)
      );
  }
@@ -50507,6 +50540,14 @@ index f17801b2f..b8cb69fff 100644
 +    #[cfg(windows)]
 +    let prepared = {
 +        let mut prepared = prepared;
++        // 시험은 접근 불가능할 수 있는 Store 별칭 대신 실제 시스템 셸을 사용한다.
++        // 모델의 shell 인자는 원래 경로가 아니라 셸 종류를 선택한다.
++        let shell_path =
++            std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("Windows system root"))
++                .join("System32/WindowsPowerShell/v1.0/powershell.exe");
++        assert!(shell_path.is_file(), "system PowerShell executable");
++        prepared.resolved.shell.shell.shell_path = shell_path.clone();
++        prepared.resolved.command[0] = shell_path.to_string_lossy().into_owned();
 +        prepared
 +            .resolved
 +            .command
@@ -61345,10 +61386,10 @@ index 8a04d7245..5eecbbdeb 100644
      pub(super) fn reasoning_label(reasoning_effort: Option<&ReasoningEffortConfig>) -> String {
 diff --git a/codex-rs/tui/src/app/cron_jobs.rs b/codex-rs/tui/src/app/cron_jobs.rs
 new file mode 100644
-index 000000000..d4aa64bb3
+index 000000000..add3c1bb1
 --- /dev/null
 +++ b/codex-rs/tui/src/app/cron_jobs.rs
-@@ -0,0 +1,2530 @@
+@@ -0,0 +1,2538 @@
 +//! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 +use super::*;
 +use crate::backend_id::BackendId;
@@ -62385,7 +62426,7 @@ index 000000000..d4aa64bb3
 +        let other = ThreadId::new();
 +        let prompts = [
 +            format!(
-+                "첫 요청 \"인용\" \\ 경로\n다음 줄\t탭\0널\u{1b}ESC\u{7f}DEL\u{85}C1 {}",
++                "첫 요청 \"인용\" \\ 경로\n다음 줄\t탭\u{1b}ESC\u{7f}DEL\u{85}C1 {}",
 +                "긴 요청".repeat(1_500)
 +            ),
 +            "둘째 요청: 같은 주기, 다른 작업".to_string(),
@@ -62398,6 +62439,13 @@ index 000000000..d4aa64bb3
 +                .await
 +                .set_active_turn_id("caller-turn".into());
 +        }
++        app.active_thread_id = Some(caller);
++        let error = app
++            .cron_command(&session, Some(caller), "add --every 1m -- 거부\0요청")
++            .await
++            .expect_err("NUL input must not become a scheduled prompt");
++        assert!(error.contains("NUL"), "{error}");
++        assert!(app.cron.scheduler.jobs.is_empty());
 +        for (thread, prompt) in [caller, caller, other].into_iter().zip(&prompts) {
 +            app.active_thread_id = Some(thread);
 +            app.cron_command(
@@ -62954,7 +63002,8 @@ index 000000000..d4aa64bb3
 +                app.handle_polled_backend_event(backends.session(owner).unwrap(), owner, event)
 +                    .await;
 +            } else {
-+                assert!(connection.live.load(std::sync::atomic::Ordering::Acquire));
++                // next_event fences the closed transport before the queued UI callback runs.
++                assert!(!connection.live.load(std::sync::atomic::Ordering::Acquire));
 +                assert_eq!(
 +                    app.active_turn_id_for_thread(caller).await.as_deref(),
 +                    Some("caller-turn")

@@ -79,6 +79,12 @@ async fn stopped_runtime_resume_requires_confirmed_cleanup_before_replacement() 
         .expect("start source");
     source
         .thread
+        .checkpoint_preparation()
+        .await
+        .expect("persist the source before testing resume");
+    source.thread.flush_rollout().await.expect("flush source");
+    source
+        .thread
         .shutdown_and_wait()
         .await
         .expect("normal cleanup");
@@ -86,7 +92,7 @@ async fn stopped_runtime_resume_requires_confirmed_cleanup_before_replacement() 
         history_revision: None,
         conversation_id: source.thread_id,
         history: Arc::new(Vec::new()),
-        rollout_path: None,
+        rollout_path: source.thread.rollout_path(),
     });
     let resume_options = || {
         let mut options = StartThreadOptions::new(config.clone());

@@ -844,6 +844,14 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
     #[cfg(windows)]
     let prepared = {
         let mut prepared = prepared;
+        // 시험은 접근 불가능할 수 있는 Store 별칭 대신 실제 시스템 셸을 사용한다.
+        // 모델의 shell 인자는 원래 경로가 아니라 셸 종류를 선택한다.
+        let shell_path =
+            std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("Windows system root"))
+                .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        assert!(shell_path.is_file(), "system PowerShell executable");
+        prepared.resolved.shell.shell.shell_path = shell_path.clone();
+        prepared.resolved.command[0] = shell_path.to_string_lossy().into_owned();
         prepared
             .resolved
             .command

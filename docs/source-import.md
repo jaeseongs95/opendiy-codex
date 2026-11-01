@@ -1,6 +1,6 @@
 # 공식 0.166.0 기반 R31 소스
 
-현재 고정 후보는 `4f63b43b1c7eeffa09318d4a0a5ecb8ff6bd9f31`이며 공식 `rust-v0.166.0` 전체를 기반으로 한다. 이전 공개 커밋 `f28920f`의 후속 시험도 보존했다. [출처 목록](../SOURCE_BASELINE.json)·`upstream/source-inventory.json`·`upstream/official-0.166.0.patch`가 현재 입력을 식별한다.
+현재 고정 후보는 `5df31bc7f83e8427000a3672fb6ca48d22d8d2e8`이며 공식 `rust-v0.166.0` 전체를 기반으로 한다. 이전 공개 커밋 `f28920f`의 후속 시험도 보존했다. [출처 목록](../SOURCE_BASELINE.json)·`upstream/source-inventory.json`·`upstream/official-0.166.0.patch`가 현재 입력을 식별한다.
 
 소스 내보내기 검사는 통과했으나 제품 컴파일·회귀 검증은 진행 중이다. 현재 실행·설치된 R30과 구분하며, [변경 및 검증 범위](../MODIFICATIONS.md)와 [시험 안내](TESTING.md)를 따른다. 기존 README·라이선스·고지문은 보존했다.
 
