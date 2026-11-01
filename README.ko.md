@@ -65,7 +65,7 @@ PowerShell이 아니라 CLI의 대화 입력창에 입력합니다. 아래 예�
 | 프로젝트 | 담당 |
 | --- | --- |
 | **OpenDIY Codex** | CLI·Rust App Server·통신 규약 변경·빌드 도구 |
-| [**Agent Grid**](https://github.com/jaeseongs95/agent-grid) | 데스크톱 화면·다중 세션 관리 |
+| [**OpenDIY Desktop**](https://github.com/jaeseongs95/opendiy-desktop) | 데스크톱 화면·다중 세션 관리 |
 
 두 프로젝트는 같은 백엔드를 중심으로 협업합니다. 이 저장소에서 비공개 ChatGPT 데스크톱 자산을 배포하지 않습니다. Git에는 소스와 빌드 도구를, 릴리즈에는 실행 패키지를 올립니다. 인증 정보와 운영 로그는 제외합니다.
 
