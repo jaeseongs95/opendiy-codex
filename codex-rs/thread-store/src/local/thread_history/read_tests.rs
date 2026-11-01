@@ -417,7 +417,9 @@ async fn summary_probe_uses_primary_key_without_reading_payload_bytes() {
             .collect::<Vec<_>>(),
         vec!["thread_id", "turn_id", "item_id"]
     );
-    let explain = sqlx::query(&format!("EXPLAIN {SUMMARY_ITEMS_QUERY}"))
+    let explain = sqlx::QueryBuilder::<sqlx::Sqlite>::new("EXPLAIN ")
+        .push(SUMMARY_ITEMS_QUERY)
+        .build()
         .bind(thread_id.to_string())
         .bind("turn")
         .bind(1_i64)
@@ -436,7 +438,9 @@ async fn summary_probe_uses_primary_key_without_reading_payload_bytes() {
     assert_eq!(payload_columns.len(), 1);
     assert_eq!(payload_columns[0].get::<i64, _>("p5") & 0xc0, 0xc0);
 
-    let plan = sqlx::query(&format!("EXPLAIN QUERY PLAN {SUMMARY_ITEMS_QUERY}"))
+    let plan = sqlx::QueryBuilder::<sqlx::Sqlite>::new("EXPLAIN QUERY PLAN ")
+        .push(SUMMARY_ITEMS_QUERY)
+        .build()
         .bind(thread_id.to_string())
         .bind("turn")
         .bind(1_i64)
