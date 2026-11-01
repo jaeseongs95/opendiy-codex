@@ -423,7 +423,7 @@ async fn display_window_reaccounts_mutable_tool_results() {
         "success": null, "durationMs": null,
     }))
     .unwrap();
-    let cell = crate::history_cell::DynamicToolCallCell::from_item(started).unwrap();
+    let cell = crate::history_cell::DynamicToolCallCell::from_item(started.payload).unwrap();
     app.transcript_cells.push(Arc::new(cell.clone()));
     app.bound_history_window(false);
     assert!(weak.upgrade().is_some());
@@ -434,7 +434,7 @@ async fn display_window_reaccounts_mutable_tool_results() {
         ], "success": true, "durationMs": 1,
     }))
     .unwrap();
-    assert!(cell.update_from_item(completed));
+    assert!(cell.update_from_item(completed.payload));
     app.bound_history_window(false);
     assert_eq!(app.transcript_cells.len(), 1);
     assert!(weak.upgrade().is_none());

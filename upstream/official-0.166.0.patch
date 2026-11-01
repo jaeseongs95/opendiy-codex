@@ -61332,7 +61332,7 @@ index 8a04d7245..5eecbbdeb 100644
      pub(super) fn reasoning_label(reasoning_effort: Option<&ReasoningEffortConfig>) -> String {
 diff --git a/codex-rs/tui/src/app/cron_jobs.rs b/codex-rs/tui/src/app/cron_jobs.rs
 new file mode 100644
-index 000000000..179ab68d4
+index 000000000..d4aa64bb3
 --- /dev/null
 +++ b/codex-rs/tui/src/app/cron_jobs.rs
 @@ -0,0 +1,2530 @@
@@ -61386,7 +61386,7 @@ index 000000000..179ab68d4
 +    pub(super) tool_tasks:
 +        HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
 +    pub(super) closed_threads: HashSet<(BackendId, ThreadId)>,
-+    model_calls: HashMap<
++    pub(super) model_calls: HashMap<
 +        (BackendId, uuid::Uuid, ThreadId, String, String),
 +        (String, codex_app_server_protocol::DynamicToolCallResponse),
 +    >,
@@ -65149,7 +65149,7 @@ index f7210795b..f6bf398c6 100644
  #[path = "history_pagination_tests.rs"]
  mod tests;
 diff --git a/codex-rs/tui/src/app/history_pagination_tests.rs b/codex-rs/tui/src/app/history_pagination_tests.rs
-index 949592d2f..c3e040725 100644
+index 949592d2f..bae40f6d4 100644
 --- a/codex-rs/tui/src/app/history_pagination_tests.rs
 +++ b/codex-rs/tui/src/app/history_pagination_tests.rs
 @@ -307,3 +307,147 @@ async fn browsing_waits_for_a_prompt_outside_the_initial_history_window() -> Res
@@ -65271,7 +65271,7 @@ index 949592d2f..c3e040725 100644
 +        "success": null, "durationMs": null,
 +    }))
 +    .unwrap();
-+    let cell = crate::history_cell::DynamicToolCallCell::from_item(started).unwrap();
++    let cell = crate::history_cell::DynamicToolCallCell::from_item(started.payload).unwrap();
 +    app.transcript_cells.push(Arc::new(cell.clone()));
 +    app.bound_history_window(false);
 +    assert!(weak.upgrade().is_some());
@@ -65282,7 +65282,7 @@ index 949592d2f..c3e040725 100644
 +        ], "success": true, "durationMs": 1,
 +    }))
 +    .unwrap();
-+    assert!(cell.update_from_item(completed));
++    assert!(cell.update_from_item(completed.payload));
 +    app.bound_history_window(false);
 +    assert_eq!(app.transcript_cells.len(), 1);
 +    assert!(weak.upgrade().is_none());
@@ -70994,7 +70994,7 @@ index 2adc3036a..a9ac3a569 100644
      PersistServiceTierSelection {
          service_tier: Option<String>,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index 683e7328e..f7c017f06 100644
+index 683e7328e..3bc7c6bab 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
 @@ -8,6 +8,8 @@ mod events;
@@ -71292,7 +71292,7 @@ index 683e7328e..f7c017f06 100644
          self.client.shutdown().await
      }
  
-@@ -2899,6 +3045,159 @@ mod tests {
+@@ -2899,6 +3045,181 @@ mod tests {
          Ok(())
      }
  
@@ -71306,7 +71306,10 @@ index 683e7328e..f7c017f06 100644
 +        );
 +        let thread = ThreadId::new();
 +        session.runtime_tool_registration_generation = 3;
-+        *session.pending_runtime_tool_resume.lock().await = Some((
++        *session
++            .pending_runtime_tool_resume
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
 +            3,
 +            session.connection_id,
 +            ThreadResumeParams {
@@ -71367,7 +71370,13 @@ index 683e7328e..f7c017f06 100644
 +            )
 +            .await;
 +        assert!(commands.try_recv().is_err());
-+        assert!(session.pending_runtime_tool_resume.lock().await.is_none());
++        assert!(
++            session
++                .pending_runtime_tool_resume
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner)
++                .is_none()
++        );
 +    }
 +
 +    #[tokio::test]
@@ -71396,7 +71405,13 @@ index 683e7328e..f7c017f06 100644
 +            }
 +            tokio::task::yield_now().await;
 +            assert!(commands.try_recv().is_err(), "{case}");
-+            assert!(session.pending_runtime_tool_resume.lock().await.is_none());
++            assert!(
++                session
++                    .pending_runtime_tool_resume
++                    .lock()
++                    .unwrap_or_else(std::sync::PoisonError::into_inner)
++                    .is_none()
++            );
 +        }
 +    }
 +
@@ -71411,7 +71426,10 @@ index 683e7328e..f7c017f06 100644
 +            );
 +            let thread = ThreadId::new();
 +            session.runtime_tool_registration_generation = 3;
-+            *session.pending_runtime_tool_resume.lock().await = Some((
++            *session
++                .pending_runtime_tool_resume
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
 +                if case == "generation" { 2 } else { 3 },
 +                if case == "connection" {
 +                    uuid::Uuid::new_v4()
@@ -71443,7 +71461,11 @@ index 683e7328e..f7c017f06 100644
 +                .await;
 +            assert!(commands.try_recv().is_err(), "{case}");
 +            assert!(
-+                session.pending_runtime_tool_resume.lock().await.is_none(),
++                session
++                    .pending_runtime_tool_resume
++                    .lock()
++                    .unwrap_or_else(std::sync::PoisonError::into_inner)
++                    .is_none(),
 +                "{case}"
 +            );
 +        }
@@ -71452,7 +71474,7 @@ index 683e7328e..f7c017f06 100644
      #[tokio::test]
      async fn bootstrap_reads_account_when_no_prefetched_account_is_available() -> Result<()> {
          let codex_home = tempfile::tempdir()?;
-@@ -4525,6 +4824,10 @@ mod tests {
+@@ -4525,6 +4846,10 @@ mod tests {
          let forked_from_id = ThreadId::new();
          let read_only_profile = PermissionProfile::read_only();
          let response = ThreadResumeResponse {
@@ -72471,10 +72493,10 @@ index 0f12c95a8..915063759 100644
 +    assert!(!super::is_unmaterialized_history_error(&transport));
 +}
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index 98d979a5f..85b77eb48 100644
+index 98d979a5f..a06a226d6 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
-@@ -29,6 +29,95 @@ use color_eyre::eyre::Result;
+@@ -29,6 +29,104 @@ use color_eyre::eyre::Result;
  const READ_ONLY_HISTORY_TURN_LIMIT: u32 = 100;
  
  impl AppServerSession {
@@ -72483,11 +72505,17 @@ index 98d979a5f..85b77eb48 100644
 +            self.runtime_tool_registration_generation.wrapping_add(1);
 +        self.runtime_tool_registration_lifetime.cancel();
 +        self.runtime_tool_registration_lifetime = tokio_util::sync::CancellationToken::new();
-+        *self.pending_runtime_tool_resume.lock().await = None;
++        *self
++            .pending_runtime_tool_resume
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 +    }
 +    #[cfg(test)]
 +    pub(crate) async fn remember_runtime_tools_busy_for_test(&self, thread: ThreadId) {
-+        *self.pending_runtime_tool_resume.lock().await = Some((
++        *self
++            .pending_runtime_tool_resume
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
 +            self.runtime_tool_registration_generation,
 +            self.connection_id,
 +            codex_app_server_protocol::ThreadResumeParams {
@@ -72510,7 +72538,10 @@ index 98d979a5f..85b77eb48 100644
 +        selected: Option<ThreadId>,
 +        selection: Option<tokio_util::sync::CancellationToken>,
 +    ) {
-+        let mut pending = self.pending_runtime_tool_resume.lock().await;
++        let mut pending = self
++            .pending_runtime_tool_resume
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
 +        let Some((generation, connection, params)) = pending.as_ref() else {
 +            return;
 +        };
@@ -72570,7 +72601,7 @@ index 98d979a5f..85b77eb48 100644
      /// Read a conflicting thread without taking its writer lease. This is a snapshot, not an
      /// attachment: the caller must not route turns through this session.
      pub(crate) async fn read_thread_for_viewing(
-@@ -37,6 +126,7 @@ impl AppServerSession {
+@@ -37,6 +135,7 @@ impl AppServerSession {
          local_settings: &crate::local_settings::LocalSettings,
          thread_id: ThreadId,
      ) -> Result<(AppServerStartedThread, Option<&'static str>)> {
@@ -72578,7 +72609,7 @@ index 98d979a5f..85b77eb48 100644
          let mut thread = self.thread_read(thread_id, /*include_turns*/ false).await?;
          let mut history_notice = None;
          if let Err(error) = self
-@@ -156,6 +246,7 @@ impl AppServerSession {
+@@ -156,6 +255,7 @@ impl AppServerSession {
          model_settings: ResumeModelSettings,
          permission_overrides: crate::resume_permissions::ResumePermissions,
      ) -> Result<AppServerStartedThread> {
@@ -72586,7 +72617,7 @@ index 98d979a5f..85b77eb48 100644
          if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
              self.thread_tool_transport().validate_config(&config)?;
          }
-@@ -181,8 +272,7 @@ impl AppServerSession {
+@@ -181,8 +281,7 @@ impl AppServerSession {
              params.model_provider = self.explicit_model_provider(&config);
          }
          if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
@@ -72596,7 +72627,7 @@ index 98d979a5f..85b77eb48 100644
          }
          let mut rollout_maintenance_guard = None;
          params.exclude_turns = if self.history_support == ThreadHistorySupport::Paginated {
-@@ -230,7 +320,10 @@ impl AppServerSession {
+@@ -230,7 +329,10 @@ impl AppServerSession {
                  params.exclude_turns = false;
                  let request_id = self.next_request_id();
                  self.client
@@ -72608,7 +72639,7 @@ index 98d979a5f..85b77eb48 100644
                      .await
                      .map_err(|err| {
                          bootstrap_request_error("thread/resume failed during TUI bootstrap", err)
-@@ -243,15 +336,52 @@ impl AppServerSession {
+@@ -243,15 +345,55 @@ impl AppServerSession {
                  ));
              }
          };
@@ -72627,7 +72658,10 @@ index 98d979a5f..85b77eb48 100644
 +                response.runtime_dynamic_tools_runtime_id.as_deref(),
 +            ) {
 +                (Some(false), Some(runtime_id)) => {
-+                    *self.pending_runtime_tool_resume.lock().await = Some((
++                    *self
++                        .pending_runtime_tool_resume
++                        .lock()
++                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
 +                        self.runtime_tool_registration_generation,
 +                        self.connection_id,
 +                        codex_app_server_protocol::ThreadResumeParams {

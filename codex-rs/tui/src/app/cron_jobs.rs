@@ -49,7 +49,7 @@ pub(crate) struct CronState {
     pub(super) tool_tasks:
         HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
     pub(super) closed_threads: HashSet<(BackendId, ThreadId)>,
-    model_calls: HashMap<
+    pub(super) model_calls: HashMap<
         (BackendId, uuid::Uuid, ThreadId, String, String),
         (String, codex_app_server_protocol::DynamicToolCallResponse),
     >,

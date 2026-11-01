@@ -35,11 +35,17 @@ impl AppServerSession {
             self.runtime_tool_registration_generation.wrapping_add(1);
         self.runtime_tool_registration_lifetime.cancel();
         self.runtime_tool_registration_lifetime = tokio_util::sync::CancellationToken::new();
-        *self.pending_runtime_tool_resume.lock().await = None;
+        *self
+            .pending_runtime_tool_resume
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
     #[cfg(test)]
     pub(crate) async fn remember_runtime_tools_busy_for_test(&self, thread: ThreadId) {
-        *self.pending_runtime_tool_resume.lock().await = Some((
+        *self
+            .pending_runtime_tool_resume
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
             self.runtime_tool_registration_generation,
             self.connection_id,
             codex_app_server_protocol::ThreadResumeParams {
@@ -62,7 +68,10 @@ impl AppServerSession {
         selected: Option<ThreadId>,
         selection: Option<tokio_util::sync::CancellationToken>,
     ) {
-        let mut pending = self.pending_runtime_tool_resume.lock().await;
+        let mut pending = self
+            .pending_runtime_tool_resume
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some((generation, connection, params)) = pending.as_ref() else {
             return;
         };
@@ -343,7 +352,10 @@ impl AppServerSession {
                 response.runtime_dynamic_tools_runtime_id.as_deref(),
             ) {
                 (Some(false), Some(runtime_id)) => {
-                    *self.pending_runtime_tool_resume.lock().await = Some((
+                    *self
+                        .pending_runtime_tool_resume
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
                         self.runtime_tool_registration_generation,
                         self.connection_id,
                         codex_app_server_protocol::ThreadResumeParams {
