@@ -59680,10 +59680,10 @@ index e2afaa642..c7260c95e 100644
      row: sqlx::sqlite::SqliteRow,
  ) -> ThreadStoreResult<StoredThreadItemRow> {
 diff --git a/codex-rs/thread-store/src/local/thread_history/read_tests.rs b/codex-rs/thread-store/src/local/thread_history/read_tests.rs
-index b974327dc..3b3b160a1 100644
+index b974327dc..97b38f7af 100644
 --- a/codex-rs/thread-store/src/local/thread_history/read_tests.rs
 +++ b/codex-rs/thread-store/src/local/thread_history/read_tests.rs
-@@ -334,6 +334,504 @@ async fn item_anchors_page_exclusively_while_the_turn_grows() {
+@@ -334,6 +334,508 @@ async fn item_anchors_page_exclusively_while_the_turn_grows() {
      }
  }
  
@@ -59769,7 +59769,9 @@ index b974327dc..3b3b160a1 100644
 +            .collect::<Vec<_>>(),
 +        vec!["thread_id", "turn_id", "item_id"]
 +    );
-+    let explain = sqlx::query(&format!("EXPLAIN {SUMMARY_ITEMS_QUERY}"))
++    let explain = sqlx::QueryBuilder::<sqlx::Sqlite>::new("EXPLAIN ")
++        .push(SUMMARY_ITEMS_QUERY)
++        .build()
 +        .bind(thread_id.to_string())
 +        .bind("turn")
 +        .bind(1_i64)
@@ -59788,7 +59790,9 @@ index b974327dc..3b3b160a1 100644
 +    assert_eq!(payload_columns.len(), 1);
 +    assert_eq!(payload_columns[0].get::<i64, _>("p5") & 0xc0, 0xc0);
 +
-+    let plan = sqlx::query(&format!("EXPLAIN QUERY PLAN {SUMMARY_ITEMS_QUERY}"))
++    let plan = sqlx::QueryBuilder::<sqlx::Sqlite>::new("EXPLAIN QUERY PLAN ")
++        .push(SUMMARY_ITEMS_QUERY)
++        .build()
 +        .bind(thread_id.to_string())
 +        .bind("turn")
 +        .bind(1_i64)
@@ -60188,7 +60192,7 @@ index b974327dc..3b3b160a1 100644
  #[tokio::test]
  async fn item_anchors_require_creation_order_without_an_update_watermark() {
      let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
-@@ -1656,6 +2154,7 @@ async fn insert_turn(
+@@ -1656,6 +2158,7 @@ async fn insert_turn(
      first_user_item_id: Option<&str>,
      final_agent_item_id: Option<&str>,
  ) {
@@ -60196,7 +60200,7 @@ index b974327dc..3b3b160a1 100644
      sqlx::query(
          r#"
  INSERT INTO thread_turns (
-@@ -1688,6 +2187,7 @@ async fn insert_item(
+@@ -1688,6 +2191,7 @@ async fn insert_item(
      item_id: &str,
      rollout_ordinal: i64,
  ) {
@@ -60204,7 +60208,7 @@ index b974327dc..3b3b160a1 100644
      let (item_type, item_json) = fixture_item(item_id);
      sqlx::query(
          "INSERT INTO thread_items (thread_id, turn_id, item_id, rollout_ordinal, updated_at_ordinal, created_at_ms, item_type, item_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-@@ -1705,6 +2205,13 @@ async fn insert_item(
+@@ -1705,6 +2209,13 @@ async fn insert_item(
      .expect("insert item fixture");
  }
  
