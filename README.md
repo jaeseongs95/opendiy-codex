@@ -75,7 +75,7 @@ The projects coordinate around the same backend. This repository does not distri
 | --- | --- | --- |
 | Published R30, based on official 0.165.0 | No validated pair designated | R30's own checks are separate from joint Desktop validation |
 | R31 candidate, based on official 0.166.0, `e8a1d84d` | v0.6.0 candidate, `deba0725` | Static comparison of compatibility-related protocol fields only; joint checks with final executables pending |
-| R32 follow-up patch on R31, `b0d8fa11` | Follow-up candidate, `13f20c6` | Source candidates for pairing review; no executable or joint-test result yet |
+| R32 follow-up patch on R31, `b0d8fa11` | Follow-up candidate, `6929409` | Source candidates for pairing review; no executable or joint-test result yet |
 
 Rows identify candidates to check together, not a compatibility guarantee. Only pairs that pass actual joint tests will be marked validated. The default CLI may select an existing shared server, so checks must identify the running CLI and server paths, versions, and hashes separately.
 
