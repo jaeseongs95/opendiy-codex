@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Session, resume, fork, and subagent selection lifecycle for the TUI app.
 //!
 //! This module owns the high-level transitions between app-server threads: starting fresh sessions,

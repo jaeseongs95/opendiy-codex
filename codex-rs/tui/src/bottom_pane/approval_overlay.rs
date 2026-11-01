@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Approval modal rendering and decision routing for high-risk operations.
 //!
 //! This module converts agent approval requests (exec/apply-patch/MCP

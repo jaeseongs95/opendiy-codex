@@ -10,7 +10,7 @@ index e1ba3d54e..de22a17dc 100644
 +codex-rs/tui/src/app/cron_jobs.rs text eol=lf
 +codex-rs/tui/src/app/tests/plugin_reload_tests.rs text eol=lf
 diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
-index 1d27abbfa..476c6324b 100644
+index 1d27abbfa..02aaf7f0c 100644
 --- a/codex-rs/Cargo.lock
 +++ b/codex-rs/Cargo.lock
 @@ -287,7 +287,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
@@ -18,7 +18,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "app_test_support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -27,7 +27,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-core",
@@ -36,7 +36,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-graph-store"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-state",
@@ -45,7 +45,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-identity"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
@@ -54,7 +54,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-message-board-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
@@ -63,7 +63,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-message-board-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-extension-api",
   "codex-message-board",
@@ -72,7 +72,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-agent-roles"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-config",
   "codex-file-system",
@@ -81,7 +81,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-analytics"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-app-server-protocol",
   "codex-git-utils",
@@ -90,7 +90,7 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-ansi-escape"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "ansi-to-tui",
   "pretty_assertions",
@@ -99,350 +99,366 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-api"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "assert_matches",
-@@ -2057,7 +2057,7 @@ dependencies = [
+@@ -2028,6 +2028,7 @@ dependencies = [
+  "bytes",
+  "chrono",
+  "codex-client",
++ "codex-diagnostics",
+  "codex-http-client",
+  "codex-protocol",
+  "codex-utils-rustls-provider",
+@@ -2049,6 +2050,7 @@ dependencies = [
+  "tokio-tungstenite",
+  "tokio-util",
+  "tracing",
++ "tracing-subscriber",
+  "tungstenite",
+  "url",
+  "uuid",
+@@ -2057,7 +2059,7 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "app_test_support",
-@@ -2174,7 +2174,7 @@ dependencies = [
+@@ -2174,7 +2176,7 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-app-server",
   "codex-app-server-protocol",
-@@ -2202,7 +2202,7 @@ dependencies = [
+@@ -2202,7 +2204,7 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server-daemon"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "blake3",
-@@ -2232,7 +2232,7 @@ dependencies = [
+@@ -2232,7 +2234,7 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server-protocol"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-app-server-protocol-noop-macros",
-@@ -2266,11 +2266,11 @@ dependencies = [
+@@ -2266,11 +2268,11 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server-protocol-noop-macros"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  
  [[package]]
  name = "codex-app-server-test-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -2292,7 +2292,7 @@ dependencies = [
+@@ -2292,7 +2294,7 @@ dependencies = [
  
  [[package]]
  name = "codex-app-server-transport"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "axum",
   "base64 0.22.1",
-@@ -2335,7 +2335,7 @@ dependencies = [
+@@ -2335,7 +2337,7 @@ dependencies = [
  
  [[package]]
  name = "codex-apply-patch"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "assert_cmd",
-@@ -2355,7 +2355,7 @@ dependencies = [
+@@ -2355,7 +2357,7 @@ dependencies = [
  
  [[package]]
  name = "codex-arg0"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-apply-patch",
-@@ -2378,7 +2378,7 @@ dependencies = [
+@@ -2378,7 +2380,7 @@ dependencies = [
  
  [[package]]
  name = "codex-async-utils"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "rand 0.9.3",
-@@ -2388,7 +2388,7 @@ dependencies = [
+@@ -2388,7 +2390,7 @@ dependencies = [
  
  [[package]]
  name = "codex-attachment-store"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "serde",
-@@ -2398,7 +2398,7 @@ dependencies = [
+@@ -2398,7 +2400,7 @@ dependencies = [
  
  [[package]]
  name = "codex-aws-auth"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "aws-config",
   "aws-credential-types",
-@@ -2424,7 +2424,7 @@ dependencies = [
+@@ -2424,7 +2426,7 @@ dependencies = [
  
  [[package]]
  name = "codex-backend-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-api",
-@@ -2444,7 +2444,7 @@ dependencies = [
+@@ -2444,7 +2446,7 @@ dependencies = [
  
  [[package]]
  name = "codex-backend-openapi-models"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "serde",
   "serde_json",
-@@ -2453,7 +2453,7 @@ dependencies = [
+@@ -2453,7 +2455,7 @@ dependencies = [
  
  [[package]]
  name = "codex-build-info"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-install-context",
   "pretty_assertions",
-@@ -2466,7 +2466,7 @@ dependencies = [
+@@ -2466,7 +2468,7 @@ dependencies = [
  
  [[package]]
  name = "codex-bwrap"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "cc",
   "libc",
-@@ -2475,7 +2475,7 @@ dependencies = [
+@@ -2475,7 +2477,7 @@ dependencies = [
  
  [[package]]
  name = "codex-chatgpt"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -2497,7 +2497,7 @@ dependencies = [
+@@ -2497,7 +2499,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cli"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "app_test_support",
-@@ -2601,7 +2601,7 @@ dependencies = [
+@@ -2601,7 +2603,7 @@ dependencies = [
  
  [[package]]
  name = "codex-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-http-client",
   "eventsource-stream",
-@@ -2615,7 +2615,7 @@ dependencies = [
+@@ -2615,7 +2617,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cloud-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "async-stream",
-@@ -2639,7 +2639,7 @@ dependencies = [
+@@ -2639,7 +2641,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cloud-config"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "chrono",
-@@ -2667,7 +2667,7 @@ dependencies = [
+@@ -2667,7 +2669,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cloud-tasks"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -2700,7 +2700,7 @@ dependencies = [
+@@ -2700,7 +2702,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cloud-tasks-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -2715,7 +2715,7 @@ dependencies = [
+@@ -2715,7 +2717,7 @@ dependencies = [
  
  [[package]]
  name = "codex-cloud-tasks-mock-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "chrono",
   "codex-cloud-tasks-client",
-@@ -2724,7 +2724,7 @@ dependencies = [
+@@ -2724,7 +2726,7 @@ dependencies = [
  
  [[package]]
  name = "codex-code-mode"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-code-mode-protocol",
   "codex-http-client",
-@@ -2748,7 +2748,7 @@ dependencies = [
+@@ -2748,7 +2750,7 @@ dependencies = [
  
  [[package]]
  name = "codex-code-mode-host"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "axum",
-@@ -2779,7 +2779,7 @@ dependencies = [
+@@ -2779,7 +2781,7 @@ dependencies = [
  
  [[package]]
  name = "codex-code-mode-protocol"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "glob",
-@@ -2797,7 +2797,7 @@ dependencies = [
+@@ -2797,7 +2799,7 @@ dependencies = [
  
  [[package]]
  name = "codex-code-mode-runtime"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-code-mode-protocol",
-@@ -2816,11 +2816,11 @@ dependencies = [
+@@ -2816,11 +2818,11 @@ dependencies = [
  
  [[package]]
  name = "codex-collaboration-mode-templates"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  
  [[package]]
  name = "codex-config"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
-@@ -2874,7 +2874,7 @@ dependencies = [
+@@ -2874,7 +2876,7 @@ dependencies = [
  
  [[package]]
  name = "codex-config-schema"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -2883,7 +2883,7 @@ dependencies = [
+@@ -2883,7 +2885,7 @@ dependencies = [
  
  [[package]]
  name = "codex-connectors"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "arc-swap",
-@@ -2905,7 +2905,7 @@ dependencies = [
+@@ -2905,7 +2907,7 @@ dependencies = [
  
  [[package]]
  name = "codex-connectors-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-connectors",
   "codex-core-plugins",
-@@ -2919,7 +2919,7 @@ dependencies = [
+@@ -2919,7 +2921,7 @@ dependencies = [
  
  [[package]]
  name = "codex-context-fragments"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-protocol-test-support",
-@@ -2930,7 +2930,7 @@ dependencies = [
+@@ -2930,7 +2932,7 @@ dependencies = [
  
  [[package]]
  name = "codex-core"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "arc-swap",
-@@ -3080,7 +3080,7 @@ dependencies = [
+@@ -3080,7 +3082,7 @@ dependencies = [
  
  [[package]]
  name = "codex-core-api"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-analytics",
   "codex-app-server-protocol",
-@@ -3103,7 +3103,7 @@ dependencies = [
+@@ -3103,7 +3105,7 @@ dependencies = [
  
  [[package]]
  name = "codex-core-plugin-common"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-absolute-path",
   "semver",
-@@ -3114,7 +3114,7 @@ dependencies = [
+@@ -3114,7 +3116,7 @@ dependencies = [
  
  [[package]]
  name = "codex-core-plugins"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -3171,15 +3171,23 @@ dependencies = [
+@@ -3171,15 +3173,23 @@ dependencies = [
  
  [[package]]
  name = "codex-diagnostics"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
 + "chrono",
   "libc",
@@ -459,20 +475,20 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-direct-tool-timing"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-critical-path",
   "pretty_assertions",
-@@ -3190,7 +3198,7 @@ dependencies = [
+@@ -3190,7 +3200,7 @@ dependencies = [
  
  [[package]]
  name = "codex-exec"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "assert_cmd",
-@@ -3202,6 +3210,7 @@ dependencies = [
+@@ -3202,6 +3212,7 @@ dependencies = [
   "codex-cloud-config",
   "codex-config",
   "codex-core",
@@ -480,498 +496,498 @@ index 1d27abbfa..476c6324b 100644
   "codex-features",
   "codex-feedback",
   "codex-git-utils",
-@@ -3243,7 +3252,7 @@ dependencies = [
+@@ -3243,7 +3254,7 @@ dependencies = [
  
  [[package]]
  name = "codex-exec-server"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "arc-swap",
-@@ -3316,7 +3325,7 @@ dependencies = [
+@@ -3316,7 +3327,7 @@ dependencies = [
  
  [[package]]
  name = "codex-exec-server-cli"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "assert_matches",
-@@ -3356,7 +3365,7 @@ dependencies = [
+@@ -3356,7 +3367,7 @@ dependencies = [
  
  [[package]]
  name = "codex-exec-server-protocol"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-file-system",
-@@ -3374,7 +3383,7 @@ dependencies = [
+@@ -3374,7 +3385,7 @@ dependencies = [
  
  [[package]]
  name = "codex-exec-server-test-support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-exec-server",
-@@ -3389,7 +3398,7 @@ dependencies = [
+@@ -3389,7 +3400,7 @@ dependencies = [
  
  [[package]]
  name = "codex-execpolicy"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -3407,7 +3416,7 @@ dependencies = [
+@@ -3407,7 +3418,7 @@ dependencies = [
  
  [[package]]
  name = "codex-experimental-api-macros"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "proc-macro2",
   "quote",
-@@ -3416,7 +3425,7 @@ dependencies = [
+@@ -3416,7 +3427,7 @@ dependencies = [
  
  [[package]]
  name = "codex-extension-api"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-api",
   "codex-config",
-@@ -3439,7 +3448,7 @@ dependencies = [
+@@ -3439,7 +3450,7 @@ dependencies = [
  
  [[package]]
  name = "codex-extension-items"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-absolute-path",
   "pretty_assertions",
-@@ -3451,7 +3460,7 @@ dependencies = [
+@@ -3451,7 +3462,7 @@ dependencies = [
  
  [[package]]
  name = "codex-external-agent-migration"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "chrono",
   "codex-analytics",
-@@ -3482,7 +3491,7 @@ dependencies = [
+@@ -3482,7 +3493,7 @@ dependencies = [
  
  [[package]]
  name = "codex-features"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-network-proxy",
   "codex-protocol",
-@@ -3496,7 +3505,7 @@ dependencies = [
+@@ -3496,7 +3507,7 @@ dependencies = [
  
  [[package]]
  name = "codex-feedback"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "bytes",
-@@ -3524,7 +3533,7 @@ dependencies = [
+@@ -3524,7 +3535,7 @@ dependencies = [
  
  [[package]]
  name = "codex-file-search"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -3540,7 +3549,7 @@ dependencies = [
+@@ -3540,7 +3551,7 @@ dependencies = [
  
  [[package]]
  name = "codex-file-system"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "bytes",
   "codex-protocol",
-@@ -3554,7 +3563,7 @@ dependencies = [
+@@ -3554,7 +3565,7 @@ dependencies = [
  
  [[package]]
  name = "codex-file-watcher"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "notify",
   "pretty_assertions",
-@@ -3565,7 +3574,7 @@ dependencies = [
+@@ -3565,7 +3576,7 @@ dependencies = [
  
  [[package]]
  name = "codex-git-attribution"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-backend-client",
   "codex-extension-api",
-@@ -3578,7 +3587,7 @@ dependencies = [
+@@ -3578,7 +3589,7 @@ dependencies = [
  
  [[package]]
  name = "codex-git-utils"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -3606,7 +3615,7 @@ dependencies = [
+@@ -3606,7 +3617,7 @@ dependencies = [
  
  [[package]]
  name = "codex-goal-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -3631,7 +3640,7 @@ dependencies = [
+@@ -3631,7 +3642,7 @@ dependencies = [
  
  [[package]]
  name = "codex-guardian-context"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-context-fragments",
   "codex-history",
-@@ -3645,7 +3654,7 @@ dependencies = [
+@@ -3645,7 +3656,7 @@ dependencies = [
  
  [[package]]
  name = "codex-guardian-reviewer"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-analytics",
-@@ -3681,7 +3690,7 @@ dependencies = [
+@@ -3681,7 +3692,7 @@ dependencies = [
  
  [[package]]
  name = "codex-guardian-v2"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-analytics",
-@@ -3720,7 +3729,7 @@ dependencies = [
+@@ -3720,7 +3731,7 @@ dependencies = [
  
  [[package]]
  name = "codex-guardian-v3"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-message-board",
   "codex-protocol",
-@@ -3729,7 +3738,7 @@ dependencies = [
+@@ -3729,7 +3740,7 @@ dependencies = [
  
  [[package]]
  name = "codex-history"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-protocol",
-@@ -3741,7 +3750,7 @@ dependencies = [
+@@ -3741,7 +3752,7 @@ dependencies = [
  
  [[package]]
  name = "codex-history-notes-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-analytics",
   "codex-client",
-@@ -3767,7 +3776,7 @@ dependencies = [
+@@ -3767,7 +3778,7 @@ dependencies = [
  
  [[package]]
  name = "codex-home"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-extension-api",
   "codex-utils-absolute-path",
-@@ -3779,7 +3788,7 @@ dependencies = [
+@@ -3779,7 +3790,7 @@ dependencies = [
  
  [[package]]
  name = "codex-hooks"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "async-channel",
-@@ -3808,7 +3817,7 @@ dependencies = [
+@@ -3808,7 +3819,7 @@ dependencies = [
  
  [[package]]
  name = "codex-http-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "bytes",
   "codex-utils-cargo-bin",
-@@ -3848,7 +3857,7 @@ dependencies = [
+@@ -3848,7 +3859,7 @@ dependencies = [
  
  [[package]]
  name = "codex-image-generation-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-api",
-@@ -3880,7 +3889,7 @@ dependencies = [
+@@ -3880,7 +3891,7 @@ dependencies = [
  
  [[package]]
  name = "codex-install-context"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-absolute-path",
   "codex-utils-home-dir",
-@@ -3893,7 +3902,7 @@ dependencies = [
+@@ -3893,7 +3904,7 @@ dependencies = [
  
  [[package]]
  name = "codex-keyring-store"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "keyring",
   "pretty_assertions",
-@@ -3904,7 +3913,7 @@ dependencies = [
+@@ -3904,7 +3915,7 @@ dependencies = [
  
  [[package]]
  name = "codex-linux-sandbox"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "clap",
   "codex-core",
-@@ -3933,7 +3942,7 @@ dependencies = [
+@@ -3933,7 +3944,7 @@ dependencies = [
  
  [[package]]
  name = "codex-lmstudio"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-core",
   "codex-http-client",
-@@ -3947,7 +3956,7 @@ dependencies = [
+@@ -3947,7 +3958,7 @@ dependencies = [
  
  [[package]]
  name = "codex-login"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
-@@ -3993,7 +4002,7 @@ dependencies = [
+@@ -3993,7 +4004,7 @@ dependencies = [
  
  [[package]]
  name = "codex-mcp"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "arc-swap",
-@@ -4037,7 +4046,7 @@ dependencies = [
+@@ -4037,7 +4048,7 @@ dependencies = [
  
  [[package]]
  name = "codex-mcp-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "axum",
-@@ -4070,7 +4079,7 @@ dependencies = [
+@@ -4070,7 +4081,7 @@ dependencies = [
  
  [[package]]
  name = "codex-memories-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-core",
   "codex-extension-api",
-@@ -4092,7 +4101,7 @@ dependencies = [
+@@ -4092,7 +4103,7 @@ dependencies = [
  
  [[package]]
  name = "codex-memories-read"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-shell-command",
-@@ -4102,7 +4111,7 @@ dependencies = [
+@@ -4102,7 +4113,7 @@ dependencies = [
  
  [[package]]
  name = "codex-memories-write"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -4139,7 +4148,7 @@ dependencies = [
+@@ -4139,7 +4150,7 @@ dependencies = [
  
  [[package]]
  name = "codex-mermaid"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "insta",
   "pretty_assertions",
-@@ -4148,7 +4157,7 @@ dependencies = [
+@@ -4148,7 +4159,7 @@ dependencies = [
  
  [[package]]
  name = "codex-message-board"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "caseless",
-@@ -4171,7 +4180,7 @@ dependencies = [
+@@ -4171,7 +4182,7 @@ dependencies = [
  
  [[package]]
  name = "codex-message-history"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-config",
   "memchr",
-@@ -4185,7 +4194,7 @@ dependencies = [
+@@ -4185,7 +4196,7 @@ dependencies = [
  
  [[package]]
  name = "codex-model-provider"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "chrono",
-@@ -4224,7 +4233,7 @@ dependencies = [
+@@ -4224,7 +4235,7 @@ dependencies = [
  
  [[package]]
  name = "codex-model-provider-info"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-client",
   "codex-http-client",
-@@ -4242,7 +4251,7 @@ dependencies = [
+@@ -4242,7 +4253,7 @@ dependencies = [
  
  [[package]]
  name = "codex-models-manager"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "chrono",
   "codex-http-client",
-@@ -4261,7 +4270,7 @@ dependencies = [
+@@ -4261,7 +4272,7 @@ dependencies = [
  
  [[package]]
  name = "codex-multi-env-copy-file"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-config",
-@@ -4287,7 +4296,7 @@ dependencies = [
+@@ -4287,7 +4298,7 @@ dependencies = [
  
  [[package]]
  name = "codex-mxc-sandbox"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-network-proxy",
-@@ -4308,7 +4317,7 @@ dependencies = [
+@@ -4308,7 +4319,7 @@ dependencies = [
  
  [[package]]
  name = "codex-network-proxy"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "aws-credential-types",
-@@ -4359,7 +4368,7 @@ dependencies = [
+@@ -4359,7 +4370,7 @@ dependencies = [
  
  [[package]]
  name = "codex-ollama"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "assert_matches",
   "async-stream",
-@@ -4379,7 +4388,7 @@ dependencies = [
+@@ -4379,7 +4390,7 @@ dependencies = [
  
  [[package]]
  name = "codex-otel"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "bytes",
   "chrono",
-@@ -4418,7 +4427,7 @@ dependencies = [
+@@ -4418,7 +4429,7 @@ dependencies = [
  
  [[package]]
  name = "codex-otel-trace-websocket"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "axum",
-@@ -4429,7 +4438,7 @@ dependencies = [
+@@ -4429,7 +4440,7 @@ dependencies = [
  
  [[package]]
  name = "codex-plugin"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-config",
   "codex-core-plugin-common",
-@@ -4444,7 +4453,7 @@ dependencies = [
+@@ -4444,7 +4455,7 @@ dependencies = [
  
  [[package]]
  name = "codex-plugin-host"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-cargo-bin",
   "codex-utils-process",
-@@ -4461,7 +4470,7 @@ dependencies = [
+@@ -4461,7 +4472,7 @@ dependencies = [
  
  [[package]]
  name = "codex-process-hardening"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "libc",
   "pretty_assertions",
-@@ -4469,7 +4478,7 @@ dependencies = [
+@@ -4469,7 +4480,7 @@ dependencies = [
  
  [[package]]
  name = "codex-prompts"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-collaboration-mode-templates",
-@@ -4487,7 +4496,7 @@ dependencies = [
+@@ -4487,7 +4498,7 @@ dependencies = [
  
  [[package]]
  name = "codex-protocol"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chardetng",
-@@ -4533,14 +4542,14 @@ dependencies = [
+@@ -4533,14 +4544,14 @@ dependencies = [
  
  [[package]]
  name = "codex-protocol-test-support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
  ]
@@ -979,200 +995,200 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-queue-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-core",
-@@ -4561,7 +4570,7 @@ dependencies = [
+@@ -4561,7 +4572,7 @@ dependencies = [
  
  [[package]]
  name = "codex-realtime-webrtc"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-build-info",
-@@ -4580,7 +4589,7 @@ dependencies = [
+@@ -4580,7 +4591,7 @@ dependencies = [
  
  [[package]]
  name = "codex-response-debug-context"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-api",
-@@ -4591,7 +4600,7 @@ dependencies = [
+@@ -4591,7 +4602,7 @@ dependencies = [
  
  [[package]]
  name = "codex-responses-api-proxy"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "bytes",
-@@ -4615,7 +4624,7 @@ dependencies = [
+@@ -4615,7 +4626,7 @@ dependencies = [
  
  [[package]]
  name = "codex-rmcp-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "axum",
-@@ -4666,7 +4675,7 @@ dependencies = [
+@@ -4666,7 +4677,7 @@ dependencies = [
  
  [[package]]
  name = "codex-rollout"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -4699,7 +4708,7 @@ dependencies = [
+@@ -4699,7 +4710,7 @@ dependencies = [
  
  [[package]]
  name = "codex-rollout-trace"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-code-mode",
-@@ -4716,7 +4725,7 @@ dependencies = [
+@@ -4716,7 +4727,7 @@ dependencies = [
  
  [[package]]
  name = "codex-runtime-agent-instance"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-agent-identity",
-@@ -4742,7 +4751,7 @@ dependencies = [
+@@ -4742,7 +4753,7 @@ dependencies = [
  
  [[package]]
  name = "codex-sandboxing"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-mxc-sandbox",
-@@ -4770,7 +4779,7 @@ dependencies = [
+@@ -4770,7 +4781,7 @@ dependencies = [
  
  [[package]]
  name = "codex-secrets"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "age",
   "anyhow",
-@@ -4791,7 +4800,7 @@ dependencies = [
+@@ -4791,7 +4802,7 @@ dependencies = [
  
  [[package]]
  name = "codex-shell-command"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
-@@ -4814,7 +4823,7 @@ dependencies = [
+@@ -4814,7 +4825,7 @@ dependencies = [
  
  [[package]]
  name = "codex-skills"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-shell-command",
-@@ -4831,7 +4840,7 @@ dependencies = [
+@@ -4831,7 +4842,7 @@ dependencies = [
  
  [[package]]
  name = "codex-skills-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "assert_matches",
   "blake3",
-@@ -4871,7 +4880,7 @@ dependencies = [
+@@ -4871,7 +4882,7 @@ dependencies = [
  
  [[package]]
  name = "codex-state"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "chrono",
-@@ -4900,7 +4909,7 @@ dependencies = [
+@@ -4900,7 +4911,7 @@ dependencies = [
  
  [[package]]
  name = "codex-stdio-to-uds"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-uds",
-@@ -4912,7 +4921,7 @@ dependencies = [
+@@ -4912,7 +4923,7 @@ dependencies = [
  
  [[package]]
  name = "codex-tcp-tunnel"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "bytes",
-@@ -4933,7 +4942,7 @@ dependencies = [
+@@ -4933,7 +4944,7 @@ dependencies = [
  
  [[package]]
  name = "codex-terminal-detection"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "tracing",
-@@ -4941,7 +4950,7 @@ dependencies = [
+@@ -4941,7 +4952,7 @@ dependencies = [
  
  [[package]]
  name = "codex-test-binary-support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-arg0",
   "tempfile",
-@@ -4949,7 +4958,7 @@ dependencies = [
+@@ -4949,7 +4960,7 @@ dependencies = [
  
  [[package]]
  name = "codex-thread-manager-sample"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "clap",
-@@ -4960,7 +4969,7 @@ dependencies = [
+@@ -4960,7 +4971,7 @@ dependencies = [
  
  [[package]]
  name = "codex-thread-store"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "chrono",
   "codex-app-server-protocol",
-@@ -4991,7 +5000,7 @@ dependencies = [
+@@ -4991,7 +5002,7 @@ dependencies = [
  
  [[package]]
  name = "codex-tools"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "bitflags 2.13.1",
   "codex-attachment-store",
-@@ -5017,7 +5026,7 @@ dependencies = [
+@@ -5017,7 +5028,7 @@ dependencies = [
  
  [[package]]
  name = "codex-tui"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "app_test_support",
-@@ -5039,6 +5048,7 @@ dependencies = [
+@@ -5039,6 +5050,7 @@ dependencies = [
   "codex-connectors",
   "codex-context-fragments",
   "codex-core-plugins",
@@ -1180,39 +1196,39 @@ index 1d27abbfa..476c6324b 100644
   "codex-exec-server",
   "codex-features",
   "codex-feedback",
-@@ -5145,7 +5155,7 @@ dependencies = [
+@@ -5145,7 +5157,7 @@ dependencies = [
  
  [[package]]
  name = "codex-uds"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "async-io",
   "libc",
-@@ -5159,7 +5169,7 @@ dependencies = [
+@@ -5159,7 +5171,7 @@ dependencies = [
  
  [[package]]
  name = "codex-user-verification"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "block2",
-@@ -5180,7 +5190,7 @@ dependencies = [
+@@ -5180,7 +5192,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-absolute-path"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "dirs",
   "dunce",
-@@ -5194,14 +5204,14 @@ dependencies = [
+@@ -5194,14 +5206,14 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-approval-presets"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
  ]
@@ -1220,43 +1236,43 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-utils-audio"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-protocol",
-@@ -5215,7 +5225,7 @@ dependencies = [
+@@ -5215,7 +5227,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-cache"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "lru",
   "sha1 0.10.6",
-@@ -5224,7 +5234,7 @@ dependencies = [
+@@ -5224,7 +5236,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-cargo-bin"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "assert_cmd",
   "runfiles",
-@@ -5233,7 +5243,7 @@ dependencies = [
+@@ -5233,7 +5245,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-cli"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "clap",
   "codex-protocol",
-@@ -5245,22 +5255,22 @@ dependencies = [
+@@ -5245,22 +5257,22 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-critical-path"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1264,26 +1280,26 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-utils-elapsed"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  
  [[package]]
  name = "codex-utils-fuzzy-match"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  
  [[package]]
  name = "codex-utils-git-discovery"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-git-utils",
   "codex-utils-absolute-path",
-@@ -5273,14 +5283,14 @@ dependencies = [
+@@ -5273,14 +5285,14 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-head-tail-buffer"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1291,115 +1307,115 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-utils-home-dir"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-absolute-path",
   "dirs",
-@@ -5290,7 +5300,7 @@ dependencies = [
+@@ -5290,7 +5302,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-image"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-utils-cache",
-@@ -5304,7 +5314,7 @@ dependencies = [
+@@ -5304,7 +5316,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-json-to-toml"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "serde_json",
-@@ -5313,7 +5323,7 @@ dependencies = [
+@@ -5313,7 +5325,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-oss"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-core",
   "codex-lmstudio",
-@@ -5323,7 +5333,7 @@ dependencies = [
+@@ -5323,7 +5335,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-output-truncation"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-utils-string",
-@@ -5333,7 +5343,7 @@ dependencies = [
+@@ -5333,7 +5345,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-path"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-utils-absolute-path",
   "dunce",
-@@ -5344,7 +5354,7 @@ dependencies = [
+@@ -5344,7 +5356,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-path-uri"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "base64 0.22.1",
   "codex-utils-absolute-path",
-@@ -5360,7 +5370,7 @@ dependencies = [
+@@ -5360,7 +5372,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-plugins"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-exec-server",
   "codex-exec-server-protocol",
-@@ -5374,7 +5384,7 @@ dependencies = [
+@@ -5374,7 +5386,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-process"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "tokio",
-@@ -5382,7 +5392,7 @@ dependencies = [
+@@ -5382,7 +5394,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-pty"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-utils-cargo-bin",
-@@ -5401,7 +5411,7 @@ dependencies = [
+@@ -5401,7 +5413,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-readiness"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "assert_matches",
   "thiserror 2.0.18",
-@@ -5411,7 +5421,7 @@ dependencies = [
+@@ -5411,7 +5423,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-redacted-string"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "schemars 0.8.22",
   "serde",
-@@ -5419,14 +5429,14 @@ dependencies = [
+@@ -5419,14 +5431,14 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-rustls-provider"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "rustls",
  ]
@@ -1407,25 +1423,25 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-utils-sandbox-summary"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-protocol",
   "codex-utils-absolute-path",
-@@ -5436,7 +5446,7 @@ dependencies = [
+@@ -5436,7 +5448,7 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-sleep-inhibitor"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "core-foundation 0.9.4",
   "libc",
-@@ -5446,14 +5456,14 @@ dependencies = [
+@@ -5446,14 +5458,14 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-stream-parser"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1433,16 +1449,16 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-utils-string"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "regex-lite",
-@@ -5463,14 +5473,14 @@ dependencies = [
+@@ -5463,14 +5475,14 @@ dependencies = [
  
  [[package]]
  name = "codex-utils-template"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
  ]
@@ -1450,70 +1466,70 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-v8-poc"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "pretty_assertions",
   "v8",
-@@ -5478,7 +5488,7 @@ dependencies = [
+@@ -5478,7 +5490,7 @@ dependencies = [
  
  [[package]]
  name = "codex-voice-host"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-install-context",
-@@ -5505,7 +5515,7 @@ dependencies = [
+@@ -5505,7 +5517,7 @@ dependencies = [
  
  [[package]]
  name = "codex-web-search-extension"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-api",
   "codex-core",
-@@ -5527,7 +5537,7 @@ dependencies = [
+@@ -5527,7 +5539,7 @@ dependencies = [
  
  [[package]]
  name = "codex-websocket-auth"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
-@@ -5546,7 +5556,7 @@ dependencies = [
+@@ -5546,7 +5558,7 @@ dependencies = [
  
  [[package]]
  name = "codex-websocket-client"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-http-client",
   "codex-utils-rustls-provider",
-@@ -5562,7 +5572,7 @@ dependencies = [
+@@ -5562,7 +5574,7 @@ dependencies = [
  
  [[package]]
  name = "codex-windows-sandbox"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "base64 0.22.1",
-@@ -5592,7 +5602,7 @@ dependencies = [
+@@ -5592,7 +5604,7 @@ dependencies = [
  
  [[package]]
  name = "codex-windows-sandbox-service"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-cloud-config",
-@@ -5610,14 +5620,14 @@ dependencies = [
+@@ -5610,14 +5622,14 @@ dependencies = [
  
  [[package]]
  name = "codex-windows-sandbox-test-support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "dirs",
  ]
@@ -1521,29 +1537,29 @@ index 1d27abbfa..476c6324b 100644
  [[package]]
  name = "codex-workload-identity"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "codex-http-client",
   "pretty_assertions",
-@@ -5632,7 +5642,7 @@ dependencies = [
+@@ -5632,7 +5644,7 @@ dependencies = [
  
  [[package]]
  name = "codex-worktree"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "codex-git-utils",
-@@ -5885,7 +5895,7 @@ dependencies = [
+@@ -5885,7 +5897,7 @@ dependencies = [
  
  [[package]]
  name = "core_test_support"
 -version = "0.0.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  dependencies = [
   "anyhow",
   "assert_cmd",
-@@ -10392,9 +10402,9 @@ dependencies = [
+@@ -10392,9 +10404,9 @@ dependencies = [
  
  [[package]]
  name = "mio"
@@ -1556,7 +1572,7 @@ index 1d27abbfa..476c6324b 100644
   "libc",
   "log",
 diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
-index 85cd80b7c..6bed7e0df 100644
+index 85cd80b7c..64a51933f 100644
 --- a/codex-rs/Cargo.toml
 +++ b/codex-rs/Cargo.toml
 @@ -169,7 +169,7 @@ members = [
@@ -1564,7 +1580,7 @@ index 85cd80b7c..6bed7e0df 100644
  
  [workspace.package]
 -version = "0.166.0"
-+version = "0.166.0+native-r31.20261101"
++version = "0.166.0+native-r32.20261101"
  # Track the edition for all workspace crates in one place. Individual
  # crates can still override this value, but keeping it here means new
  # crates created with `cargo new -w ...` automatically inherit the 2024
@@ -24033,7 +24049,7 @@ index 8073046e5..a7ec753e0 100644
              runtime_handle,
              _test_codex_home: None,
 diff --git a/codex-rs/app-server/src/lib.rs b/codex-rs/app-server/src/lib.rs
-index b3aa3b978..01b077b7a 100644
+index b3aa3b978..b8ed1c5ab 100644
 --- a/codex-rs/app-server/src/lib.rs
 +++ b/codex-rs/app-server/src/lib.rs
 @@ -130,6 +130,7 @@ pub mod in_process;
@@ -24044,13 +24060,15 @@ index b3aa3b978..01b077b7a 100644
  mod mcp_refresh;
  mod message_processor;
  mod model_catalog;
-@@ -757,12 +758,16 @@ pub async fn run_main_with_transport_options(
+@@ -757,12 +758,18 @@ pub async fn run_main_with_transport_options(
          .clone()
          .map(|layer| layer.with_filter(log_db::default_filter()));
      let (otel_layers, otel_logger_reload_handle) = otel_reloader::layers(otel.as_ref());
 +    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
-+    let batch_layer = batch_layer.map(|layer| layer.with_filter(
-+        tracing_subscriber::filter::filter_fn(codex_diagnostics::batch_log::metadata_enabled)));
++    let batch_layer = batch_layer.map(|layer| {
++        let filter = layer.metadata_filter();
++        layer.with_filter(tracing_subscriber::filter::filter_fn(filter))
++    });
      let _ = tracing_subscriber::registry()
          .with(stderr_fmt)
          .with(feedback_layer)
@@ -35182,12 +35200,32 @@ index f5f770b19..16daa47b5 100644
      #[test]
      fn normalize_base_url_normalizes_urls() {
          for (input, expected) in [
+diff --git a/codex-rs/codex-api/Cargo.toml b/codex-rs/codex-api/Cargo.toml
+index 90db05b84..aca379acb 100644
+--- a/codex-rs/codex-api/Cargo.toml
++++ b/codex-rs/codex-api/Cargo.toml
+@@ -10,6 +10,7 @@ base64 = { workspace = true }
+ bytes = { workspace = true }
+ chrono = { workspace = true }
+ codex-client = { workspace = true }
++codex-diagnostics = { workspace = true }
+ codex-http-client = { workspace = true }
+ codex-protocol = { workspace = true }
+ codex-utils-rustls-provider = { workspace = true }
+@@ -39,6 +40,7 @@ rcgen = { workspace = true }
+ tempfile = { workspace = true }
+ tokio = { workspace = true, features = ["test-util"] }
+ tokio-test = { workspace = true }
++tracing-subscriber = { workspace = true }
+ wiremock = { workspace = true }
+ 
+ [lints]
 diff --git a/codex-rs/codex-api/src/cache_wire_observation.rs b/codex-rs/codex-api/src/cache_wire_observation.rs
 new file mode 100644
-index 000000000..b931bf8de
+index 000000000..db3561bce
 --- /dev/null
 +++ b/codex-rs/codex-api/src/cache_wire_observation.rs
-@@ -0,0 +1,738 @@
+@@ -0,0 +1,735 @@
 +//! Fixed-size transport observations, scoped by the log sink's existing process UUID.
 +//! Input hashes describe the serialized wire input, not the omitted WS logical prefix.
 +use crate::common::ResponseCreateWsRequest;
@@ -35288,10 +35326,7 @@ index 000000000..b931bf8de
 +// Layer filters compose with OR: feedback may enable this target independently.
 +// Check the process opt-in before any serialization, hash work, or ordinal allocation.
 +fn wire_diagnostics_opted_in() -> bool {
-+    matches!(
-+        std::env::var("APP_CACHE_WIRE_DIAGNOSTICS").as_deref(),
-+        Ok("1")
-+    )
++    codex_diagnostics::cache_diagnostics::process_mode().wire_producer_enabled
 +}
 +
 +pub(crate) struct WireObservation {
@@ -36022,7 +36057,7 @@ index 9c41a802e..258f410c2 100644
      }
  }
 diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
-index f43e285d0..f463dbb3d 100644
+index f43e285d0..b1b18c7d3 100644
 --- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
 +++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
 @@ -1,5 +1,6 @@
@@ -36032,7 +36067,15 @@ index f43e285d0..f463dbb3d 100644
  use crate::common::ResponseEvent;
  use crate::common::ResponseInterrupt;
  use crate::common::ResponseStream;
-@@ -291,6 +292,7 @@ impl ResponsesWebsocketConnection {
+@@ -50,6 +51,7 @@ use tracing::debug;
+ use tracing::error;
+ use tracing::info;
+ use tracing::instrument;
++use tracing::instrument::WithSubscriber;
+ use tungstenite::extensions::ExtensionsConfig;
+ use tungstenite::extensions::compression::deflate::DeflateConfig;
+ use tungstenite::protocol::WebSocketConfig;
+@@ -291,6 +293,7 @@ impl ResponsesWebsocketConnection {
              connection_reused,
          };
          let request_text = serialize_websocket_request(&request)?;
@@ -36040,7 +36083,7 @@ index f43e285d0..f463dbb3d 100644
  
          let current_span = Span::current();
          tokio::spawn(
-@@ -361,6 +363,7 @@ impl ResponsesWebsocketConnection {
+@@ -361,6 +364,7 @@ impl ResponsesWebsocketConnection {
                              &timing_log_context,
                              interrupt.clone(),
                              &mut completion,
@@ -36048,7 +36091,17 @@ index f43e285d0..f463dbb3d 100644
                          ) => result,
                          () = &mut interrupt_timeout => Err(ApiError::Stream(
                              "timed out draining interrupted response".into(),
-@@ -763,6 +766,7 @@ async fn run_websocket_response_stream(
+@@ -388,7 +392,8 @@ impl ResponsesWebsocketConnection {
+                     let _ = tx_event.send(Ok(completed)).await;
+                 }
+             }
+-            .instrument(current_span),
++            .instrument(current_span)
++            .with_current_subscriber(),
+         );
+ 
+         Ok(ResponseStream {
+@@ -763,6 +768,7 @@ async fn run_websocket_response_stream(
      timing_log_context: &ResponsesWebsocketTimingLogContext,
      interrupt: impl Future<Output = ResponseInterrupt> + Clone + Unpin,
      completion: &mut Option<ResponseEvent>,
@@ -36056,7 +36109,7 @@ index f43e285d0..f463dbb3d 100644
  ) -> Result<(), ApiError> {
      let mut last_server_model: Option<String> = None;
      let mut safety_buffering_treatment = SafetyBufferingTreatment::default();
-@@ -773,14 +777,22 @@ async fn run_websocket_response_stream(
+@@ -773,14 +779,22 @@ async fn run_websocket_response_stream(
          // No request reached the backend, so this socket is still reusable.
          return Ok(());
      }
@@ -36081,7 +36134,7 @@ index f43e285d0..f463dbb3d 100644
  
      // A response owns its interrupt, and create must be sent before interrupt.
      let mut interrupt_request = interrupt.clone().fuse();
-@@ -845,6 +857,9 @@ async fn run_websocket_response_stream(
+@@ -845,6 +859,9 @@ async fn run_websocket_response_stream(
                          continue;
                      }
                  };
@@ -36461,7 +36514,7 @@ index 000000000..94b13e251
 +    }
 +}
 diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
-index 67f627e60..57c74e91a 100644
+index 67f627e60..08560173f 100644
 --- a/codex-rs/codex-api/src/sse/responses.rs
 +++ b/codex-rs/codex-api/src/sse/responses.rs
 @@ -1,4 +1,5 @@
@@ -36470,8 +36523,11 @@ index 67f627e60..57c74e91a 100644
  use crate::common::ResponseEvent;
  use crate::common::ResponseStream;
  use crate::common::SafetyBuffering;
-@@ -30,6 +31,9 @@ use tokio::time::timeout;
+@@ -28,8 +29,12 @@ use tokio::sync::mpsc;
+ use tokio::time::Instant;
+ use tokio::time::timeout;
  use tracing::debug;
++use tracing::instrument::WithSubscriber;
  use tracing::trace;
  
 +#[path = "cache_observation.rs"]
@@ -36480,7 +36536,7 @@ index 67f627e60..57c74e91a 100644
  const X_REASONING_INCLUDED_HEADER: &str = "x-reasoning-included";
  const X_CODEX_TURN_STATE_HEADER: &str = "x-codex-turn-state";
  const OPENAI_MODEL_HEADER: &str = "openai-model";
-@@ -41,6 +45,16 @@ pub fn spawn_response_stream(
+@@ -41,6 +46,16 @@ pub fn spawn_response_stream(
      idle_timeout: Duration,
      telemetry: Option<Arc<dyn SseTelemetry>>,
      turn_state: Option<Arc<OnceLock<String>>>,
@@ -36497,15 +36553,65 @@ index 67f627e60..57c74e91a 100644
  ) -> ResponseStream {
      let rate_limit_snapshots = parse_all_rate_limits(&stream_response.headers);
      let models_etag = stream_response
-@@ -94,6 +108,7 @@ pub fn spawn_response_stream(
-             idle_timeout,
-             telemetry,
-             safety_buffering_treatment,
-+            observation,
-         )
-         .await;
-     });
-@@ -186,6 +201,10 @@ where
+@@ -73,30 +88,34 @@ pub fn spawn_response_stream(
+         let _ = turn_state.set(header_value.to_string());
+     }
+     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
+-    tokio::spawn(async move {
+-        if let Some(model) = server_model {
+-            let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
+-        }
+-        for snapshot in rate_limit_snapshots {
+-            let _ = tx_event.send(Ok(ResponseEvent::RateLimits(snapshot))).await;
+-        }
+-        if let Some(etag) = models_etag {
+-            let _ = tx_event.send(Ok(ResponseEvent::ModelsEtag(etag))).await;
+-        }
+-        if reasoning_included {
+-            let _ = tx_event
+-                .send(Ok(ResponseEvent::ServerReasoningIncluded(true)))
+-                .await;
++    tokio::spawn(
++        async move {
++            if let Some(model) = server_model {
++                let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
++            }
++            for snapshot in rate_limit_snapshots {
++                let _ = tx_event.send(Ok(ResponseEvent::RateLimits(snapshot))).await;
++            }
++            if let Some(etag) = models_etag {
++                let _ = tx_event.send(Ok(ResponseEvent::ModelsEtag(etag))).await;
++            }
++            if reasoning_included {
++                let _ = tx_event
++                    .send(Ok(ResponseEvent::ServerReasoningIncluded(true)))
++                    .await;
++            }
++            process_sse_with_treatment(
++                stream_response.bytes,
++                tx_event,
++                idle_timeout,
++                telemetry,
++                safety_buffering_treatment,
++                observation,
++            )
++            .await;
+         }
+-        process_sse_with_treatment(
+-            stream_response.bytes,
+-            tx_event,
+-            idle_timeout,
+-            telemetry,
+-            safety_buffering_treatment,
+-        )
+-        .await;
+-    });
++        .with_current_subscriber(),
++    );
+ 
+     ResponseStream {
+         routing_affinity: None,
+@@ -186,6 +205,10 @@ where
  }
  
  impl ResponsesStreamEvent {
@@ -36516,7 +36622,7 @@ index 67f627e60..57c74e91a 100644
      pub fn kind(&self) -> &str {
          &self.kind
      }
-@@ -483,6 +502,9 @@ pub fn process_responses_event(
+@@ -483,6 +506,9 @@ pub fn process_responses_event(
                  }
              }
              if let Some(resp_val) = event.response {
@@ -36526,7 +36632,7 @@ index 67f627e60..57c74e91a 100644
                  let metadata = resp_val
                      .get("usage")
                      .filter(|usage| !usage.is_null())
-@@ -566,6 +588,7 @@ pub async fn process_sse(
+@@ -566,6 +592,7 @@ pub async fn process_sse(
          idle_timeout,
          telemetry,
          SafetyBufferingTreatment::default(),
@@ -36534,7 +36640,7 @@ index 67f627e60..57c74e91a 100644
      )
      .await;
  }
-@@ -576,6 +599,7 @@ async fn process_sse_with_treatment(
+@@ -576,6 +603,7 @@ async fn process_sse_with_treatment(
      idle_timeout: Duration,
      telemetry: Option<Arc<dyn SseTelemetry>>,
      safety_buffering_treatment: SafetyBufferingTreatment,
@@ -36542,7 +36648,7 @@ index 67f627e60..57c74e91a 100644
  ) {
      let mut stream = stream.eventsource();
      let mut response_error: Option<ApiError> = None;
-@@ -634,6 +658,9 @@ async fn process_sse_with_treatment(
+@@ -634,6 +662,9 @@ async fn process_sse_with_treatment(
                  continue;
              }
          };
@@ -36552,6 +36658,347 @@ index 67f627e60..57c74e91a 100644
          let safety_buffering = event.safety_buffering(&safety_buffering_treatment);
          let metadata_events = event.metadata_events(safety_buffering);
  
+diff --git a/codex-rs/codex-api/tests/cache_batch_boundary.rs b/codex-rs/codex-api/tests/cache_batch_boundary.rs
+new file mode 100644
+index 000000000..d0d9a67ad
+--- /dev/null
++++ b/codex-rs/codex-api/tests/cache_batch_boundary.rs
+@@ -0,0 +1,335 @@
++//! Exercise real local HTTP/WebSocket requests through the production parser and batch writer.
++use codex_api::{
++    AuthProvider, Provider, ResponseCreateWsRequest, ResponseEvent, ResponsesApiRequest,
++    ResponsesClient, ResponsesOptions, ResponsesWebsocketClient, ResponsesWsRequest, RetryConfig,
++};
++use codex_client::ReqwestTransport;
++use codex_http_client::{HttpClientBuilder, HttpClientFactory, OutboundProxyPolicy};
++use futures::{SinkExt, StreamExt};
++use http::HeaderMap;
++use serde_json::{Value, json};
++use std::sync::Arc;
++use std::time::Duration;
++use tracing::instrument::WithSubscriber;
++use tracing_subscriber::prelude::*;
++use wiremock::matchers::{method, path};
++use wiremock::{Mock, MockServer, ResponseTemplate};
++
++struct NoAuth;
++impl AuthProvider for NoAuth {
++    fn add_auth_headers(&self, _: &mut HeaderMap) -> Result<(), codex_api::AuthError> {
++        Ok(())
++    }
++}
++
++fn provider(base_url: String) -> Provider {
++    Provider {
++        name: "local cache fixture".into(),
++        base_url,
++        query_params: None,
++        headers: HeaderMap::new(),
++        retry: RetryConfig {
++            max_attempts: 1,
++            base_delay: Duration::from_millis(1),
++            retry_429: false,
++            retry_5xx: false,
++            retry_transport: false,
++        },
++        stream_idle_timeout: Duration::from_secs(5),
++    }
++}
++
++fn request() -> anyhow::Result<ResponsesApiRequest> {
++    Ok(ResponsesApiRequest {
++        model: "model-fixture".into(),
++        stream: true,
++        service_tier: Some("priority".into()),
++        input: vec![serde_json::from_value(
++            json!({"type":"message", "role":"user",
++            "content":[{"type":"input_text","text":"PRIVATE_PROMPT"}]}),
++        )?],
++        tools: None,
++        tool_choice: "auto".into(),
++        parallel_tool_calls: false,
++        reasoning: None,
++        store: false,
++        stream_options: None,
++        include: vec![],
++        prompt_cache_key: Some("PRIVATE_CACHE_KEY".into()),
++        text: None,
++        client_metadata: Some([("fixture".into(), "PRIVATE_METADATA".into())].into()),
++        access_programs: None,
++    })
++}
++
++fn events(id: &str, cached: Option<u64>) -> [Value; 2] {
++    let mut details = json!({"cache_write_tokens":0});
++    if let Some(cached) = cached {
++        details["cached_tokens"] = cached.into();
++    }
++    [
++        json!({"type":"response.created","response":{"id":id}}),
++        json!({"type":"response.completed","response":{"id":id,
++       "model":"model-fixture", "service_tier":"priority",
++       "usage":{"input_tokens":2048,"input_tokens_details":details,
++         "output_tokens":1,"total_tokens":2049},
++       "prompt_cache_diagnostics":{"type":"cache_miss","reason":"fixture"}}}),
++    ]
++}
++
++#[test]
++fn http_and_websocket_producers_reach_immutable_batches() {
++    for wire in [false, true] {
++        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++        command
++            .args([
++                "--exact",
++                "boundary_child",
++                "--ignored",
++                "--nocapture",
++                "--test-threads=1",
++            ])
++            .env("APP_CACHE_WIRE_DIAGNOSTICS", if wire { "1" } else { "0" });
++        for name in [
++            "CODEX_HOME",
++            "OPENAI_API_KEY",
++            "HTTP_PROXY",
++            "HTTPS_PROXY",
++            "ALL_PROXY",
++        ] {
++            command.env_remove(name);
++        }
++        #[cfg(windows)]
++        {
++            use std::os::windows::process::CommandExt;
++            command.creation_flags(0x08000000);
++        }
++        assert!(command.status().unwrap().success(), "wire={wire}");
++    }
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++#[ignore = "isolated process for immutable diagnostic startup"]
++async fn boundary_child() -> anyhow::Result<()> {
++    let home = tempfile::tempdir()?;
++    std::fs::write(
++        home.path().join("cli-logging.toml"),
++        "enabled = true\nprocess = false\nrpc = false\nevents = false\n",
++    )?;
++    std::fs::write(
++        home.path().join("cli-cache-diagnostics.toml"),
++        "response = true\nwire = true\n",
++    )?;
++    let wire_enabled = std::env::var("APP_CACHE_WIRE_DIAGNOSTICS")? == "1";
++    let (layer, guard) = codex_diagnostics::batch_log::start(home.path())?;
++    let layer = layer.expect("batch enabled");
++    let filter = layer.metadata_filter();
++    let dispatch = tracing::Dispatch::new(
++        tracing_subscriber::registry()
++            .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter))),
++    );
++    let received = async {
++        let server = MockServer::start().await;
++        let body = events("resp_http", Some(1024))
++            .iter()
++            .map(|event| format!("data: {event}\n\n"))
++            .collect::<String>();
++        Mock::given(method("POST"))
++            .and(path("/responses"))
++            .respond_with(
++                ResponseTemplate::new(200)
++                    .insert_header("content-type", "text/event-stream")
++                    .set_body_string(body),
++            )
++            .expect(1)
++            .mount(&server)
++            .await;
++        let client = ResponsesClient::new(
++            ReqwestTransport::from_http_client(HttpClientBuilder::new().build_direct()?),
++            provider(server.uri()),
++            Arc::new(NoAuth),
++        );
++        let mut stream = client
++            .stream_request(request()?, ResponsesOptions::default())
++            .await?;
++        let mut completed = 0;
++        while let Some(event) = stream.next().await {
++            if matches!(event?, ResponseEvent::Completed { .. }) {
++                completed += 1;
++            }
++        }
++        let requests = server.received_requests().await.unwrap();
++        assert_eq!(requests.len(), 1);
++        let actual: Value = serde_json::from_slice(&requests[0].body)?;
++        assert_eq!(actual["prompt_cache_key"], "PRIVATE_CACHE_KEY");
++
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
++        let address = listener.local_addr()?;
++        let server = tokio::spawn(async move {
++            let (socket, _) = listener.accept().await?;
++            // Match the real client's permessage-deflate offer. The fork rejects
++            // that header when the fixture has no extension configuration.
++            let mut config = tungstenite::protocol::WebSocketConfig::default();
++            config.extensions.permessage_deflate = Some(
++                tungstenite::extensions::compression::deflate::DeflateConfig::default(),
++            );
++            let mut socket = tokio_tungstenite::accept_async_with_config(socket, Some(config)).await?;
++            for (id, cached, previous) in [
++                ("resp_ws_full", Some(0), None),
++                ("resp_ws_delta", None, Some("resp_ws_full")),
++            ] {
++                let text = socket.next().await.unwrap()?.into_text()?;
++                let value: Value = serde_json::from_str(&text)?;
++                assert_eq!(value["type"], "response.create");
++                assert_eq!(
++                    value.get("previous_response_id").and_then(Value::as_str),
++                    previous
++                );
++                for event in events(id, cached) {
++                    socket
++                        .send(tokio_tungstenite::tungstenite::Message::Text(
++                            event.to_string().into(),
++                        ))
++                        .await?;
++                }
++            }
++            Ok::<_, anyhow::Error>(())
++        });
++        let client =
++            ResponsesWebsocketClient::new(provider(format!("http://{address}")), Arc::new(NoAuth));
++        let connection_result = client
++            .connect(
++                &HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++                HeaderMap::new(),
++                HeaderMap::new(),
++                None,
++                None,
++            )
++            .await;
++        let connection = match connection_result {
++            Ok(connection) => connection,
++            Err(error) => {
++                let fixture = tokio::time::timeout(Duration::from_secs(2), server).await;
++                anyhow::bail!("client handshake: {error}; local fixture: {fixture:?}");
++            }
++        };
++        let request = request()?;
++        let mut rejected_usage = 0;
++        for previous in [None, Some("resp_ws_full".to_string())] {
++            let mut ws_request = ResponseCreateWsRequest::from(&request);
++            ws_request.previous_response_id = previous.clone();
++            let mut stream = connection
++                .stream_request(
++                    ResponsesWsRequest::ResponseCreate(ws_request),
++                    previous.is_some(),
++                    None,
++                )
++                .await?;
++            while let Some(event) = stream.next().await {
++                match event {
++                    Ok(ResponseEvent::Completed { .. }) => completed += 1,
++                    Ok(_) => {},
++                    Err(error) if previous.is_some()
++                        && error.to_string().contains("missing field `cached_tokens`") => {
++                        // Raw presence must survive the existing protocol rejection;
++                        // missing usage must not become a successful zero-token response.
++                        rejected_usage += 1;
++                    },
++                    Err(error) => return Err(error.into()),
++                }
++            }
++        }
++        server.await??;
++        Ok::<_, anyhow::Error>((completed, rejected_usage))
++    }
++    .with_subscriber(dispatch);
++    assert_eq!(
++        tokio::time::timeout(Duration::from_secs(20), received).await??,
++        (2, 1)
++    );
++    drop(guard);
++    let spool = home.path().join("log/cli-batches");
++    let mut batches = Vec::new();
++    for day in std::fs::read_dir(&spool)? {
++        for file in std::fs::read_dir(day?.path())? {
++            let path = file?.path();
++            assert_eq!(path.extension().unwrap(), "jsonl");
++            batches.push((path.clone(), std::fs::read(path)?));
++        }
++    }
++    assert!(!batches.is_empty());
++    let rows = batches
++        .iter()
++        .flat_map(|(_, bytes)| bytes.split(|b| *b == b'\n'))
++        .filter(|line| !line.is_empty())
++        .map(serde_json::from_slice::<Value>)
++        .collect::<Result<Vec<_>, _>>()?;
++    let startup = rows
++        .iter()
++        .find(|row| row["kind"] == "diagnostic_start")
++        .unwrap();
++    let instance = startup["instance_id"].as_str().unwrap();
++    assert_eq!(startup["run"]["cache"]["wire_enabled"], wire_enabled);
++    let observations: Vec<_> = rows
++        .iter()
++        .filter(|row| row["target"] == "codex_api::prompt_cache")
++        .collect();
++    assert_eq!(observations.len(), 3);
++    for (id, state, cached) in [
++        ("resp_http", "positive", Some(1024)),
++        ("resp_ws_full", "zero", Some(0)),
++        ("resp_ws_delta", "absent", None),
++    ] {
++        let row = observations
++            .iter()
++            .find(|row| row["fields"]["response_id"] == id)
++            .unwrap();
++        assert_eq!(row["instance_id"], instance);
++        assert_eq!(row["fields"]["input_tokens"], 2048);
++        assert_eq!(row["fields"]["cached_state"], state);
++        assert_eq!(
++            row["fields"].get("cached_tokens").and_then(Value::as_u64),
++            cached
++        );
++    }
++    let wire: Vec<_> = rows
++        .iter()
++        .filter(|row| row["target"] == "codex_api::prompt_cache_wire")
++        .collect();
++    if wire_enabled {
++        let requests: Vec<_> = wire
++            .iter()
++            .filter(|row| row["fields"].get("mode").is_some())
++            .collect();
++        assert_eq!(requests.len(), 3);
++        assert!(requests.iter().any(|row| row["fields"]["mode"] == "delta"));
++        for row in requests {
++            assert_eq!(row["instance_id"], instance);
++            let fields = &row["fields"];
++            assert_eq!(fields["logical_prefix"], "unknown");
++            assert!(fields["warmup"].is_boolean());
++            let hash = fields["model_hash"].as_str().unwrap();
++            assert_eq!(hash.len(), 16);
++            assert!(hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
++            let ordinal = fields["wire_ordinal"].as_u64().unwrap();
++            assert_eq!(
++                wire.iter()
++                    .filter(|event| event["fields"]["wire_ordinal"] == ordinal
++                        && event["fields"]["stage"] == "completed")
++                    .count(),
++                1
++            );
++        }
++    } else {
++        assert!(wire.is_empty());
++    }
++    for summary in rows.iter().filter(|row| row["kind"] == "batch_summary") {
++        assert_eq!(summary["run"]["instance_id"], instance);
++        assert_eq!(summary["collector"]["dropped"], 0);
++    }
++    for (path, bytes) in batches {
++        assert_eq!(std::fs::read(path)?, bytes);
++        assert!(!String::from_utf8(bytes)?.contains("PRIVATE_"));
++    }
++    Ok(())
++}
 diff --git a/codex-rs/codex-mcp/Cargo.toml b/codex-rs/codex-mcp/Cargo.toml
 index 49adaabe6..5ac71d752 100644
 --- a/codex-rs/codex-mcp/Cargo.toml
@@ -52392,12 +52839,15 @@ index 2eb2125a1..dd29700e7 100644
  pretty_assertions = { workspace = true }
 diff --git a/codex-rs/diagnostics/src/batch_log.rs b/codex-rs/diagnostics/src/batch_log.rs
 new file mode 100644
-index 000000000..26ff642c8
+index 000000000..bab359fa2
 --- /dev/null
 +++ b/codex-rs/diagnostics/src/batch_log.rs
-@@ -0,0 +1,960 @@
+@@ -0,0 +1,1371 @@
 +//! Content-free tracing batches. The producer never performs filesystem I/O.
 +//! Completed local batches are copied once to an optional streaming-drive path.
++use crate::cache_diagnostics::CacheMode;
++#[cfg(test)]
++use crate::cache_diagnostics::Settings as CacheSettings;
 +use chrono::Local;
 +use serde::Deserialize;
 +use serde_json::{Map, Value, json};
@@ -52420,8 +52870,11 @@ index 000000000..26ff642c8
 +const QUEUE: usize = 4096;
 +const MAX_EVENT: usize = 4096;
 +
-+pub fn metadata_enabled(metadata: &tracing::Metadata<'_>) -> bool {
-+    metadata.target().starts_with("codex") && *metadata.level() <= tracing::Level::INFO
++fn cache_metadata(metadata: &tracing::Metadata<'_>) -> bool {
++    matches!(
++        metadata.target(),
++        "codex_api::prompt_cache" | "codex_api::prompt_cache_wire"
++    ) && *metadata.level() == tracing::Level::DEBUG
 +}
 +
 +#[derive(Clone, Debug, Deserialize)]
@@ -52492,6 +52945,24 @@ index 000000000..26ff642c8
 +    sender: SyncSender<Command>,
 +    counters: Arc<Counters>,
 +    settings: Settings,
++    run: Arc<RunContext>,
++}
++
++#[derive(serde::Serialize)]
++struct RunContext {
++    instance_id: String,
++    producer_version: &'static str,
++    cache: CacheMode,
++}
++
++impl RunContext {
++    fn new(cache: CacheMode) -> Self {
++        Self {
++            instance_id: Uuid::new_v4().to_string(),
++            producer_version: env!("CARGO_PKG_VERSION"),
++            cache,
++        }
++    }
 +}
 +
 +enum Command {
@@ -52523,19 +52994,33 @@ index 000000000..26ff642c8
 +    let file = home.join("cli-logging.toml");
 +    let text = match fs::read_to_string(file) {
 +        Ok(text) => text,
-+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((None, None)),
++        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
 +        Err(e) => return Err(e),
 +    };
 +    let settings: Settings =
 +        toml::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
++    let mode = crate::cache_diagnostics::initialize(home, settings.enabled)?;
 +    if !settings.enabled {
 +        return Ok((None, None));
 +    }
-+    start_with(home.join("log").join("cli-batches"), settings)
++    start_with_mode(home.join("log").join("cli-batches"), settings, mode)
 +        .map(|(layer, guard)| (Some(layer), Some(guard)))
 +}
 +
++#[cfg(test)]
 +fn start_with(spool: PathBuf, settings: Settings) -> io::Result<(BatchLayer, Guard)> {
++    start_with_mode(
++        spool,
++        settings,
++        CacheMode::resolve(false, CacheSettings::default(), false),
++    )
++}
++
++fn start_with_mode(
++    spool: PathBuf,
++    settings: Settings,
++    mode: CacheMode,
++) -> io::Result<(BatchLayer, Guard)> {
 +    settings.validate(&spool)?;
 +    fs::create_dir_all(&spool)?;
 +    let (sender, receiver) = mpsc::sync_channel(QUEUE);
@@ -52546,6 +53031,8 @@ index 000000000..26ff642c8
 +    let writer_spool = spool.clone();
 +    let writer_counters = counters.clone();
 +    let writer_stopping = stop_export.clone();
++    let run = Arc::new(RunContext::new(mode));
++    let writer_run = run.clone();
 +    thread::Builder::new()
 +        .name("cli-log-buffer".into())
 +        .spawn(move || {
@@ -52555,6 +53042,7 @@ index 000000000..26ff642c8
 +                &writer_settings,
 +                &writer_counters,
 +                &writer_stopping,
++                &writer_run,
 +            );
 +            let _ = finished_tx.send(());
 +        })?;
@@ -52584,7 +53072,12 @@ index 000000000..26ff642c8
 +        sender: sender.clone(),
 +        counters,
 +        settings,
++        run,
 +    };
++    layer.submit(
++        json!({"kind":"diagnostic_start", "at":Local::now().to_rfc3339(),
++        "pid":std::process::id(), "run":&*layer.run}),
++    );
 +    Ok((
 +        layer,
 +        Guard {
@@ -52596,7 +53089,31 @@ index 000000000..26ff642c8
 +}
 +
 +impl BatchLayer {
-+    fn submit(&self, value: Value) {
++    /// Opt in only the structural cache event, never general DEBUG traffic.
++    pub fn metadata_filter(
++        &self,
++    ) -> impl Fn(&tracing::Metadata<'_>) -> bool + Send + Sync + 'static + use<> {
++        let mode = self.run.cache;
++        move |metadata| {
++            if cache_metadata(metadata) {
++                if metadata.target() == "codex_api::prompt_cache_wire" {
++                    mode.wire_enabled
++                } else {
++                    mode.response_enabled
++                }
++            } else {
++                metadata.target().starts_with("codex") && *metadata.level() <= tracing::Level::INFO
++            }
++        }
++    }
++
++    fn submit(&self, mut value: Value) {
++        if let Some(fields) = value.as_object_mut() {
++            fields.insert(
++                "instance_id".into(),
++                self.run.instance_id.to_string().into(),
++            );
++        }
 +        let Ok(mut bytes) = serde_json::to_vec(&value) else {
 +            return;
 +        };
@@ -52607,44 +53124,162 @@ index 000000000..26ff642c8
 +    }
 +}
 +
++#[derive(Clone, Copy, Default, PartialEq)]
++enum FieldPolicy {
++    #[default]
++    General,
++    Response,
++    Wire,
++}
++
 +#[derive(Default)]
-+struct SafeFields(Map<String, Value>);
++struct SafeFields(Map<String, Value>, FieldPolicy);
++
++fn wire_hash(name: &str) -> bool {
++    matches!(
++        name,
++        "model_hash"
++            | "tier_hash"
++            | "cache_key_hash"
++            | "tools_hash"
++            | "wire_input_hash"
++            | "controls_hash"
++            | "metadata_hash"
++            | "previous_response_hash"
++            | "upstream_request_hash"
++            | "returned_model_hash"
++            | "returned_tier_hash"
++    )
++}
++
++fn wire_label(name: &str, value: &str) -> bool {
++    match name {
++        "transport" => matches!(value, "http" | "websocket"),
++        "mode" => matches!(value, "full" | "delta"),
++        "logical_prefix" => value == "unknown",
++        "stage" => matches!(
++            value,
++            "transport_error"
++                | "send_error"
++                | "sent"
++                | "stream_opened"
++                | "created"
++                | "completed"
++                | "incomplete"
++                | "failed"
++                | "abandoned_before_terminal"
++        ),
++        "response_id" => cache_label(name, value),
++        _ => false,
++    }
++}
++
++fn cache_label(name: &str, value: &str) -> bool {
++    match name {
++        "response_id_state"
++        | "model_state"
++        | "tier_state"
++        | "diagnostics_type_state"
++        | "diagnostics_reason_state" => matches!(value, "absent" | "null" | "present" | "invalid"),
++        "usage_state" | "input_tokens_details_state" | "diagnostics_state" => {
++            matches!(value, "absent" | "null" | "object" | "invalid")
++        }
++        "input_state" | "cached_state" | "write_state" => {
++            matches!(value, "absent" | "null" | "zero" | "positive" | "invalid")
++        }
++        "response_id"
++        | "returned_model"
++        | "returned_service_tier"
++        | "diagnostics_type"
++        | "diagnostics_reason" => {
++            let limit = if matches!(name, "response_id" | "returned_model") {
++                128
++            } else {
++                64
++            };
++            !value.is_empty()
++                && value.len() <= limit
++                && value.bytes().all(|byte| {
++                    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'/' | b':')
++                })
++        }
++        _ => false,
++    }
++}
 +
 +impl Visit for SafeFields {
 +    fn record_str(&mut self, field: &Field, value: &str) {
 +        let name = field.name();
-+        if name == "rpc.method"
++        if (self.1 == FieldPolicy::Response && cache_label(name, value))
++            || (self.1 == FieldPolicy::Wire && wire_label(name, value))
++        {
++            self.0.insert(name.into(), value.into());
++        } else if self.1 == FieldPolicy::General
++            && name == "rpc.method"
 +            && value.len() <= 128
 +            && value
 +                .bytes()
 +                .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b))
 +        {
 +            self.0.insert(name.into(), value.into());
-+        } else if matches!(
-+            name,
-+            "thread_id" | "turn_id" | "rpc.request_id" | "thread.id" | "turn.id"
-+        ) && (Uuid::parse_str(value).is_ok() || value.parse::<u64>().is_ok())
++        } else if self.1 == FieldPolicy::General
++            && matches!(
++                name,
++                "thread_id" | "turn_id" | "rpc.request_id" | "thread.id" | "turn.id"
++            )
++            && (Uuid::parse_str(value).is_ok() || value.parse::<u64>().is_ok())
 +        {
 +            self.0.insert(name.into(), value.into());
 +        }
 +    }
 +    fn record_u64(&mut self, field: &Field, value: u64) {
-+        if numeric_field(field.name()) {
++        if (self.1 == FieldPolicy::General && numeric_field(field.name()))
++            || (self.1 == FieldPolicy::Response
++                && matches!(
++                    field.name(),
++                    "input_tokens" | "cached_tokens" | "cache_write_tokens"
++                ))
++            || (self.1 == FieldPolicy::Wire
++                && matches!(field.name(), "wire_ordinal" | "input_items" | "input_bytes"))
++        {
 +            self.0.insert(field.name().into(), value.into());
 +        }
 +    }
 +    fn record_i64(&mut self, field: &Field, value: i64) {
-+        if numeric_field(field.name()) {
++        if self.1 == FieldPolicy::General && numeric_field(field.name()) {
++            self.0.insert(field.name().into(), value.into());
++        }
++    }
++    fn record_bool(&mut self, field: &Field, value: bool) {
++        if self.1 == FieldPolicy::Wire
++            && matches!(
++                field.name(),
++                "warmup"
++                    | "connection_reused"
++                    | "tier_present"
++                    | "cache_key_present"
++                    | "tools_present"
++                    | "metadata_present"
++            )
++        {
 +            self.0.insert(field.name().into(), value.into());
 +        }
 +    }
 +    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
 +        // Official RPC spans use `%id`. Only allowlisted, bounded UUID/numeric
 +        // IDs may cross this visitor; never format arbitrary payload fields.
-+        if matches!(
-+            field.name(),
-+            "rpc.request_id" | "thread_id" | "turn_id" | "thread.id" | "turn.id"
-+        ) {
++        if (self.1 == FieldPolicy::General
++            && matches!(
++                field.name(),
++                "rpc.request_id" | "thread_id" | "turn_id" | "thread.id" | "turn.id"
++            ))
++            || (self.1 == FieldPolicy::Wire && wire_hash(field.name()))
++            || (self.1 == FieldPolicy::Response
++                && matches!(
++                    field.name(),
++                    "input_tokens" | "cached_tokens" | "cache_write_tokens"
++                ))
++        {
 +            struct Limited(String);
 +            impl std::fmt::Write for Limited {
 +                fn write_str(&mut self, value: &str) -> std::fmt::Result {
@@ -52657,7 +53292,30 @@ index 000000000..26ff642c8
 +            }
 +            let mut text = Limited(String::new());
 +            if std::fmt::write(&mut text, format_args!("{value:?}")).is_ok() {
-+                self.record_str(field, text.0.trim_matches('"'));
++                if self.1 != FieldPolicy::General {
++                    // Existing producers use ?Option<u64>. Encode hashes as
++                    // fixed-width hex text so JavaScript readers cannot round them.
++                    let value = if text.0 == "None" {
++                        (self.1 == FieldPolicy::Wire).then_some(Value::Null)
++                    } else {
++                        text.0
++                            .strip_prefix("Some(")
++                            .and_then(|s| s.strip_suffix(')'))
++                            .and_then(|s| s.parse::<u64>().ok())
++                            .map(|n| {
++                                if self.1 == FieldPolicy::Wire {
++                                    Value::String(format!("{n:016x}"))
++                                } else {
++                                    Value::from(n)
++                                }
++                            })
++                    };
++                    if let Some(value) = value {
++                        self.0.insert(field.name().into(), value);
++                    }
++                } else {
++                    self.record_str(field, text.0.trim_matches('"'));
++                }
 +            }
 +        }
 +    }
@@ -52734,13 +53392,29 @@ index 000000000..26ff642c8
 +    }
 +    fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
 +        let meta = event.metadata();
-+        if !self.settings.events
-+            || !meta.target().starts_with("codex")
-+            || *meta.level() > tracing::Level::INFO
-+        {
++        let cache = cache_metadata(meta);
++        let allowed = if cache {
++            if meta.target() == "codex_api::prompt_cache_wire" {
++                self.run.cache.wire_enabled
++            } else {
++                self.run.cache.response_enabled
++            }
++        } else {
++            self.settings.events
++                && meta.target().starts_with("codex")
++                && *meta.level() <= tracing::Level::INFO
++        };
++        if !allowed {
 +            return;
 +        }
-+        let mut fields = SafeFields::default();
++        let policy = if !cache {
++            FieldPolicy::General
++        } else if meta.target() == "codex_api::prompt_cache_wire" {
++            FieldPolicy::Wire
++        } else {
++            FieldPolicy::Response
++        };
++        let mut fields = SafeFields(Map::new(), policy);
 +        event.record(&mut fields);
 +        let span = ctx.event_span(event).map(|s| s.id().into_u64());
 +        self.submit(
@@ -52764,6 +53438,7 @@ index 000000000..26ff642c8
 +    settings: &Settings,
 +    counters: &Counters,
 +    stopping: &AtomicBool,
++    run: &RunContext,
 +) {
 +    let mut buffer = Vec::new();
 +    let mut last_flush = Instant::now();
@@ -52798,6 +53473,7 @@ index 000000000..26ff642c8
 +                .map(|v| (v.name.into(), v.value.into()))
 +                .collect();
 +            let row = json!({"kind":"process", "at":Local::now().to_rfc3339(), "pid":snapshot.process.id,
++                "instance_id":run.instance_id,
 +                "resident_memory_bytes":snapshot.process.resident_memory_bytes, "gauges":gauges,
 +                "collector":counters_value(counters)});
 +            if let Ok(mut bytes) = serde_json::to_vec(&row) {
@@ -52816,7 +53492,7 @@ index 000000000..26ff642c8
 +            || last_flush.elapsed() >= Duration::from_secs(settings.flush_seconds)
 +        {
 +            if !buffer.is_empty() {
-+                match write_batch(spool, &buffer, counters) {
++                match write_batch_for_run(spool, &buffer, counters, run) {
 +                    Ok(_) => buffer.clear(),
 +                    Err(error) => {
 +                        counters.local_failures.fetch_add(1, Ordering::Relaxed);
@@ -52835,7 +53511,22 @@ index 000000000..26ff642c8
 +    }
 +}
 +
++#[cfg(test)]
 +fn write_batch(root: &Path, bytes: &[u8], counters: &Counters) -> io::Result<PathBuf> {
++    write_batch_for_run(
++        root,
++        bytes,
++        counters,
++        &RunContext::new(CacheMode::resolve(false, CacheSettings::default(), false)),
++    )
++}
++
++fn write_batch_for_run(
++    root: &Path,
++    bytes: &[u8],
++    counters: &Counters,
++    run: &RunContext,
++) -> io::Result<PathBuf> {
 +    let now = Local::now();
 +    let date = root.join(now.format("%Y%m%d").to_string());
 +    fs::create_dir_all(&date)?;
@@ -52861,7 +53552,7 @@ index 000000000..26ff642c8
 +        file.write_all(bytes)?;
 +        serde_json::to_writer(
 +            &mut file,
-+            &json!({"kind":"batch_summary","collector":counters_value(counters)}),
++            &json!({"kind":"batch_summary","run":run,"collector":counters_value(counters)}),
 +        )?;
 +        file.write_all(b"\n")?;
 +        file.sync_all()?;
@@ -52999,6 +53690,11 @@ index 000000000..26ff642c8
 +        let layer = BatchLayer {
 +            sender,
 +            counters: counters.clone(),
++            run: Arc::new(RunContext::new(CacheMode::resolve(
++                false,
++                CacheSettings::default(),
++                false,
++            ))),
 +            settings: Settings {
 +                enabled: true,
 +                ..Settings::default()
@@ -53094,6 +53790,163 @@ index 000000000..26ff642c8
 +        }
 +    }
 +
++    fn cache_events(enabled: bool, emit: impl FnOnce()) -> Vec<Value> {
++        let (sender, receiver) = mpsc::sync_channel(QUEUE);
++        let layer = BatchLayer {
++            sender,
++            counters: Arc::new(Counters::default()),
++            run: Arc::new(RunContext::new(CacheMode::resolve(
++                true,
++                CacheSettings {
++                    response: enabled,
++                    wire: enabled,
++                },
++                enabled,
++            ))),
++            settings: Settings {
++                rpc: false,
++                events: false,
++                process: false,
++                ..Settings::default()
++            },
++        };
++        // Production startup returns this subscriber from its map closure.
++        // Requiring the same ownership boundary catches implicit Rust 2024
++        // capture of the layer even when the filter's value is already static.
++        fn owned_subscriber(layer: BatchLayer) -> impl Subscriber + Send + Sync + 'static {
++            let filter = layer.metadata_filter();
++            tracing_subscriber::registry()
++                .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter)))
++        }
++        let subscriber = owned_subscriber(layer);
++        tracing::subscriber::with_default(subscriber, emit);
++        receiver
++            .try_iter()
++            .filter_map(|command| match command {
++                Command::Event(bytes) => Some(serde_json::from_slice(&bytes).unwrap()),
++                Command::Shutdown => None,
++            })
++            .collect()
++    }
++
++    #[test]
++    fn cache_opt_in_reaches_batch_queue_without_enabling_general_debug() {
++        for enabled in [false, true] {
++            let rows = cache_events(enabled, || {
++                assert_eq!(
++                    tracing::enabled!(target: "codex_api::prompt_cache", tracing::Level::DEBUG),
++                    enabled
++                );
++                assert!(!tracing::enabled!(target: "codex_api::other", tracing::Level::DEBUG));
++                assert!(
++                    !tracing::enabled!(target: "codex_api::prompt_cache", tracing::Level::TRACE)
++                );
++                tracing::debug!(target: "codex_api::prompt_cache",
++                    response_id = "resp_fixture", input_state = "positive", input_tokens = 2048_u64,
++                    cached_state = "positive", cached_tokens = 1024_u64,
++                    write_state = "zero", cache_write_tokens = 0_u64,
++                    returned_model = "model-fixture", returned_service_tier = "priority",
++                    diagnostics_type_state = "present", diagnostics_type = "cache_miss",
++                    diagnostics_reason = "service_tier_changed", prompt = "PRIVATE_PROMPT",
++                    authorization = "PRIVATE_TOKEN", "PRIVATE_MESSAGE");
++                tracing::debug!(target: "codex_api::other", input_tokens = 9_u64);
++            });
++            assert_eq!(rows.len(), usize::from(enabled));
++            if enabled {
++                let fields = &rows[0]["fields"];
++                assert_eq!(fields["input_tokens"], 2048);
++                assert_eq!(fields["cached_tokens"], 1024);
++                assert_eq!(fields["cache_write_tokens"], 0);
++                assert_eq!(fields["cached_state"], "positive");
++                assert_eq!(fields["response_id"], "resp_fixture");
++                assert_eq!(fields["diagnostics_reason"], "service_tier_changed");
++                assert!(!rows[0].to_string().contains("PRIVATE"));
++            }
++        }
++    }
++
++    #[test]
++    fn cache_batches_preserve_missing_and_zero_as_different_states() {
++        let rows = cache_events(true, || {
++            tracing::debug!(target: "codex_api::prompt_cache", cached_state = "absent");
++            tracing::debug!(target: "codex_api::prompt_cache", cached_state = "zero", cached_tokens = 0_u64);
++        });
++        assert_eq!(rows.len(), 2);
++        assert_eq!(rows[0]["fields"]["cached_state"], "absent");
++        assert!(rows[0]["fields"].get("cached_tokens").is_none());
++        assert_eq!(rows[1]["fields"]["cached_state"], "zero");
++        assert_eq!(rows[1]["fields"]["cached_tokens"], 0);
++    }
++
++    #[test]
++    fn actual_option_fields_keep_counts_and_full_width_hashes() {
++        let rows = cache_events(true, || {
++            tracing::debug!(target: "codex_api::prompt_cache",
++                input_tokens = ?Some(2048_u64), cached_tokens = ?Some(0_u64),
++                cache_write_tokens = ?None::<u64>);
++            tracing::debug!(target: "codex_api::prompt_cache_wire",
++                model_hash = ?Some(u64::MAX), tier_hash = ?None::<u64>,
++                wire_ordinal = 1_u64, input_items = 2_usize, input_bytes = 512_u64,
++                transport = "websocket", mode = "delta", stage = "sent",
++                warmup = false, connection_reused = true, cache_key_present = true,
++                prompt = "PRIVATE_PROMPT");
++        });
++        assert_eq!(rows.len(), 2);
++        assert_eq!(
++            rows[0]["fields"],
++            json!({"input_tokens":2048,"cached_tokens":0})
++        );
++        let fields = &rows[1]["fields"];
++        assert_eq!(fields["model_hash"], "ffffffffffffffff");
++        assert_eq!(fields["tier_hash"], Value::Null);
++        assert_eq!(fields["input_items"], 2);
++        assert_eq!(fields["connection_reused"], true);
++        assert_eq!(fields["warmup"], false);
++        assert_eq!(fields["stage"], "sent");
++        assert_eq!(rows[0]["instance_id"], rows[1]["instance_id"]);
++        assert!(!rows[1].to_string().contains("PRIVATE"));
++        let rejected = cache_events(false, || {
++            tracing::debug!(target: "codex_api::prompt_cache_wire", model_hash = ?Some(1_u64));
++        });
++        assert!(rejected.is_empty());
++    }
++
++    #[test]
++    fn run_identity_joins_batches_and_distinguishes_process_generations() {
++        let root = tempfile::tempdir().unwrap();
++        let counters = Counters::default();
++        let run = RunContext::new(CacheMode::resolve(
++            true,
++            CacheSettings {
++                response: true,
++                wire: false,
++            },
++            false,
++        ));
++        let first = write_batch_for_run(root.path(), b"", &counters, &run).unwrap();
++        let second = write_batch_for_run(root.path(), b"", &counters, &run).unwrap();
++        let read = |path: &Path| serde_json::from_slice::<Value>(&fs::read(path).unwrap()).unwrap();
++        assert_ne!(first, second);
++        assert_eq!(read(&first)["run"], read(&second)["run"]);
++        assert_ne!(run.instance_id, RunContext::new(run.cache).instance_id);
++        assert_eq!(
++            read(&first)["run"]["cache"]["wire_disabled_reason"],
++            "wire_not_selected"
++        );
++    }
++
++    #[test]
++    fn cache_batches_reject_malformed_labels_and_negative_cache_counts() {
++        let rows = cache_events(true, || {
++            tracing::debug!(target: "codex_api::prompt_cache", cached_state = "PRIVATE_STATE",
++                returned_model = "PRIVATE\\nMODEL", returned_service_tier = "x".repeat(65).as_str(),
++                cache_write_tokens = -1_i64, cached_tokens = -2_i64, reason = "PRIVATE_REASON");
++        });
++        assert_eq!(rows.len(), 1);
++        assert_eq!(rows[0]["fields"], json!({}));
++        assert!(!rows[0].to_string().contains("PRIVATE"));
++    }
++
 +    #[test]
 +    fn unavailable_destination_preserves_local_batch_for_later_retry() {
 +        let root = tempfile::tempdir().unwrap();
@@ -53115,6 +53968,11 @@ index 000000000..26ff642c8
 +            sender,
 +            counters: counters.clone(),
 +            settings: Settings::default(),
++            run: Arc::new(RunContext::new(CacheMode::resolve(
++                false,
++                CacheSettings::default(),
++                false,
++            ))),
 +        };
 +        layer.submit(json!({"kind":"first"}));
 +        layer.submit(json!({"kind":"overflow"}));
@@ -53356,15 +54214,167 @@ index 000000000..26ff642c8
 +        );
 +    }
 +}
+diff --git a/codex-rs/diagnostics/src/cache_diagnostics.rs b/codex-rs/diagnostics/src/cache_diagnostics.rs
+new file mode 100644
+index 000000000..94080a1b2
+--- /dev/null
++++ b/codex-rs/diagnostics/src/cache_diagnostics.rs
+@@ -0,0 +1,145 @@
++//! Immutable, process-local cache observation choices. This extension never
++//! changes the shared logging settings understood by older installations.
++use serde::{Deserialize, Serialize};
++use std::fs;
++use std::io;
++use std::path::Path;
++use std::sync::OnceLock;
++
++static PROCESS_MODE: OnceLock<CacheMode> = OnceLock::new();
++
++#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
++#[serde(default, deny_unknown_fields)]
++pub struct Settings {
++    pub response: bool,
++    pub wire: bool,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
++pub struct CacheMode {
++    pub response_requested: bool,
++    pub wire_requested: bool,
++    pub wire_producer_enabled: bool,
++    pub response_enabled: bool,
++    pub wire_enabled: bool,
++    pub wire_disabled_reason: Option<&'static str>,
++}
++
++impl CacheMode {
++    pub fn resolve(logging_enabled: bool, settings: Settings, explicit_wire: bool) -> Self {
++        let response_enabled = logging_enabled && settings.response;
++        let wire_enabled = response_enabled && settings.wire && explicit_wire;
++        Self {
++            response_requested: settings.response,
++            wire_requested: settings.wire,
++            // Preserve the existing explicit producer opt-in even when batch
++            // output is off: another existing tracing layer may consume it.
++            wire_producer_enabled: explicit_wire,
++            response_enabled,
++            wire_enabled,
++            wire_disabled_reason: if wire_enabled {
++                None
++            } else if !logging_enabled {
++                Some("logging_disabled")
++            } else if !settings.response {
++                Some("response_disabled")
++            } else if !settings.wire {
++                Some("wire_not_selected")
++            } else {
++                Some("producer_not_selected")
++            },
++        }
++    }
++}
++
++fn explicit_wire() -> bool {
++    std::env::var("APP_CACHE_WIRE_DIAGNOSTICS").as_deref() == Ok("1")
++}
++
++/// API-only consumers retain the legacy explicit opt-in. Normal CLI/server
++/// startup initializes the same value before installing its tracing layers.
++pub fn process_mode() -> CacheMode {
++    *PROCESS_MODE.get_or_init(|| CacheMode::resolve(false, Settings::default(), explicit_wire()))
++}
++
++pub(crate) fn initialize(home: &Path, logging_enabled: bool) -> io::Result<CacheMode> {
++    let settings = match fs::read_to_string(home.join("cli-cache-diagnostics.toml")) {
++        Ok(text) => toml::from_str::<Settings>(&text)
++            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
++        Err(error) if error.kind() == io::ErrorKind::NotFound => Settings::default(),
++        Err(error) => return Err(error),
++    };
++    let mode = CacheMode::resolve(logging_enabled, settings, explicit_wire());
++    match PROCESS_MODE.set(mode) {
++        Ok(()) => Ok(mode),
++        Err(_) if PROCESS_MODE.get() == Some(&mode) => Ok(mode),
++        Err(_) => Err(io::Error::other(
++            "cache diagnostics were initialized earlier with a different mode",
++        )),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn batch_wire_requires_every_gate_but_explicit_producer_is_preserved() {
++        for logging in [false, true] {
++            for response in [false, true] {
++                for wire in [false, true] {
++                    for explicit in [false, true] {
++                        let mode =
++                            CacheMode::resolve(logging, Settings { response, wire }, explicit);
++                        assert_eq!(mode.response_enabled, logging && response);
++                        assert_eq!(mode.wire_enabled, logging && response && wire && explicit);
++                        assert_eq!(mode.wire_producer_enabled, explicit);
++                        assert_eq!(mode.wire_disabled_reason.is_none(), mode.wire_enabled);
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn extension_is_strict_and_shared_settings_remain_unchanged() {
++        assert_eq!(toml::from_str::<Settings>("").unwrap(), Settings::default());
++        assert!(toml::from_str::<Settings>("response = 1").is_err());
++        assert!(toml::from_str::<Settings>("prompt_cache = true").is_err());
++        assert!(toml::from_str::<crate::batch_log::Settings>("prompt_cache = true").is_err());
++        assert!(toml::from_str::<crate::batch_log::Settings>("enabled = true").is_ok());
++    }
++
++    #[test]
++    fn startup_mode_is_frozen_in_an_isolated_process() {
++        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++        command
++            .args([
++                "--exact",
++                "cache_diagnostics::tests::frozen_mode_child",
++                "--ignored",
++                "--test-threads=1",
++            ])
++            .env("APP_CACHE_WIRE_DIAGNOSTICS", "1");
++        #[cfg(windows)]
++        {
++            use std::os::windows::process::CommandExt;
++            command.creation_flags(0x08000000);
++        }
++        assert!(command.status().unwrap().success());
++    }
++
++    #[test]
++    #[ignore = "isolated process for immutable startup state"]
++    fn frozen_mode_child() {
++        let root = tempfile::tempdir().unwrap();
++        let settings = root.path().join("cli-cache-diagnostics.toml");
++        fs::write(&settings, "response = true\nwire = true\n").unwrap();
++        let before = initialize(root.path(), true).unwrap();
++        assert!(before.response_enabled && before.wire_enabled && before.wire_producer_enabled);
++        fs::write(&settings, "response = false\nwire = false\n").unwrap();
++        assert_eq!(process_mode(), before);
++        assert!(initialize(root.path(), true).is_err());
++        assert_eq!(process_mode(), before);
++    }
++}
 diff --git a/codex-rs/diagnostics/src/lib.rs b/codex-rs/diagnostics/src/lib.rs
-index a966e4aee..3b403c2a5 100644
+index a966e4aee..209752e53 100644
 --- a/codex-rs/diagnostics/src/lib.rs
 +++ b/codex-rs/diagnostics/src/lib.rs
-@@ -3,6 +3,8 @@ use std::sync::Once;
+@@ -3,6 +3,9 @@ use std::sync::Once;
  use std::sync::atomic::AtomicU64;
  use std::sync::atomic::Ordering;
  
 +pub mod batch_log;
++pub mod cache_diagnostics;
 +
  static GAUGES: Mutex<Vec<&'static Gauge>> = Mutex::new(Vec::new());
  
@@ -53421,18 +54431,17 @@ index d5190c2ca..6ca8ca411 100644
  clap = { workspace = true, features = ["derive"] }
  codex-arg0 = { workspace = true }
 diff --git a/codex-rs/exec/src/lib.rs b/codex-rs/exec/src/lib.rs
-index 43cf70b21..8b63ce739 100644
+index 43cf70b21..97771f237 100644
 --- a/codex-rs/exec/src/lib.rs
 +++ b/codex-rs/exec/src/lib.rs
-@@ -691,10 +691,17 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -691,10 +691,16 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
  
      let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
  
 +    let (batch_layer, batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
 +    let batch_layer = batch_layer.map(|layer| {
-+        layer.with_filter(tracing_subscriber::filter::filter_fn(
-+            codex_diagnostics::batch_log::metadata_enabled,
-+        ))
++        let filter = layer.metadata_filter();
++        layer.with_filter(tracing_subscriber::filter::filter_fn(filter))
 +    });
      let _ = tracing_subscriber::registry()
          .with(fmt_layer)
@@ -53442,7 +54451,7 @@ index 43cf70b21..8b63ce739 100644
          .try_init();
  
      let exec_span = exec_root_span();
-@@ -756,7 +763,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -756,7 +762,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          opt_out_notification_methods: Vec::new(),
          channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
      };
@@ -53451,7 +54460,7 @@ index 43cf70b21..8b63ce739 100644
          in_process_start_args,
          state_db,
          command,
-@@ -779,7 +786,14 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
+@@ -779,7 +785,14 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
          cyber_access_program: cyber_access_program.map(Into::into),
      })
      .instrument(exec_span)
@@ -53467,7 +54476,7 @@ index 43cf70b21..8b63ce739 100644
  }
  
  async fn build_exec_config<BuildConfig, BuildFuture>(
-@@ -857,7 +871,7 @@ async fn load_bootstrap_config_or_exit(
+@@ -857,7 +870,7 @@ async fn load_bootstrap_config_or_exit(
      }
  }
  
@@ -53476,7 +54485,7 @@ index 43cf70b21..8b63ce739 100644
      let ExecRunArgs {
          in_process_start_args,
          state_db,
-@@ -1021,7 +1035,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
+@@ -1021,7 +1034,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
          && get_git_repo_root(&default_cwd).is_none()
      {
          eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
@@ -53485,7 +54494,7 @@ index 43cf70b21..8b63ce739 100644
      }
  
      let mut request_ids = RequestIdSequencer::new();
-@@ -1212,7 +1226,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
+@@ -1212,7 +1225,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                  .await
                  .map_err(|err| anyhow::anyhow!("in-process app-server shutdown failed: {err}"))?;
              event_processor.print_final_output();
@@ -53494,7 +54503,7 @@ index 43cf70b21..8b63ce739 100644
          }
          InitialOperation::UserTurn {
              items,
-@@ -1410,10 +1424,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
+@@ -1410,10 +1423,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
      }
      event_processor.print_final_output();
      if error_seen {
@@ -83035,7 +84044,7 @@ index b54764227..025a0628e 100644
  
  › 1. Update now (runs `npm install -g @openai/codex`)                           
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index 6a8d96c97..19e6a1e17 100644
+index 6a8d96c97..f0ba33e0c 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
 @@ -12,6 +12,7 @@ pub(super) async fn run_main_inner(
@@ -83046,20 +84055,19 @@ index 6a8d96c97..19e6a1e17 100644
  ) -> std::io::Result<AppExitInfo> {
      if cli.no_daemon && explicit_remote_endpoint.is_some() {
          return Err(std::io::Error::other(
-@@ -978,6 +979,12 @@ pub(super) async fn run_main_inner(
+@@ -978,6 +979,11 @@ pub(super) async fn run_main_inner(
          .clone()
          .map(|layer| layer.with_filter(log_db::default_filter()));
  
 +    let (batch_layer, _batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
 +    let batch_layer = batch_layer.map(|layer| {
-+        layer.with_filter(tracing_subscriber::filter::filter_fn(
-+            codex_diagnostics::batch_log::metadata_enabled,
-+        ))
++        let filter = layer.metadata_filter();
++        layer.with_filter(tracing_subscriber::filter::filter_fn(filter))
 +    });
      let _ = tracing_subscriber::registry()
          .with(tui_file_layer)
          .with(feedback_layer)
-@@ -985,6 +992,7 @@ pub(super) async fn run_main_inner(
+@@ -985,6 +991,7 @@ pub(super) async fn run_main_inner(
          .with(log_db_layer)
          .with(otel_logger_layer)
          .with(otel_tracing_layer)
@@ -83067,7 +84075,7 @@ index 6a8d96c97..19e6a1e17 100644
          .try_init();
  
      if let Err(err) = screen_reader_result {
-@@ -1014,6 +1022,7 @@ pub(super) async fn run_main_inner(
+@@ -1014,6 +1021,7 @@ pub(super) async fn run_main_inner(
          managed_daemon,
          launch_telemetry,
          startup_draft,
@@ -84134,10 +85142,10 @@ index 000000000..421a5d746
 +같은 최상위 대화에 속한 하위 에이전트 상태가 있으면 일반 입력창 바로 위에 상태별 개수 요약이 표시됩니다. 개별 대화는 `/subagents`로 확인합니다. 목록이 비어 있거나 입력창을 대신하는 다른 화면이 열려 있으면 요약 줄이 보이지 않을 수 있습니다. 개별 에이전트 이름을 항상 펼쳐두는 화면은 아닙니다.
 diff --git a/docs/native-cli-r27.ko.md b/docs/native-cli-r27.ko.md
 new file mode 100644
-index 000000000..27e8726f2
+index 000000000..46765c379
 --- /dev/null
 +++ b/docs/native-cli-r27.ko.md
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,61 @@
 +# Native CLI R27
 +
 +기반은 공식 Codex CLI 0.165.0입니다. R26의 수정과 기능을 유지하며 CLI 로그 수집, 대화별 컨텍스트 창 설정, 한국어 UI를 추가합니다. 기존 설치본과 전역 설정은 자동 변경하지 않습니다.
@@ -84177,6 +85185,8 @@ index 000000000..27e8726f2
 +```
 +
 +`rpc`, `events`, `process`로 항목을 개별 설정합니다. `destination`을 생략하면 로컬 저장만 합니다. 주기는 1~3600초, 버퍼는 16KiB~64MiB 범위이며 잘못된 설정은 오류로 알립니다.
++
++R32의 캐시 관측은 별도 `CODEX_HOME/cli-cache-diagnostics.toml`의 `response`·`wire`로 선택합니다. 구버전과 공유하는 위 설정에는 새 키를 추가하지 않습니다. 확장 파일이 없으면 두 항목 모두 꺼집니다. 전체 기록이 켜지고 `response = true`일 때 응답 관측을 보존합니다. 송신 관측 보존은 여기에 `wire = true`와 해당 프로세스의 `APP_CACHE_WIRE_DIAGNOSTICS=1` 선택까지 필요합니다. 시작할 때 확정한 모드는 실행 중 바뀌지 않습니다. 기존 환경 선택만 지정한 경우 다른 추적 경로의 송신 생산자 동작은 유지되며, 배치 파일 보존 여부와 구분됩니다. 실행 식별자와 실제 활성·비활성 사유는 시작 기록과 각 배치 요약에 남깁니다. 이 문단은 R32 소스 후보의 동작 설명이며 설치된 R30/R31에서 새 설정을 소비한다는 뜻이 아닙니다.
 +
 +생산자는 디스크에 쓰지 않고 용량이 제한된 큐에 이벤트를 넣습니다. 별도 스레드가 메모리 버퍼를 로컬 `CODEX_HOME/log/cli-batches/YYYYMMDD`에 완결 파일로 저장합니다. 파일명은 `YYYYMMDDHHMMSS`와 소수 6자리, PID, UUID를 조합합니다. 각 완결 파일은 다시 열어 덧붙이지 않습니다.
 +

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 // Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 //! Host guards exercised through real cleanup ownership, terminal V2 runtimes and local storage.
 //! Opt-in only: `cargo test -p codex-app-server --features test-support cleanup_guard_tests --lib`.

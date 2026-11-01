@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Reads recent rollout evidence and selects v2 input by provenance in chronological order.
 //! Human replies retain their questions; message media is replaced with placeholders.
 //! Budgets use the same token estimate as the rest of the memory pipeline.

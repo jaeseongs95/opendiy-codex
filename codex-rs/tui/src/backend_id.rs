@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Logical backend identity, independent of a transport connection or native thread ID.
 //! Reconnecting and auxiliary picker connections reuse the launch owner; a different
 //! backend gets a fresh identity. Only the authenticated Desktop cron scope exposes

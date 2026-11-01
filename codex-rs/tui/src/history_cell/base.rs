@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Shared history-cell building blocks reused across transcript concerns.
 //! Wrapped prefixes remain display-only while annotated rows retain their logical source.
 

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Queued user input and pending-steer state for `ChatWidget`.
 //!
 //! This module keeps the mutable input queues together so `ChatWidget` can

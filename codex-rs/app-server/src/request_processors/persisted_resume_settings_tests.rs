@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use super::PersistedResumeSettings;
 use super::latest_persisted_resume_settings;
 use codex_protocol::ThreadId;

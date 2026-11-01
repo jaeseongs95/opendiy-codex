@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Regression coverage for SQLite initialization, cached filesystem detection, and competing locks.
 
 use super::SqliteConfig;

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use super::invalid_request;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_core::CodexThread;

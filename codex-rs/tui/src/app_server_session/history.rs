@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Bounded app-server transcript loading for resume, fork, and transcript views.
 
 use codex_app_server_protocol::ThreadItem;

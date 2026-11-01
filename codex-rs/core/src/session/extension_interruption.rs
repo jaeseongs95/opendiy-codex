@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Applies extension-requested interruption only if the selected turn is still active.
 //! Conditional interruption preserves queued input and acknowledges before joining the task.
 

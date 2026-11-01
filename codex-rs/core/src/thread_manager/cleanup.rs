@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Exact, preview-bound cleanup of terminal local child runtimes.
 //!
 //! The manager fence covers a UUID's reload, child creation and unloaded mail;

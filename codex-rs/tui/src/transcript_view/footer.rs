@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Project transcript interactions and page-loading feedback into the existing footer.
 //! Loading never inserts transcript rows; the owner schedules motion only while a page is pending.
 //! Surface owners supply the latest shortcut because legacy pagers reserve Escape for editing.

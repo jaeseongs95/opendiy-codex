@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 // Release builds exceed rustc's default query depth when laying out the async
 // MessageProcessor::handle_initialized_client_request future.
 #![recursion_limit = "256"]

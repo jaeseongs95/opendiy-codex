@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Retains agent-tree membership and resources throughout managed startup.
 //! Cleanup releases membership only after acquisition and partial session teardown finish;
 //! abandoning that ownership marks tree shutdown as failed.

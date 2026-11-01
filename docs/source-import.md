@@ -1,3 +1,11 @@
+# 공식 0.166.0 기반 R32 소스 후보
+
+고정 Git 소스는 `c23bf2aaed0c31d147ce915d5478c926282a5482`이며, 공개 입력은 `SOURCE_BASELINE.json`과 `upstream/source-inventory.json`으로 대조한다. 공식 원본은 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`이다. 출처 검사는 통과했으며 R32 시험과 컴파일은 진행 중이다. R31은 별도로 배포하지 않는다.
+
+## 이전 후보의 수입 이력
+
+아래는 각 후보 당시의 기록이다.
+
 # 공식 0.166.0 기반 R31 소스
 
 현재 고정 후보는 `7f629944e3b2808093853f0bdeef2218fc240ae3`이며 공식 `rust-v0.166.0` 전체를 기반으로 한다. 이전 공개 커밋 `f28920f`의 후속 시험도 보존했다. [출처 목록](../SOURCE_BASELINE.json)·`upstream/source-inventory.json`·`upstream/official-0.166.0.patch`가 현재 입력을 식별한다.

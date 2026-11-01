@@ -1,4 +1,4 @@
-<!-- Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md. -->
+<!-- Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md. -->
 # Native CLI R27
 
 기반은 공식 Codex CLI 0.165.0입니다. R26의 수정과 기능을 유지하며 CLI 로그 수집, 대화별 컨텍스트 창 설정, 한국어 UI를 추가합니다. 기존 설치본과 전역 설정은 자동 변경하지 않습니다.
@@ -38,6 +38,8 @@ process = true
 ```
 
 `rpc`, `events`, `process`로 항목을 개별 설정합니다. `destination`을 생략하면 로컬 저장만 합니다. 주기는 1~3600초, 버퍼는 16KiB~64MiB 범위이며 잘못된 설정은 오류로 알립니다.
+
+R32의 캐시 관측은 별도 `CODEX_HOME/cli-cache-diagnostics.toml`의 `response`·`wire`로 선택합니다. 구버전과 공유하는 위 설정에는 새 키를 추가하지 않습니다. 확장 파일이 없으면 두 항목 모두 꺼집니다. 전체 기록이 켜지고 `response = true`일 때 응답 관측을 보존합니다. 송신 관측 보존은 여기에 `wire = true`와 해당 프로세스의 `APP_CACHE_WIRE_DIAGNOSTICS=1` 선택까지 필요합니다. 시작할 때 확정한 모드는 실행 중 바뀌지 않습니다. 기존 환경 선택만 지정한 경우 다른 추적 경로의 송신 생산자 동작은 유지되며, 배치 파일 보존 여부와 구분됩니다. 실행 식별자와 실제 활성·비활성 사유는 시작 기록과 각 배치 요약에 남깁니다. 이 문단은 R32 소스 후보의 동작 설명이며 설치된 R30/R31에서 새 설정을 소비한다는 뜻이 아닙니다.
 
 생산자는 디스크에 쓰지 않고 용량이 제한된 큐에 이벤트를 넣습니다. 별도 스레드가 메모리 버퍼를 로컬 `CODEX_HOME/log/cli-batches/YYYYMMDD`에 완결 파일로 저장합니다. 파일명은 `YYYYMMDDHHMMSS`와 소수 6자리, PID, UUID를 조합합니다. 각 완결 파일은 다시 열어 덧붙이지 않습니다.
 

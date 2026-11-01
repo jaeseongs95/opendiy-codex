@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Tracing log export into the local SQLite log database.
 //!
 //! This module provides a `tracing_subscriber::Layer` that captures events,

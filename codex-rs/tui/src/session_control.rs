@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Structured model entry into the existing client settings and thread controls.
 use codex_app_server_protocol::DynamicToolFunctionSpec;
 use serde::{Deserialize, Serialize};
