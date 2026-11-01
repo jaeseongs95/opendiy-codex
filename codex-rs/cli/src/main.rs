@@ -55,7 +55,6 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
 mod cleanup_agents;
-mod cloud_config;
 mod config_override_args;
 mod daemon_install;
 mod daemon_telemetry;
@@ -68,10 +67,6 @@ mod exec_args_tests;
 #[cfg(test)]
 #[path = "exec_server_args_tests.rs"]
 mod exec_server_args_tests;
-mod exec_server_auth;
-mod exec_server_command;
-mod exec_server_credential;
-mod exec_server_telemetry;
 mod localization;
 mod marketplace_cmd;
 mod mcp_cmd;
