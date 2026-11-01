@@ -33700,31 +33700,26 @@ index 000000000..fbc1feb0d
 +    }
 +}
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index 8a578c38a..9d92c11bb 100644
+index 8a578c38a..15bf90d8a 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
-@@ -53,6 +53,8 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+@@ -53,6 +53,7 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
  
  #[cfg(any(target_os = "macos", target_os = "windows"))]
  mod app_cmd;
 +mod cleanup_agents;
-+mod cloud_config;
  mod config_override_args;
  mod daemon_install;
  mod daemon_telemetry;
-@@ -65,6 +67,11 @@ mod exec_args_tests;
+@@ -65,6 +66,7 @@ mod exec_args_tests;
  #[cfg(test)]
  #[path = "exec_server_args_tests.rs"]
  mod exec_server_args_tests;
-+mod exec_server_auth;
-+mod exec_server_command;
-+mod exec_server_credential;
-+mod exec_server_telemetry;
 +mod localization;
  mod marketplace_cmd;
  mod mcp_cmd;
  mod mcp_login;
-@@ -208,6 +215,9 @@ enum Subcommand {
+@@ -208,6 +210,9 @@ enum Subcommand {
      /// Queue a message for an existing session.
      Queue(QueueCommand),
  
@@ -33734,7 +33729,7 @@ index 8a578c38a..9d92c11bb 100644
      /// Archive a saved session by id or session name.
      Archive(SessionArchiveCommand),
  
-@@ -602,9 +612,20 @@ struct AppServerCommand {
+@@ -602,9 +607,20 @@ struct AppServerCommand {
      stdio: bool,
  
      /// Enable remote control for this app-server process without changing persistence.
@@ -33756,7 +33751,7 @@ index 8a578c38a..9d92c11bb 100644
      /// Save loaded threads during managed daemon shutdown.
      #[arg(long, hide = true)]
      managed_daemon: bool,
-@@ -663,7 +684,11 @@ enum AppServerDaemonSubcommand {
+@@ -663,7 +679,11 @@ enum AppServerDaemonSubcommand {
      Bootstrap(AppServerBootstrapCommand),
  
      /// Start the local app server daemon if it is not already running.
@@ -33769,7 +33764,7 @@ index 8a578c38a..9d92c11bb 100644
  
      /// Restart the local app server daemon.
      Restart,
-@@ -1037,11 +1062,17 @@ fn stage_str(stage: Stage) -> &'static str {
+@@ -1037,11 +1057,17 @@ fn stage_str(stage: Stage) -> &'static str {
  }
  
  fn main() -> anyhow::Result<()> {
@@ -33788,7 +33783,7 @@ index 8a578c38a..9d92c11bb 100644
          Ok(())
      })
  }
-@@ -1049,7 +1080,9 @@ fn main() -> anyhow::Result<()> {
+@@ -1049,7 +1075,9 @@ fn main() -> anyhow::Result<()> {
  async fn cli_main(
      arg0_paths: Arg0DispatchPaths,
      remote_control_disabled: bool,
@@ -33798,7 +33793,7 @@ index 8a578c38a..9d92c11bb 100644
      let MultitoolCli {
          config_overrides: mut root_config_overrides,
          feature_toggles,
-@@ -1151,6 +1184,7 @@ async fn cli_main(
+@@ -1151,6 +1179,7 @@ async fn cli_main(
                  root_remote.clone(),
                  root_remote_auth_token_env.clone(),
                  arg0_paths.clone(),
@@ -33806,7 +33801,7 @@ index 8a578c38a..9d92c11bb 100644
              )
              .await?;
              handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
-@@ -1253,11 +1287,16 @@ async fn cli_main(
+@@ -1253,11 +1282,16 @@ async fn cli_main(
                  listen,
                  stdio,
                  remote_control,
@@ -33823,7 +33818,7 @@ index 8a578c38a..9d92c11bb 100644
              reject_strict_config_for_app_server_subcommand(strict_config, subcommand.as_ref())?;
              reject_remote_mode_for_app_server_subcommand(
                  root_remote.as_deref(),
-@@ -1299,8 +1338,10 @@ async fn cli_main(
+@@ -1299,8 +1333,10 @@ async fn cli_main(
                          cloud_skills_snapshot,
                          code_mode_host_transport: code_mode_host.into(),
                          managed_daemon,
@@ -33836,7 +33831,7 @@ index 8a578c38a..9d92c11bb 100644
                              (true, _) => {
                                  codex_app_server::RemoteControlStartupMode::EnabledEphemeral
                              }
-@@ -1331,8 +1372,15 @@ async fn cli_main(
+@@ -1331,8 +1367,15 @@ async fn cli_main(
                      }
                  }
                  Some(AppServerSubcommand::Daemon(daemon_cli)) => match daemon_cli.subcommand {
@@ -33854,7 +33849,7 @@ index 8a578c38a..9d92c11bb 100644
                      }
                      AppServerDaemonSubcommand::Bootstrap(bootstrap_cli) => {
                          let output =
-@@ -1471,16 +1519,17 @@ async fn cli_main(
+@@ -1471,16 +1514,17 @@ async fn cli_main(
                          }
                      }
                  },
@@ -33882,7 +33877,7 @@ index 8a578c38a..9d92c11bb 100644
                  Some(AppServerSubcommand::GenerateTs(gen_cli)) => {
                      let options = codex_app_server_protocol::GenerateTsOptions {
                          experimental_api: gen_cli.experimental,
-@@ -1552,6 +1601,7 @@ async fn cli_main(
+@@ -1552,6 +1596,7 @@ async fn cli_main(
                      .remote_auth_token_env
                      .or(root_remote_auth_token_env.clone()),
                  arg0_paths.clone(),
@@ -33890,7 +33885,7 @@ index 8a578c38a..9d92c11bb 100644
              )
              .await?;
              handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
-@@ -1616,6 +1666,14 @@ async fn cli_main(
+@@ -1616,6 +1661,14 @@ async fn cli_main(
              )
              .await?;
          }
@@ -33905,7 +33900,7 @@ index 8a578c38a..9d92c11bb 100644
          Some(Subcommand::Unarchive(cmd)) => {
              let output = run_session_archive_cli_command(
                  codex_tui::SessionArchiveAction::Unarchive,
-@@ -1652,6 +1710,7 @@ async fn cli_main(
+@@ -1652,6 +1705,7 @@ async fn cli_main(
                      .remote_auth_token_env
                      .or(root_remote_auth_token_env.clone()),
                  arg0_paths.clone(),
@@ -33913,7 +33908,7 @@ index 8a578c38a..9d92c11bb 100644
              )
              .await?;
              handle_app_exit(exit_info, daemon_cli_executable.as_deref())?;
-@@ -2373,6 +2432,7 @@ fn unsupported_subcommand_name_for_strict_config(
+@@ -2373,6 +2427,7 @@ fn unsupported_subcommand_name_for_strict_config(
          Some(Subcommand::RemoteControl(remote_control)) => Some(remote_control.subcommand_name()),
          Some(Subcommand::Mcp(_)) => Some("mcp"),
          Some(Subcommand::Plugin(_)) => Some("plugin"),
@@ -33921,7 +33916,7 @@ index 8a578c38a..9d92c11bb 100644
          Some(Subcommand::MigrateRollouts(_)) => Some("migrate-rollouts"),
          Some(Subcommand::MigrateNfsDb(_)) => Some("migrate-nfs-db"),
          #[cfg(any(target_os = "macos", target_os = "windows"))]
-@@ -2393,6 +2453,19 @@ fn unsupported_subcommand_name_for_strict_config(
+@@ -2393,6 +2448,19 @@ fn unsupported_subcommand_name_for_strict_config(
      }
  }
  
@@ -33941,7 +33936,7 @@ index 8a578c38a..9d92c11bb 100644
  fn reject_strict_config_for_app_server_subcommand(
      strict_config: bool,
      subcommand: Option<&AppServerSubcommand>,
-@@ -2430,7 +2503,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
+@@ -2430,7 +2498,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
          None => "app-server",
          Some(AppServerSubcommand::Daemon(daemon)) => match daemon.subcommand {
              AppServerDaemonSubcommand::Bootstrap(_) => "app-server daemon bootstrap",
@@ -33950,7 +33945,7 @@ index 8a578c38a..9d92c11bb 100644
              AppServerDaemonSubcommand::Restart => "app-server daemon restart",
              AppServerDaemonSubcommand::Update { .. } => "app-server daemon update",
              AppServerDaemonSubcommand::EnableRemoteControl => {
-@@ -2499,6 +2572,7 @@ async fn run_interactive_tui(
+@@ -2499,6 +2567,7 @@ async fn run_interactive_tui(
      remote: Option<String>,
      remote_auth_token_env: Option<String>,
      arg0_paths: Arg0DispatchPaths,
@@ -33958,7 +33953,7 @@ index 8a578c38a..9d92c11bb 100644
  ) -> std::io::Result<AppExitInfo> {
      if interactive.no_daemon {
          if interactive.agents_overview {
-@@ -2567,6 +2641,7 @@ async fn run_interactive_tui(
+@@ -2567,6 +2636,7 @@ async fn run_interactive_tui(
              arg0_paths.clone(),
              codex_config::LoaderOverrides::default(),
              remote_endpoint.clone(),
@@ -33966,7 +33961,7 @@ index 8a578c38a..9d92c11bb 100644
          )
      };
      run_tui_with_recovery(start_tui, remote_auth_token_env.as_deref()).await
-@@ -2775,6 +2850,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2775,6 +2845,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
          web_search,
          no_alt_screen,
          no_daemon,
@@ -33974,7 +33969,7 @@ index 8a578c38a..9d92c11bb 100644
          prompt,
          mut config_overrides,
          ..
-@@ -2796,6 +2872,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2796,6 +2867,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
      }
      interactive.no_alt_screen |= no_alt_screen;
      interactive.no_daemon |= no_daemon;
@@ -33984,7 +33979,7 @@ index 8a578c38a..9d92c11bb 100644
      if strict_config {
          interactive.strict_config = true;
      }
-@@ -2824,6 +2903,45 @@ mod tests {
+@@ -2824,6 +2898,45 @@ mod tests {
      use codex_tui::TokenUsage;
      use pretty_assertions::assert_eq;
  
@@ -34030,7 +34025,7 @@ index 8a578c38a..9d92c11bb 100644
      #[test]
      fn interactive_tui_future_stays_bounded() {
          let future = run_interactive_tui(
-@@ -2831,6 +2949,7 @@ mod tests {
+@@ -2831,6 +2944,7 @@ mod tests {
              /*remote*/ None,
              /*remote_auth_token_env*/ None,
              Arg0DispatchPaths::default(),
@@ -34038,7 +34033,7 @@ index 8a578c38a..9d92c11bb 100644
          );
          let size = std::mem::size_of_val(&future);
  
-@@ -4291,6 +4410,7 @@ enabled = true
+@@ -4291,6 +4405,7 @@ enabled = true
          let app_server = app_server_from_args(["codex", "app-server"].as_ref());
          assert!(!app_server.analytics_default_enabled);
          assert!(!app_server.remote_control);
@@ -34046,7 +34041,7 @@ index 8a578c38a..9d92c11bb 100644
          assert_eq!(
              app_server.listen,
              codex_app_server::AppServerTransport::Stdio
-@@ -4301,6 +4421,114 @@ enabled = true
+@@ -4301,6 +4416,114 @@ enabled = true
      fn app_server_remote_control_startup_flag_enables_remote_control() {
          let enabled = app_server_from_args(["codex", "app-server", "--remote-control"].as_ref());
          assert!(enabled.remote_control);
@@ -34161,7 +34156,7 @@ index 8a578c38a..9d92c11bb 100644
      }
  
      #[test]
-@@ -4777,7 +5005,9 @@ enabled = true
+@@ -4777,7 +5000,9 @@ enabled = true
          assert!(matches!(
              app_server_from_args(["codex", "app-server", "daemon", "start"].as_ref()).subcommand,
              Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
@@ -34172,7 +34167,7 @@ index 8a578c38a..9d92c11bb 100644
              }))
          ));
          assert!(matches!(
-@@ -4818,6 +5048,28 @@ enabled = true
+@@ -4818,6 +5043,28 @@ enabled = true
          ));
      }
  

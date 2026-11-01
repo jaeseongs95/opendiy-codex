@@ -38,6 +38,18 @@ class VerifierChecks(unittest.TestCase):
             previous=EXPORT.pinned_previous_source(root,{'codex-rs/old.rs':EXPORT.sha(b'original export')})
         self.assertEqual(previous['codex-rs/old.rs'],EXPORT.sha(b'published follow-up'))
         self.assertEqual(previous['codex-rs/new.rs'],EXPORT.sha(b'published new test'))
+    def test_update_preserves_unimported_supplementary_patch(self):
+        root,old,_=self.pinned_repository()
+        extra=root/'patches/next.patch';extra.parent.mkdir();extra.write_bytes(b'separate future candidate')
+        subprocess.run(['git','-C',str(root),'add','--','patches/next.patch'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['git','-c','commit.gpgsign=false','-c','user.name=Synthetic','-c','user.email=test@example.invalid','-C',str(root),'commit','-qm','supplementary patch'],check=True)
+        commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+        with patch.object(EXPORT,'PREVIOUS_PUBLIC',commit):
+            previous=EXPORT.pinned_previous_source(root,{'codex-rs/old.rs':EXPORT.sha(old.read_bytes())})
+        self.assertNotIn('patches/next.patch',previous)
+        self.assertIn('codex-rs/new.rs',previous)
+        EXPORT.publish(root,{'codex-rs/old.rs':b'updated','codex-rs/new.rs':b'published new test'},previous)
+        self.assertEqual(extra.read_bytes(),b'separate future candidate')
     def test_update_rejects_working_edits_to_pinned_public_followups(self):
         root,old,commit=self.pinned_repository();old.write_bytes(b'unreviewed edit')
         with patch.object(EXPORT,'PREVIOUS_PUBLIC',commit),self.assertRaises(subprocess.CalledProcessError):
