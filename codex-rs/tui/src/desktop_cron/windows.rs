@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! 윈도 클라이언트 통로 하나와 작성자 하나만 소유한다. 재연결·재전송은 없다.
 
 use super::wire;

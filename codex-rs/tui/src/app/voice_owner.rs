@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Keeps the single voice owner's live widget and subscription across navigation.
 //! Parked widgets process their own events; only voice and account updates leave their sender.
 

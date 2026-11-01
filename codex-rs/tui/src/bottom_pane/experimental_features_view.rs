@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Experimental controls with popup-owned discovery and configured enablement.
 //! Failed saves retain intent for explicit retry; cancellation remains available.
 //! Retired stable features stay hidden even if an older server reports them as beta.

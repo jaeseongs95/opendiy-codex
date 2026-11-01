@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Data model for grouped exec-call history cells in the TUI transcript.
 //!
 //! An `ExecCell` can represent either a single command or an "exploring" group of related read/

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Shared state and startup bindings for one local agent tree.
 //! Registry identity is allocation identity; cloning this handle preserves ownership checks.
 

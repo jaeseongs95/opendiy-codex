@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use super::responses_error::parse_failed_response;
 use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseEvent;
@@ -30,6 +30,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio::time::timeout;
 use tracing::debug;
+use tracing::instrument::WithSubscriber;
 use tracing::trace;
 
 #[path = "cache_observation.rs"]
@@ -88,31 +89,34 @@ pub(crate) fn spawn_response_stream_observed(
         let _ = turn_state.set(header_value.to_string());
     }
     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
-    tokio::spawn(async move {
-        if let Some(model) = server_model {
-            let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
+    tokio::spawn(
+        async move {
+            if let Some(model) = server_model {
+                let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
+            }
+            for snapshot in rate_limit_snapshots {
+                let _ = tx_event.send(Ok(ResponseEvent::RateLimits(snapshot))).await;
+            }
+            if let Some(etag) = models_etag {
+                let _ = tx_event.send(Ok(ResponseEvent::ModelsEtag(etag))).await;
+            }
+            if reasoning_included {
+                let _ = tx_event
+                    .send(Ok(ResponseEvent::ServerReasoningIncluded(true)))
+                    .await;
+            }
+            process_sse_with_treatment(
+                stream_response.bytes,
+                tx_event,
+                idle_timeout,
+                telemetry,
+                safety_buffering_treatment,
+                observation,
+            )
+            .await;
         }
-        for snapshot in rate_limit_snapshots {
-            let _ = tx_event.send(Ok(ResponseEvent::RateLimits(snapshot))).await;
-        }
-        if let Some(etag) = models_etag {
-            let _ = tx_event.send(Ok(ResponseEvent::ModelsEtag(etag))).await;
-        }
-        if reasoning_included {
-            let _ = tx_event
-                .send(Ok(ResponseEvent::ServerReasoningIncluded(true)))
-                .await;
-        }
-        process_sse_with_treatment(
-            stream_response.bytes,
-            tx_event,
-            idle_timeout,
-            telemetry,
-            safety_buffering_treatment,
-            observation,
-        )
-        .await;
-    });
+        .with_current_subscriber(),
+    );
 
     ResponseStream {
         routing_affinity: None,

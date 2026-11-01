@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Runs a thread for its owner's chosen lifetime, including cancellation during startup.
 //! Cleanup remains tracked when the caller drops its startup future or stops waiting.
 

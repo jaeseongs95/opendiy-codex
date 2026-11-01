@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Shares MCP 2026-07-28 connections while keeping each chat's ownership separate.
 //!
 //! The protocol requires request-scoped context and explicit handles for application state.

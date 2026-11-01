@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Coordination of one agent tree, independent of where its threads run.
 //!
 //! The trait and its requests use shared agent types and captured settings. Live threads

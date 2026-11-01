@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use crate::auth::SharedAuthProvider;
 use crate::cache_wire_observation::WireObservation;
 use crate::common::ResponseStream;

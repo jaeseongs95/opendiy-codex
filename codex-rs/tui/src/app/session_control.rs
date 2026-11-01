@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Local controls use the originating model call and the existing confirmed APIs.
 use super::App;
 use crate::app_server_session::AppServerSession;

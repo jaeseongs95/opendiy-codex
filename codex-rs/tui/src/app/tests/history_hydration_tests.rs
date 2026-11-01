@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Public history requests preserve bounded metadata loading, cursor ownership and retry settings.
 
 use super::session_lifecycle_requests::recorded_params;

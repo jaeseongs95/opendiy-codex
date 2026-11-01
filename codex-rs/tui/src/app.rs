@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Top-level TUI application state and runtime wiring.
 //!
 //! This module owns the `App` struct, shared imports, and the high-level run loop that coordinates

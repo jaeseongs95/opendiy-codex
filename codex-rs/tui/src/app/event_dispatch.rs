@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! AppEvent dispatch for the TUI app.
 //!
 //! This module contains the exhaustive `AppEvent` dispatcher and exit-mode handling. Large domain

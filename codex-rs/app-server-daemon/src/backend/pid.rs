@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! PID reservations serialize detached launches; process identities protect stale-record cleanup.
 //! PID probes explicitly unlock so concurrent forks cannot retain their transient reservations.
 

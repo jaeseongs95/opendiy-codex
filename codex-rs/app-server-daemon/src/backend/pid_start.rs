@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Detached process launch and PID publication. Hold the reservation lock until
 //! the record is published, and on Windows until an updater acknowledges startup.
 //! Windows children use a separate working directory to preserve the state directory ACL.

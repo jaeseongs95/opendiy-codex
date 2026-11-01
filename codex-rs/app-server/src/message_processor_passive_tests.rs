@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! New method contracts through the real initialized JSON-RPC dispatcher and listener.
 use super::message_processor_tracing_tests::{
     build_test_processor_with_state_db, read_response_from,

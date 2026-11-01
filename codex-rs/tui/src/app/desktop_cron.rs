@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! 인증된 Desktop 요청도 기존 예약 상태의 단일 소유 루프에서만 변경한다.
 use super::cron_jobs::CronTarget;
 use super::*;

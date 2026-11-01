@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! 예약 제어의 닫힌 자료형과 일회 클라이언트 인증. 예약 실행은 소유하지 않는다.
 #![cfg(windows)]
 

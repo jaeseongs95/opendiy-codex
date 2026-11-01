@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Process-local scheduling. The caller supplies monotonic time and an immutable target.
 //! No worker, persistence, or fallback submission path lives here.
 use crate::i18n::text;

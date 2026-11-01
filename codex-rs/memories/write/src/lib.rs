@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Write-path implementation for Codex memories.
 //!
 //! This crate owns the startup memory pipeline, file-backed memory artifact

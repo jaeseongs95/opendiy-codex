@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Shared SQLite connection configuration.
 //! New databases use DELETE on NFS and WAL elsewhere.
 //! Writable pools preserve existing settings unless managed policy requires DELETE on NFS.

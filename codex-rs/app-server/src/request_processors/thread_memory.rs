@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Explicit browsing and user corrections for the loaded thread's memory scope.
 use super::*;
 use codex_app_server_protocol::ThreadMemoryNoteAddParams;

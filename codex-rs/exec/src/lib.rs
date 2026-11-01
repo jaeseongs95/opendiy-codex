@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 // - In the default output mode, it is paramount that the only thing written to
 //   stdout is the final message (if any).
 // - In --json mode, stdout must be valid JSONL, one event per line.
@@ -694,9 +694,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
 
     let (batch_layer, batch_guard) = codex_diagnostics::batch_log::start(&config.codex_home)?;
     let batch_layer = batch_layer.map(|layer| {
-        layer.with_filter(tracing_subscriber::filter::filter_fn(
-            codex_diagnostics::batch_log::metadata_enabled,
-        ))
+        let filter = layer.metadata_filter();
+        layer.with_filter(tracing_subscriber::filter::filter_fn(filter))
     });
     let _ = tracing_subscriber::registry()
         .with(fmt_layer)

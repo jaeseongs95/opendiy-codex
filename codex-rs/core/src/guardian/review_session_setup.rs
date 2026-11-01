@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Captures action-time parent context and starts or recovers its Guardian reviewer.
 //! Checkpoint recovery allows one fresh attempt under the original review deadline.
 //! Both attempts share captured context and use separate recovery flags.

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use super::thread_input::ensure_direct_input_allowed;
 use super::*;
 use codex_app_server_protocol::ImageReference as V2ImageReference;

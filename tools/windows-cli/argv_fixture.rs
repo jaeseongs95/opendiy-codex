@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 // Test-only executable for packaging and Windows argument/exit-code handling.
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

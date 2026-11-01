@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! App-server session facade used by the TUI event loop.
 //!
 //! This module owns the typed JSON-RPC calls needed by the TUI and keeps

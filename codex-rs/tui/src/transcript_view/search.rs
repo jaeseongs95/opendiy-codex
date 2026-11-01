@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Incremental literal search over full transcript content, independent of collapsed display.
 //!
 //! Search retains one match and one entry being scanned. Each frame examines a bounded text

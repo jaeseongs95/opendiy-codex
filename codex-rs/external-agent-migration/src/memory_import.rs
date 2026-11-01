@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 use crate::ExternalMemoryFile;
 use crate::discover_external_memory_files;
 use crate::memory::MAX_MEMORY_DEPTH;

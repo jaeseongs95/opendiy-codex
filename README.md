@@ -11,7 +11,8 @@ An unofficial Windows edition of **Codex CLI and Rust App Server**, with fixes f
 | Channel | Official base | Status |
 | --- | --- | --- |
 | **R30 release** | 0.165.0 | Windows x86-64 CLI, standalone App Server, and portable package available |
-| **R31 source on main** | 0.166.0 | Integration and regression validation in progress; no R31 release yet |
+| **R31 source on main** | 0.166.0 | Release cancelled; pending work continues in R32 |
+| **R32 source candidate** | 0.166.0 | Cache-diagnostic boundary tests and compilation in progress; not released |
 
 Downloading R30 and building main produce different versions. [SOURCE_BASELINE.json](SOURCE_BASELINE.json) identifies the source snapshot; [Releases](https://github.com/jaeseongs95/opendiy-codex/releases) identifies published executables and their validation scope.
 
@@ -24,7 +25,7 @@ Downloading R30 and building main produce different versions. [SOURCE_BASELINE.j
 - **Optional diagnostics:** buffer events off the input path, write completed batches as separate files, and retry asynchronous export without appending to published files.
 - **Language choice:** English by default, with a saved global Korean option. Commands and model responses are not translated automatically.
 
-These features were introduced across R26–R30. R31 carries them onto official 0.166.0 and adds fixes for request/agent-loop lifetime, history-query connection use, stale client state, and cron language handling. R31's final build, integration checks, and release validation are still pending.
+These features were introduced across R26–R30. R32 carries the unreleased R31 changes onto official 0.166.0: request/agent-loop lifetime, history-query connection use, stale client state, and cron language handling. It adds process-bound, optional cache diagnostics. R32 compilation, final integration, and release validation are pending. The [upstream upgrade design](docs/native-cli-r32-upgrade-design.ko.md) is a design, not an implemented automatic updater.
 
 ## Run on Windows
 

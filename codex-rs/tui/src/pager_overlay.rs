@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! Static pager overlays and standalone transcript adapters.
 //!
 //! Static content retains its generic pager. Transcript previews share the main conversation

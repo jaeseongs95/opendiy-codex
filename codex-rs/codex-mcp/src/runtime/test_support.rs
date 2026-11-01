@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.
 //! 시험 전용 시작 장치다. 프로세스·네트워크·정리 판정은 대체하지 않는다.
 use super::*;
 use crate::rmcp_client::AsyncManagedClient;
