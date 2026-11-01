@@ -50320,7 +50320,7 @@ index 2a2eb2afe..7fef5a112 100644
          );
          span.record(
 diff --git a/codex-rs/core/src/unified_exec/process_manager_tests.rs b/codex-rs/core/src/unified_exec/process_manager_tests.rs
-index f17801b2f..7c75391d6 100644
+index f17801b2f..b8cb69fff 100644
 --- a/codex-rs/core/src/unified_exec/process_manager_tests.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager_tests.rs
 @@ -639,6 +639,7 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
@@ -50331,7 +50331,7 @@ index f17801b2f..7c75391d6 100644
                  hook_command: format!("command-{process_id}"),
                  tty: false,
                  environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
-@@ -670,3 +671,298 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
+@@ -670,3 +671,311 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
          (None, MAX_UNIFIED_EXEC_PROCESSES)
      );
  }
@@ -50348,7 +50348,11 @@ index f17801b2f..7c75391d6 100644
 +        drain_policy: OutputDrainPolicy::BoundedAfterExit,
 +    };
 +    let early_yield = CancellationToken::new();
-+    output.output_buffer.lock().await.push_chunk(b"before\n");
++    output
++        .output_buffer
++        .lock()
++        .await
++        .push_chunk(ExecOutputStream::Stdout, b"before\n");
 +    let collect = UnifiedExecProcessManager::collect_output_until_deadline_or_yield(
 +        &output,
 +        None,
@@ -50363,7 +50367,11 @@ index f17801b2f..7c75391d6 100644
 +            tokio::task::yield_now().await;
 +        }
 +        // The collector already owns 'before'. Dropping it in a select! would lose this chunk.
-+        output.output_buffer.lock().await.push_chunk(b"during\n");
++        output
++            .output_buffer
++            .lock()
++            .await
++            .push_chunk(ExecOutputStream::Stdout, b"during\n");
 +        early_yield.cancel();
 +        early_yield.cancel();
 +    };
@@ -50379,7 +50387,11 @@ index f17801b2f..7c75391d6 100644
 +    assert!(!output.cancellation_token.is_cancelled());
 +    assert!(!output.output_closed.load(Ordering::Acquire));
 +    assert!(!output.collection_finished.is_cancelled());
-+    output.output_buffer.lock().await.push_chunk(b"after\n");
++    output
++        .output_buffer
++        .lock()
++        .await
++        .push_chunk(ExecOutputStream::Stdout, b"after\n");
 +    let next =
 +        UnifiedExecProcessManager::collect_output_until_deadline(&output, None, Instant::now())
 +            .await;
@@ -50412,7 +50424,7 @@ index f17801b2f..7c75391d6 100644
 +            .output_buffer
 +            .lock()
 +            .await
-+            .push_chunk(b"final-output");
++            .push_chunk(ExecOutputStream::Stdout, b"final-output");
 +        if exit_first {
 +            output.cancellation_token.cancel();
 +        }
@@ -50460,18 +50472,12 @@ index f17801b2f..7c75391d6 100644
 +        temp.path().try_into().expect("absolute cwd");
 +    #[cfg(unix)]
 +    let (shell, script) = (
-+        Shell {
-+            shell_type: ShellType::Bash,
-+            shell_path: "bash".into(),
-+        },
++        "bash",
 +        r#"printf '%s\n' "$$" >> spawn-count; export BG_SENTINEL=preserved; printf 'before:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$(test -t 0 && echo tty)"; read -r reply; printf 'after:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$reply"; read -r stop"#,
 +    );
 +    #[cfg(windows)]
 +    let (shell, script) = (
-+        Shell {
-+            shell_type: ShellType::PowerShell,
-+            shell_path: "powershell.exe".into(),
-+        },
++        "powershell.exe",
 +        r#"Add-Content -LiteralPath spawn-count -Value $PID; $env:BG_SENTINEL='preserved'; $pty=if([Console]::IsInputRedirected){'pipe'}else{'tty'}; [Console]::WriteLine(('before:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$pty)); $reply=[Console]::ReadLine(); [Console]::WriteLine(('after:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$reply)); [Console]::ReadLine() | Out-Null"#,
 +    );
 +    let context = UnifiedExecContext::new(
@@ -50480,30 +50486,37 @@ index f17801b2f..7c75391d6 100644
 +        CancellationToken::new(),
 +        "startup-owned".into(),
 +    );
++    let arguments = serde_json::json!({
++        "cmd": script,
++        "shell": shell,
++        "login": false,
++        "tty": true,
++        "yield_time_ms": 30_000,
++        "workdir": cwd.as_path().to_string_lossy(),
++    })
++    .to_string();
++    let prepared = ParsedExecCommand::parse(
++        &arguments,
++        &session,
++        &context.step_context,
++        turn.initial_environments.primary().expect("environment"),
++    )
++    .expect("parse the real terminal command")
++    .prepare(ExecCommandLifetime::Interactive)
++    .expect("prepare the real terminal command");
++    #[cfg(windows)]
++    let prepared = {
++        let mut prepared = prepared;
++        prepared
++            .resolved
++            .command
++            .splice(1..1, ["-WindowStyle".to_string(), "Hidden".to_string()]);
++        prepared
++    };
 +    let request = ExecCommandRequest {
-+        command: shell.derive_exec_args(script, false),
-+        shell: ShellInvocation {
-+            shell,
-+            use_login_shell: false,
-+        },
-+        hook_command: script.into(),
++        prepared,
 +        process_id,
-+        yield_time_ms: 30_000,
-+        max_output_tokens: None,
-+        cwd: cwd.clone().into(),
-+        sandbox_cwd: cwd.into(),
-+        turn_environment: turn
-+            .initial_environments
-+            .primary()
-+            .cloned()
-+            .expect("environment"),
 +        network: None,
-+        tty: true,
-+        sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
-+        additional_permissions: None,
-+        additional_permissions_preapproved: false,
-+        justification: None,
-+        prefix_rule: None,
 +    };
 +    let signal = async {
 +        let process = tokio::time::timeout(Duration::from_secs(5), async {
@@ -50566,7 +50579,7 @@ index f17801b2f..7c75391d6 100644
 +    let response = exec.await.expect("normal tool response");
 +    assert_eq!(response.process_id, Some(process_id));
 +    assert_eq!(response.exit_code, None);
-+    let before = String::from_utf8_lossy(&response.raw_output);
++    let before = response.raw_output.text.as_str();
 +    let spawned_pid =
 +        std::fs::read_to_string(temp.path().join("spawn-count")).expect("spawn witness");
 +    assert_eq!(spawned_pid.lines().count(), 1);
@@ -50615,7 +50628,7 @@ index f17801b2f..7c75391d6 100644
 +        )
 +        .await
 +        .expect("write same terminal");
-+    let after_text = String::from_utf8_lossy(&after.raw_output);
++    let after_text = after.raw_output.text.as_str();
 +    assert!(
 +        after_text.contains(&format!("after:{pid}:preserved:continued")),
 +        "{after_text}"
@@ -82286,10 +82299,10 @@ index 1026f62ef..86131e534 100644
  
 diff --git a/codex-rs/tui/src/session_control.rs b/codex-rs/tui/src/session_control.rs
 new file mode 100644
-index 000000000..4e8b659d9
+index 000000000..6cda9eeb1
 --- /dev/null
 +++ b/codex-rs/tui/src/session_control.rs
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,156 @@
 +//! Structured model entry into the existing client settings and thread controls.
 +use codex_app_server_protocol::DynamicToolFunctionSpec;
 +use serde::{Deserialize, Serialize};
@@ -82325,7 +82338,19 @@ index 000000000..4e8b659d9
 +}
 +
 +pub(crate) fn parse(value: Value) -> Result<Command, String> {
-+    let command: Command = serde_json::from_value(value).map_err(|error| error.to_string())?;
++    let fields = value
++        .as_object()
++        .ok_or("로컬 제어 요청은 객체여야 합니다.")?;
++    let command: Command =
++        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
++    // Internally tagged unit variants can ignore extra fields despite deny_unknown_fields.
++    // Derive the accepted fields from this exact action instead of maintaining a second list.
++    let accepted = serde_json::to_value(&command).map_err(|error| error.to_string())?;
++    if let Some(field) = fields.keys().find(|field| accepted.get(*field).is_none()) {
++        return Err(format!(
++            "이 로컬 제어 동작에서 허용하지 않는 필드입니다: {field}"
++        ));
++    }
 +    match &command {
 +        Command::MemoryNote { note } | Command::MemoryForget { note }
 +            if note.trim().is_empty() || note.len() > 16 * 1024 =>
@@ -82409,8 +82434,12 @@ index 000000000..4e8b659d9
 +            json!({"action":"cleanup_agents_preview","force":true}),
 +            json!({"action":"memory_reset"}),
 +            json!({"action":"reload_plugins","path":"other"}),
++            json!({"action":"status","threadId":"other"}),
++            json!({"action":"memory_view","path":"other"}),
++            json!({"action":"context_get","tokens":1}),
++            json!({"action":"context_reset","tokens":1}),
 +        ] {
-+            assert!(command(value).is_err());
++            assert!(command(value.clone()).is_err(), "{value}");
 +        }
 +        for value in [
 +            json!({"action":"memory_forget","note":"이전 선호"}),

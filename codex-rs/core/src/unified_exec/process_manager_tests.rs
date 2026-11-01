@@ -685,7 +685,11 @@ async fn output_collection_early_yield_keeps_drained_output_and_live_handles() {
         drain_policy: OutputDrainPolicy::BoundedAfterExit,
     };
     let early_yield = CancellationToken::new();
-    output.output_buffer.lock().await.push_chunk(b"before\n");
+    output
+        .output_buffer
+        .lock()
+        .await
+        .push_chunk(ExecOutputStream::Stdout, b"before\n");
     let collect = UnifiedExecProcessManager::collect_output_until_deadline_or_yield(
         &output,
         None,
@@ -700,7 +704,11 @@ async fn output_collection_early_yield_keeps_drained_output_and_live_handles() {
             tokio::task::yield_now().await;
         }
         // The collector already owns 'before'. Dropping it in a select! would lose this chunk.
-        output.output_buffer.lock().await.push_chunk(b"during\n");
+        output
+            .output_buffer
+            .lock()
+            .await
+            .push_chunk(ExecOutputStream::Stdout, b"during\n");
         early_yield.cancel();
         early_yield.cancel();
     };
@@ -716,7 +724,11 @@ async fn output_collection_early_yield_keeps_drained_output_and_live_handles() {
     assert!(!output.cancellation_token.is_cancelled());
     assert!(!output.output_closed.load(Ordering::Acquire));
     assert!(!output.collection_finished.is_cancelled());
-    output.output_buffer.lock().await.push_chunk(b"after\n");
+    output
+        .output_buffer
+        .lock()
+        .await
+        .push_chunk(ExecOutputStream::Stdout, b"after\n");
     let next =
         UnifiedExecProcessManager::collect_output_until_deadline(&output, None, Instant::now())
             .await;
@@ -749,7 +761,7 @@ async fn output_collection_yield_exit_deadline_both_orders_preserve_output() {
             .output_buffer
             .lock()
             .await
-            .push_chunk(b"final-output");
+            .push_chunk(ExecOutputStream::Stdout, b"final-output");
         if exit_first {
             output.cancellation_token.cancel();
         }
@@ -797,18 +809,12 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
         temp.path().try_into().expect("absolute cwd");
     #[cfg(unix)]
     let (shell, script) = (
-        Shell {
-            shell_type: ShellType::Bash,
-            shell_path: "bash".into(),
-        },
+        "bash",
         r#"printf '%s\n' "$$" >> spawn-count; export BG_SENTINEL=preserved; printf 'before:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$(test -t 0 && echo tty)"; read -r reply; printf 'after:%s:%s:%s\n' "$$" "$BG_SENTINEL" "$reply"; read -r stop"#,
     );
     #[cfg(windows)]
     let (shell, script) = (
-        Shell {
-            shell_type: ShellType::PowerShell,
-            shell_path: "powershell.exe".into(),
-        },
+        "powershell.exe",
         r#"Add-Content -LiteralPath spawn-count -Value $PID; $env:BG_SENTINEL='preserved'; $pty=if([Console]::IsInputRedirected){'pipe'}else{'tty'}; [Console]::WriteLine(('before:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$pty)); $reply=[Console]::ReadLine(); [Console]::WriteLine(('after:{0}:{1}:{2}' -f $PID,$env:BG_SENTINEL,$reply)); [Console]::ReadLine() | Out-Null"#,
     );
     let context = UnifiedExecContext::new(
@@ -817,30 +823,37 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
         CancellationToken::new(),
         "startup-owned".into(),
     );
+    let arguments = serde_json::json!({
+        "cmd": script,
+        "shell": shell,
+        "login": false,
+        "tty": true,
+        "yield_time_ms": 30_000,
+        "workdir": cwd.as_path().to_string_lossy(),
+    })
+    .to_string();
+    let prepared = ParsedExecCommand::parse(
+        &arguments,
+        &session,
+        &context.step_context,
+        turn.initial_environments.primary().expect("environment"),
+    )
+    .expect("parse the real terminal command")
+    .prepare(ExecCommandLifetime::Interactive)
+    .expect("prepare the real terminal command");
+    #[cfg(windows)]
+    let prepared = {
+        let mut prepared = prepared;
+        prepared
+            .resolved
+            .command
+            .splice(1..1, ["-WindowStyle".to_string(), "Hidden".to_string()]);
+        prepared
+    };
     let request = ExecCommandRequest {
-        command: shell.derive_exec_args(script, false),
-        shell: ShellInvocation {
-            shell,
-            use_login_shell: false,
-        },
-        hook_command: script.into(),
+        prepared,
         process_id,
-        yield_time_ms: 30_000,
-        max_output_tokens: None,
-        cwd: cwd.clone().into(),
-        sandbox_cwd: cwd.into(),
-        turn_environment: turn
-            .initial_environments
-            .primary()
-            .cloned()
-            .expect("environment"),
         network: None,
-        tty: true,
-        sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
-        additional_permissions: None,
-        additional_permissions_preapproved: false,
-        justification: None,
-        prefix_rule: None,
     };
     let signal = async {
         let process = tokio::time::timeout(Duration::from_secs(5), async {
@@ -903,7 +916,7 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
     let response = exec.await.expect("normal tool response");
     assert_eq!(response.process_id, Some(process_id));
     assert_eq!(response.exit_code, None);
-    let before = String::from_utf8_lossy(&response.raw_output);
+    let before = response.raw_output.text.as_str();
     let spawned_pid =
         std::fs::read_to_string(temp.path().join("spawn-count")).expect("spawn witness");
     assert_eq!(spawned_pid.lines().count(), 1);
@@ -952,7 +965,7 @@ async fn background_terminal_real_startup_keeps_pid_pty_environment_and_one_spaw
         )
         .await
         .expect("write same terminal");
-    let after_text = String::from_utf8_lossy(&after.raw_output);
+    let after_text = after.raw_output.text.as_str();
     assert!(
         after_text.contains(&format!("after:{pid}:preserved:continued")),
         "{after_text}"

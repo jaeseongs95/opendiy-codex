@@ -34,7 +34,19 @@ pub(crate) enum Scope {
 }
 
 pub(crate) fn parse(value: Value) -> Result<Command, String> {
-    let command: Command = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let fields = value
+        .as_object()
+        .ok_or("로컬 제어 요청은 객체여야 합니다.")?;
+    let command: Command =
+        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+    // Internally tagged unit variants can ignore extra fields despite deny_unknown_fields.
+    // Derive the accepted fields from this exact action instead of maintaining a second list.
+    let accepted = serde_json::to_value(&command).map_err(|error| error.to_string())?;
+    if let Some(field) = fields.keys().find(|field| accepted.get(*field).is_none()) {
+        return Err(format!(
+            "이 로컬 제어 동작에서 허용하지 않는 필드입니다: {field}"
+        ));
+    }
     match &command {
         Command::MemoryNote { note } | Command::MemoryForget { note }
             if note.trim().is_empty() || note.len() > 16 * 1024 =>
@@ -118,8 +130,12 @@ mod tests {
             json!({"action":"cleanup_agents_preview","force":true}),
             json!({"action":"memory_reset"}),
             json!({"action":"reload_plugins","path":"other"}),
+            json!({"action":"status","threadId":"other"}),
+            json!({"action":"memory_view","path":"other"}),
+            json!({"action":"context_get","tokens":1}),
+            json!({"action":"context_reset","tokens":1}),
         ] {
-            assert!(command(value).is_err());
+            assert!(command(value.clone()).is_err(), "{value}");
         }
         for value in [
             json!({"action":"memory_forget","note":"이전 선호"}),
