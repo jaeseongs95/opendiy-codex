@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Thread routing, buffering, and app-server operation submission for the TUI app.
 //!
 //! This module manages active thread channels, routes server requests and notifications into those
@@ -83,7 +83,7 @@ impl App {
     pub(super) async fn set_thread_active(&mut self, thread_id: ThreadId, active: bool) {
         if let Some(channel) = self.thread_event_channels.get_mut(&thread_id) {
             let mut store = channel.store.lock().await;
-            store.active = active;
+            store.set_active(active);
         }
     }
 
@@ -111,13 +111,37 @@ impl App {
         if let Some(channel) = self.thread_event_channels.get_mut(&active_id) {
             let receiver = self.active_thread_rx.take();
             let mut store = channel.store.lock().await;
-            store.active = false;
+            store.set_active(false);
             store.input_state = input_state;
             store.merge_recap_progress(recap_progress);
             if let Some(receiver) = receiver {
                 channel.receiver = Some(receiver);
             }
         }
+    }
+
+    pub(super) async fn detach_current_thread_for_fork(
+        &mut self,
+        app_server: &mut AppServerSession,
+        fork_id: ThreadId,
+    ) {
+        if !app_server.uses_embedded_app_server() {
+            // Daemon tasks can start while the fork RPC is pending.
+            for id in self
+                .thread_event_channels
+                .keys()
+                .copied()
+                .chain(self.agent_navigation.tracked_thread_ids())
+                .filter(|id| !self.side_threads.contains_key(id))
+            {
+                self.agents_overview
+                    .dispatched_requests
+                    .entry(id)
+                    .or_default();
+            }
+        }
+        self.detach_current_thread_for_navigation(app_server, Some(fork_id))
+            .await;
     }
 
     pub(super) async fn activate_thread_for_replay(
@@ -127,7 +151,7 @@ impl App {
         let channel = self.thread_event_channels.get_mut(&thread_id)?;
         let receiver = channel.receiver.take()?;
         let mut store = channel.store.lock().await;
-        store.active = true;
+        store.set_active(true);
         let snapshot = store.snapshot();
         Some((receiver, snapshot))
     }
@@ -1971,23 +1995,23 @@ impl App {
         let confirmed_message_ids = snapshot
             .turns
             .iter()
-            .flat_map(|turn| &turn.items)
+            .flat_map(Turn::item_payloads)
             .chain(snapshot.events.iter().filter_map(|event| {
                 let ThreadBufferedEvent::Notification(notification) = event else {
                     return None;
                 };
                 if let ServerNotification::ItemStarted(notification) = notification.as_ref() {
-                    Some(&notification.item)
+                    Some(&notification.item.payload)
                 } else if let ServerNotification::ItemCompleted(notification) =
                     notification.as_ref()
                 {
-                    Some(&notification.item)
+                    Some(&notification.item.payload)
                 } else {
                     None
                 }
             }))
             .filter_map(|item| {
-                if let ThreadItem::UserMessage { client_id, .. } = item {
+                if let ThreadItemPayload::UserMessage { client_id, .. } = item {
                     client_id.clone()
                 } else {
                     None
@@ -2286,7 +2310,7 @@ impl App {
         let automatic_title_user_message = if self.chat_widget.thread_name().is_none()
             && let ThreadBufferedEvent::Notification(notification) = &event
             && let ServerNotification::ItemCompleted(notification) = notification.as_ref()
-            && let ThreadItem::UserMessage { content, .. } = &notification.item
+            && let ThreadItemPayload::UserMessage { content, .. } = &notification.item.payload
         {
             Some(
                 content

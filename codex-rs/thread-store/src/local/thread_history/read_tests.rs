@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::fs;
 use std::time::Duration;
 
@@ -403,13 +403,110 @@ async fn item_byte_pages_preserve_prefix_and_reverse_cursors() {
 }
 
 #[tokio::test]
+async fn summary_probe_uses_primary_key_without_reading_payload_bytes() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    let index = sqlx::query("PRAGMA index_info(sqlite_autoindex_thread_items_1)")
+        .fetch_all(db)
+        .await
+        .unwrap();
+    assert_eq!(
+        index
+            .iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>(),
+        vec!["thread_id", "turn_id", "item_id"]
+    );
+    let explain = sqlx::query(&format!("EXPLAIN {SUMMARY_ITEMS_QUERY}"))
+        .bind(thread_id.to_string())
+        .bind("turn")
+        .bind(1_i64)
+        .bind(None::<i64>)
+        .bind(None::<i64>)
+        .bind("first")
+        .bind(None::<String>)
+        .fetch_all(db)
+        .await
+        .unwrap();
+    // 저장 스키마의 5번 열은 item_json이다. OPFLAG_BYTELENARG는 본문 페이지 읽기를 생략한다.
+    let payload_columns = explain
+        .iter()
+        .filter(|row| row.get::<String, _>("opcode") == "Column" && row.get::<i64, _>("p2") == 5)
+        .collect::<Vec<_>>();
+    assert_eq!(payload_columns.len(), 1);
+    assert_eq!(payload_columns[0].get::<i64, _>("p5") & 0xc0, 0xc0);
+
+    let plan = sqlx::query(&format!("EXPLAIN QUERY PLAN {SUMMARY_ITEMS_QUERY}"))
+        .bind(thread_id.to_string())
+        .bind("turn")
+        .bind(1_i64)
+        .bind(None::<i64>)
+        .bind(None::<i64>)
+        .bind("first")
+        .bind(None::<String>)
+        .fetch_all(db)
+        .await
+        .unwrap();
+    assert!(plan.iter().any(|row| {
+        row.get::<String, _>("detail")
+            .contains("sqlite_autoindex_thread_items_1 (thread_id=? AND turn_id=? AND item_id=?)")
+    }));
+}
+
+#[tokio::test]
+async fn summary_lookup_keeps_creation_order_and_deduplicates_ids() {
+    let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
+    let db = history_db(&store).await;
+    for (turn, ordinal, first, last) in [
+        ("ordered", 10, Some("late"), Some("early")),
+        ("duplicate", 20, Some("same"), Some("same")),
+        ("empty", 30, None, None),
+    ] {
+        insert_turn(db, thread_id, turn, ordinal, "completed", None, first, last).await;
+    }
+    for (turn, item, ordinal) in [
+        ("ordered", "early", 11),
+        ("ordered", "middle", 12),
+        ("ordered", "late", 13),
+        ("duplicate", "same", 21),
+    ] {
+        insert_item(db, thread_id, turn, item, ordinal).await;
+    }
+    let page = store
+        .list_turns(turn_params(
+            thread_id,
+            None,
+            100,
+            SortDirection::Asc,
+            StoredTurnItemsView::Summary,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        page.turns[0].items,
+        vec![
+            expected_item("ordered", "early", 11),
+            expected_item("ordered", "late", 13)
+        ]
+    );
+    assert_eq!(
+        page.turns[1].items,
+        vec![expected_item("duplicate", "same", 21)]
+    );
+    assert!(page.turns[2].items.is_empty());
+}
+
+#[tokio::test]
 async fn large_utf8_item_is_read_intact_as_a_single_page() {
     let (_home, store, thread_id) = store_with_mode(ThreadHistoryMode::Paginated).await;
     let db = history_db(&store).await;
     insert_item(db, thread_id, "turn", "agent-1", 11).await;
     insert_item(db, thread_id, "turn", "agent-2", 12).await;
     insert_item(db, thread_id, "turn", "agent-3", 13).await;
-    let text = "한".repeat(crate::HISTORY_PAGE_TARGET_BYTES / 3 + 1);
+    let text = format!(
+        "{}\0\u{1f680}",
+        "한".repeat(crate::HISTORY_PAGE_TARGET_BYTES / 3 + 1)
+    );
     let bytes = set_agent_payload(db, thread_id, "agent-2", &text).await;
     let first = store
         .list_items(item_params(
@@ -508,7 +605,7 @@ async fn item_size_probe_and_payload_share_update_snapshot() {
     let db = history_db(&store).await;
     insert_item(db, thread_id, "turn", "agent-1", 11).await;
     let mut transaction = db.begin().await.unwrap();
-    let candidate = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ?")
+    let candidate = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, octet_length(item_json) AS item_json_bytes FROM thread_items WHERE thread_id = ?")
         .bind(thread_id.to_string()).fetch_one(&mut *transaction).await.unwrap();
     let bytes = set_agent_payload(
         db,

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -58,6 +59,11 @@ fn non_inheritable_environment_is_removed_after_policy_overrides() {
     let vars = [
         ("SAFE".to_string(), "inherited".to_string()),
         (
+            "codex_desktop_cron_bootstrap".into(),
+            "synthetic-bootstrap".into(),
+        ),
+        ("Codex_Desktop_Cron_Token".into(), "synthetic-token".into()),
+        (
             "codex_guardian_decisions_api_key".into(),
             "synthetic-inherited-key".into(),
         ),
@@ -80,6 +86,11 @@ fn non_inheritable_environment_is_removed_after_policy_overrides() {
         ignore_default_excludes: true,
         r#set: HashMap::from([
             ("SAFE".to_string(), "override".to_string()),
+            (
+                "CODEX_DESKTOP_CRON_BOOTSTRAP".into(),
+                "override-bootstrap".into(),
+            ),
+            ("codex_desktop_cron_token".into(), "override-token".into()),
             (
                 "CODEX_GUARDIAN_DECISIONS_API_KEY".into(),
                 "synthetic-override-key".into(),
@@ -109,6 +120,8 @@ fn command_scrubber_removes_names_from_real_child_environment() {
         let output = Command::new(std::env::current_exe().expect("locate current test binary"))
             .args([TEST_NAME, "--exact", "--nocapture"])
             .env(CHILD_MODE_ENV_VAR, "1")
+            .env("Codex_Desktop_Cron_Bootstrap", "inherited-bootstrap")
+            .env("codex_desktop_cron_token", "inherited-token")
             .env(
                 "Codex_Guardian_Decisions_Api_Key",
                 "synthetic-inherited-key",
@@ -137,6 +150,8 @@ fn command_scrubber_removes_names_from_real_child_environment() {
     let mut command = environment_command();
     command
         .env("NODE_REPL_AUTH_TOKEN", "configured-token")
+        .env("CODEX_DESKTOP_CRON_BOOTSTRAP", "override-bootstrap")
+        .env("Codex_Desktop_Cron_Token", "override-token")
         .env("openai_identity_token_file", "/run/identity-token")
         .env(
             CODEX_EXEC_SERVER_NOISE_AUTH_TOKEN_ENV_VAR,

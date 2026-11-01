@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Managed app-server lifecycle, serialized across CLI invocations and the updater.
 
 mod backend;
@@ -52,10 +52,11 @@ use tokio::time::sleep;
 
 const START_POLL_INTERVAL: Duration = Duration::from_millis(50);
 // An older updater can pass background policy to a replacement daemon, so retain
-// the longer readiness allowance during upgrades on macOS.
-#[cfg(target_os = "macos")]
+// the longer readiness allowance during upgrades on macOS. On Linux, a cold
+// start from a rotational disk can take more than ten seconds.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const START_TIMEOUT: Duration = Duration::from_secs(30);
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 // Leave room for the longest graceful stop, forced-exit check, and restart.
 const OPERATION_LOCK_TIMEOUT: Duration =
@@ -71,6 +72,7 @@ const STATE_DIR_NAME: &str = "app-server-daemon";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LifecycleCommand {
     Start,
+    StartExistingInstallation,
     Restart {
         feature_overrides: BTreeMap<String, bool>,
     },
@@ -241,7 +243,9 @@ pub async fn run(command: LifecycleCommand) -> Result<LifecycleOutput> {
     #[cfg(windows)]
     if matches!(
         command,
-        LifecycleCommand::Start | LifecycleCommand::Restart { .. }
+        LifecycleCommand::Start
+            | LifecycleCommand::StartExistingInstallation
+            | LifecycleCommand::Restart { .. }
     ) {
         backend::windows::ensure_not_elevated()?;
     }
@@ -431,6 +435,9 @@ impl Daemon {
         let selected = self.current_installation()?;
         match command {
             LifecycleCommand::Start => selected.start(&BTreeMap::new()).await,
+            LifecycleCommand::StartExistingInstallation => {
+                selected.start_existing_installation().await
+            }
             LifecycleCommand::Restart { feature_overrides } => {
                 selected.restart(&feature_overrides).await
             }
@@ -446,6 +453,24 @@ impl Daemon {
     }
 
     async fn start(&self, feature_overrides: &BTreeMap<String, bool>) -> Result<LifecycleOutput> {
+        self.start_with_overrides(Some(feature_overrides)).await
+    }
+
+    async fn start_existing_installation(&self) -> Result<LifecycleOutput> {
+        self.start_with_overrides(None).await
+    }
+
+    async fn start_with_overrides(
+        &self,
+        feature_overrides: Option<&BTreeMap<String, bool>>,
+    ) -> Result<LifecycleOutput> {
+        let existing_only = feature_overrides.is_none();
+        if existing_only && !self.managed_codex_bin.is_file() {
+            return Err(anyhow!(
+                "selected daemon executable is not installed at {}; existing-installation start will not install it",
+                self.managed_codex_bin.display()
+            ));
+        }
         let mut managed = self.clone();
         let mut settings = self.load_settings().await?;
         let (status, backend, pid, info) = if let Ok(info) = client::probe(&self.socket_path).await
@@ -464,22 +489,32 @@ impl Daemon {
                 self.wait_until_ready().await?,
             )
         } else {
-            // A fresh start must ignore snapshots left by older stop clients.
-            if let Err(err) = thread_recovery::discard_pending(self) {
-                self.diagnostic(format_args!(
-                    "warning: failed to clear stale daemon recovery before start: {err}"
-                ));
+            if let Some(feature_overrides) = feature_overrides {
+                // Ordinary starts keep their existing install and recovery policy.
+                if let Err(err) = thread_recovery::discard_pending(self) {
+                    self.diagnostic(format_args!(
+                        "warning: failed to clear stale daemon recovery before start: {err}"
+                    ));
+                }
+                prepare_install::prepare(self, &settings).await?;
+                managed.managed_codex_bin = self.current_managed_codex_bin()?;
             }
-            prepare_install::prepare(self, &settings).await?;
-            managed.managed_codex_bin = self.current_managed_codex_bin()?;
+            // Existing-only starts use the selection captured under the operation lock.
             managed.ensure_managed_codex_bin()?;
-            // Only a fresh launch may replace these settings. Keep them for restarts
-            // and updates, without changing the user's config or a running daemon.
-            if settings.feature_overrides != *feature_overrides {
-                settings.feature_overrides = feature_overrides.clone();
-                settings.save(&self.settings_file).await?;
+            if let Some(feature_overrides) = feature_overrides {
+                if settings.feature_overrides != *feature_overrides {
+                    settings.feature_overrides = feature_overrides.clone();
+                    settings.save(&self.settings_file).await?;
+                }
             }
-            let pid = managed.start_managed_backend(&settings).await?;
+            let pid = if existing_only {
+                backend::pid_backend(managed.backend_paths(&settings))
+                    .preserving_recovery()
+                    .start()
+                    .await?
+            } else {
+                managed.start_managed_backend(&settings).await?
+            };
             (
                 LifecycleStatus::Started,
                 Some(BackendKind::Pid),
@@ -487,7 +522,8 @@ impl Daemon {
                 self.wait_until_ready().await?,
             )
         };
-        if backend.is_some()
+        if !existing_only
+            && backend.is_some()
             && let Err(err) = managed.ensure_managed_updater(&settings).await
         {
             self.diagnostic(format_args!(
@@ -712,20 +748,22 @@ impl Daemon {
     }
 
     async fn wait_until_ready(&self) -> Result<client::ProbeInfo> {
+        let exited = backend::wait_for_process_exit(&self.pid_file);
+        tokio::pin!(exited);
         let deadline = tokio::time::Instant::now() + START_TIMEOUT;
-        loop {
+        let err = loop {
             match client::probe(&self.socket_path).await {
                 Ok(info) => return Ok(info),
                 Err(err) if tokio::time::Instant::now() < deadline => {
-                    let _ = err;
-                    sleep(START_POLL_INTERVAL).await;
+                    tokio::select! {
+                        () = &mut exited => break err,
+                        () = sleep(START_POLL_INTERVAL) => {}
+                    }
                 }
-                Err(err) => {
-                    let context = self.app_server_not_ready_context().await;
-                    return Err(err).context(context);
-                }
+                Err(err) => break err,
             }
-        }
+        };
+        Err(err).context(self.app_server_not_ready_context().await)
     }
 
     async fn app_server_not_ready_context(&self) -> String {
@@ -1286,6 +1324,73 @@ mod tests {
     #[cfg(unix)]
     use crate::settings::DaemonSettings;
 
+    #[tokio::test]
+    async fn existing_installation_start_rejects_missing_binary_without_side_effects() {
+        let home = TempDir::new().expect("isolated home");
+        let state = home.path().join("app-server-daemon");
+        codex_uds::prepare_private_socket_directory(&state)
+            .await
+            .unwrap();
+        let daemon = Daemon {
+            log_diagnostics: false,
+            socket_path: home.path().join("server.sock"),
+            pid_file: state.join("daemon.pid"),
+            update_pid_file: state.join("daemon-updater.pid"),
+            operation_lock_file: state.join("daemon.lock"),
+            settings_file: state.join("settings.json"),
+            managed_codex_bin: crate::managed_install::managed_codex_bin(home.path()),
+        };
+        let settings = br#"{"featureOverrides":{"auth_elicitation":true},"remoteControlEnabled":true,"updater":{"autoUpdateEnabled":false}}"#;
+        let recovery = daemon.recovery_file().unwrap();
+        std::fs::write(&daemon.settings_file, settings).unwrap();
+        std::fs::write(&recovery, b"saved recovery candidates").unwrap();
+        std::fs::write(&daemon.update_pid_file, b"saved updater state").unwrap();
+        let error = daemon
+            .run(super::LifecycleCommand::StartExistingInstallation)
+            .await
+            .expect_err("missing installation must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("existing-installation start will not install it")
+        );
+        assert_eq!(std::fs::read(&daemon.settings_file).unwrap(), settings);
+        assert_eq!(
+            std::fs::read(&recovery).unwrap(),
+            b"saved recovery candidates"
+        );
+        assert_eq!(
+            std::fs::read(&daemon.update_pid_file).unwrap(),
+            b"saved updater state"
+        );
+        assert!(!home.path().join("packages").exists());
+        assert!(!daemon.pid_file.exists());
+
+        // A present but unusable executable must not turn a settings parse failure into repair.
+        std::fs::create_dir_all(daemon.managed_codex_bin.parent().unwrap()).unwrap();
+        std::fs::write(&daemon.managed_codex_bin, b"not an executable").unwrap();
+        std::fs::write(&daemon.settings_file, b"{").unwrap();
+        let error = daemon
+            .run(super::LifecycleCommand::StartExistingInstallation)
+            .await
+            .expect_err("invalid settings must remain an error");
+        assert!(error.to_string().contains("failed to parse settings"));
+        assert_eq!(std::fs::read(&daemon.settings_file).unwrap(), b"{");
+        assert_eq!(
+            std::fs::read(&daemon.managed_codex_bin).unwrap(),
+            b"not an executable"
+        );
+        assert_eq!(
+            std::fs::read(&recovery).unwrap(),
+            b"saved recovery candidates"
+        );
+        assert_eq!(
+            std::fs::read(&daemon.update_pid_file).unwrap(),
+            b"saved updater state"
+        );
+        assert!(!daemon.pid_file.exists());
+    }
+
     #[test]
     fn remote_control_status_uses_camel_case_json() {
         assert_eq!(
@@ -1534,7 +1639,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn not_ready_context_reports_daemon_app_server_before_stderr() {
+    async fn readiness_reports_stderr_promptly_when_daemon_is_gone() {
         let temp_dir = TempDir::new().expect("temp dir");
         let daemon = Daemon {
             log_diagnostics: false,
@@ -1550,8 +1655,25 @@ mod tests {
             .await
             .expect("write stderr log");
 
+        // A daemon that exits during startup leaves its published PID record behind.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--help")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.wait().unwrap();
+        std::fs::write(
+            &daemon.pid_file,
+            serde_json::json!({ "pid": child.id(), "processStartTime": "exited" }).to_string(),
+        )
+        .unwrap();
+        let error =
+            tokio::time::timeout(std::time::Duration::from_secs(5), daemon.wait_until_ready())
+                .await
+                .expect("an exited daemon should not exhaust the readiness timeout")
+                .expect_err("daemon is gone");
         assert_eq!(
-            daemon.app_server_not_ready_context().await,
+            error.to_string(),
             format!(
                 "app server did not become ready on {}\n\n\
                  Daemon used app-server:\n  path: {}\n  version: unknown\n\n\

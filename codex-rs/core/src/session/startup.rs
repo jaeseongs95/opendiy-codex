@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Retains agent-tree membership and resources throughout managed startup.
 //! Cleanup releases membership only after acquisition and partial session teardown finish;
 //! abandoning that ownership marks tree shutdown as failed.
@@ -102,6 +102,11 @@ impl SessionStartup {
         } else {
             if let Some(session) = self.session.get() {
                 super::handlers::shutdown_session_runtime(session).await;
+                // The session loop never started, so it cannot close the trace itself.
+                session
+                    .services
+                    .rollout_thread_trace
+                    .record_ended(codex_rollout_trace::RolloutStatus::Aborted);
             }
             let mut persistence = std::mem::take(&mut *self.persistence.lock().await);
             if let Err(error) = persistence.discard().await {

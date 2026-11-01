@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Resume and read-only history loading across rollout formats.
 
 use super::AppServerSession;
@@ -6,6 +6,7 @@ use super::AppServerStartedThread;
 use super::HistoryHydrationScope;
 use super::ResumeModelSettings;
 use super::ThreadHistorySupport;
+use super::ThreadSettingsOwner;
 use super::bootstrap_request_error;
 use super::is_history_pagination_unsupported;
 use super::started_thread_from_resume_response;
@@ -29,6 +30,95 @@ use color_eyre::eyre::Result;
 const READ_ONLY_HISTORY_TURN_LIMIT: u32 = 100;
 
 impl AppServerSession {
+    pub(crate) async fn invalidate_runtime_tool_registration(&mut self) {
+        self.runtime_tool_registration_generation =
+            self.runtime_tool_registration_generation.wrapping_add(1);
+        self.runtime_tool_registration_lifetime.cancel();
+        self.runtime_tool_registration_lifetime = tokio_util::sync::CancellationToken::new();
+        *self.pending_runtime_tool_resume.lock().await = None;
+    }
+    #[cfg(test)]
+    pub(crate) async fn remember_runtime_tools_busy_for_test(&self, thread: ThreadId) {
+        *self.pending_runtime_tool_resume.lock().await = Some((
+            self.runtime_tool_registration_generation,
+            self.connection_id,
+            codex_app_server_protocol::ThreadResumeParams {
+                thread_id: thread.to_string(),
+                exclude_turns: true,
+                runtime_tools_only: true,
+                expected_runtime_id: Some(uuid::Uuid::new_v4().to_string()),
+                runtime_dynamic_tools: Some(crate::cron_tools::specs()),
+                previous_runtime_dynamic_tools: crate::cron_tools::previous_specs(),
+                ..Default::default()
+            },
+        ));
+    }
+
+    /// A single retry is allowed only after an explicit busy ACK and a new idle
+    /// notification for the same selected thread. This never hydrates history or sends input.
+    pub(crate) async fn retry_runtime_tools_on_idle(
+        &self,
+        idle_thread: &str,
+        selected: Option<ThreadId>,
+        selection: Option<tokio_util::sync::CancellationToken>,
+    ) {
+        let mut pending = self.pending_runtime_tool_resume.lock().await;
+        let Some((generation, connection, params)) = pending.as_ref() else {
+            return;
+        };
+        if params.thread_id != idle_thread {
+            return;
+        }
+        if *generation != self.runtime_tool_registration_generation
+            || *connection != self.connection_id
+            || selected.is_none_or(|id| id.to_string() != idle_thread)
+            || !self
+                .connection_live
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            *pending = None;
+            return;
+        }
+        let (_, _, params) = pending.take().expect("checked pending runtime supplement");
+        drop(pending);
+        let Some(selection) = selection else {
+            return;
+        };
+        let client = self.client.request_handle();
+        let connection_live = self.connection_live.clone();
+        let registration = self.runtime_tool_registration_lifetime.clone();
+        tokio::spawn(async move {
+            if registration.is_cancelled()
+                || selection.is_cancelled()
+                || !connection_live.load(std::sync::atomic::Ordering::Acquire)
+            {
+                return;
+            }
+            // No retry on timeout, response loss, unsupported server, or a second busy result.
+            let request = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                client.request_typed::<ThreadResumeResponse>(ClientRequest::ThreadResume {
+                    request_id: codex_app_server_protocol::RequestId::String(
+                        uuid::Uuid::new_v4().to_string(),
+                    ),
+                    params,
+                }),
+            );
+            let result = tokio::select! {
+                biased;
+                _ = registration.cancelled() => return,
+                _ = selection.cancelled() => return,
+                result = request => result,
+            };
+            if !matches!(result, Ok(Ok(ref response)) if response.runtime_dynamic_tools_applied == Some(true))
+            {
+                tracing::warn!(
+                    "연결 한정 도구의 유휴 보강을 확인하지 못했습니다. 자동 재전송하지 않습니다."
+                );
+            }
+        });
+    }
+
     /// Read a conflicting thread without taking its writer lease. This is a snapshot, not an
     /// attachment: the caller must not route turns through this session.
     pub(crate) async fn read_thread_for_viewing(
@@ -37,6 +127,7 @@ impl AppServerSession {
         local_settings: &crate::local_settings::LocalSettings,
         thread_id: ThreadId,
     ) -> Result<(AppServerStartedThread, Option<&'static str>)> {
+        self.invalidate_runtime_tool_registration().await;
         let mut thread = self.thread_read(thread_id, /*include_turns*/ false).await?;
         let mut history_notice = None;
         if let Err(error) = self
@@ -156,7 +247,10 @@ impl AppServerSession {
         model_settings: ResumeModelSettings,
         permission_overrides: crate::resume_permissions::ResumePermissions,
     ) -> Result<AppServerStartedThread> {
-        self.thread_tool_transport().validate_config(&config)?;
+        self.invalidate_runtime_tool_registration().await;
+        if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
+            self.thread_tool_transport().validate_config(&config)?;
+        }
         let session_config = if matches!(
             model_settings,
             ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
@@ -173,11 +267,14 @@ impl AppServerSession {
             model_settings,
             permission_overrides,
         );
-        if model_settings == ResumeModelSettings::OverrideFromCurrentConfig {
+        if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client
+            && model_settings == ResumeModelSettings::OverrideFromCurrentConfig
+        {
             params.model_provider = self.explicit_model_provider(&config);
         }
-        self.thread_tool_transport()
-            .configure_mcp(&mut params.config);
+        if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
+            self.thread_tool_transport().configure_resume(&mut params);
+        }
         let mut rollout_maintenance_guard = None;
         params.exclude_turns = if self.history_support == ThreadHistorySupport::Paginated {
             let known_legacy_history = self
@@ -224,7 +321,10 @@ impl AppServerSession {
                 params.exclude_turns = false;
                 let request_id = self.next_request_id();
                 self.client
-                    .request_typed(ClientRequest::ThreadResume { request_id, params })
+                    .request_typed(ClientRequest::ThreadResume {
+                        request_id,
+                        params: params.clone(),
+                    })
                     .await
                     .map_err(|err| {
                         bootstrap_request_error("thread/resume failed during TUI bootstrap", err)
@@ -237,6 +337,34 @@ impl AppServerSession {
                 ));
             }
         };
+        if params.runtime_dynamic_tools.is_some() {
+            match (
+                response.runtime_dynamic_tools_applied,
+                response.runtime_dynamic_tools_runtime_id.as_deref(),
+            ) {
+                (Some(false), Some(runtime_id)) => {
+                    *self.pending_runtime_tool_resume.lock().await = Some((
+                        self.runtime_tool_registration_generation,
+                        self.connection_id,
+                        codex_app_server_protocol::ThreadResumeParams {
+                            thread_id: thread_id.to_string(),
+                            exclude_turns: true,
+                            runtime_tools_only: true,
+                            expected_runtime_id: Some(runtime_id.to_string()),
+                            runtime_dynamic_tools: params.runtime_dynamic_tools.clone(),
+                            previous_runtime_dynamic_tools: params
+                                .previous_runtime_dynamic_tools
+                                .clone(),
+                            ..Default::default()
+                        },
+                    ));
+                }
+                (Some(true), Some(_)) => {}
+                _ => {
+                    tracing::warn!("서버가 연결 한정 도구 보강과 실행 세대를 확인하지 않았습니다.")
+                }
+            }
+        }
         if let Err(error) = self
             .hydrate_initial_thread_history(
                 &mut response.thread,

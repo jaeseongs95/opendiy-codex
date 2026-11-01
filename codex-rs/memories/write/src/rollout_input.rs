@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Reads recent rollout evidence and selects v2 input by provenance in chronological order.
 //! Human replies retain their questions; message media is replaced with placeholders.
 //! Budgets use the same token estimate as the rest of the memory pipeline.
@@ -157,7 +157,8 @@ pub(crate) fn serialize_tiered_input(
         let item = match item {
             RolloutItem::ResponseItem(item) => sanitize_response_item_for_memories(&item.item),
             RolloutItem::InterAgentCommunication(message) => Some(message.to_model_input_item()),
-            RolloutItem::SessionMeta(_)
+            RolloutItem::DynamicToolsUpdated { .. }
+            | RolloutItem::SessionMeta(_)
             | RolloutItem::InterAgentCommunicationMetadata { .. }
             | RolloutItem::Compacted(_)
             | RolloutItem::TurnContext(_)

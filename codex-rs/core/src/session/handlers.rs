@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::Submission;
 use crate::WithTurnExtensionData;
 use crate::realtime_conversation::handle_audio as handle_realtime_conversation_audio;
@@ -516,6 +516,24 @@ pub(super) async fn submission_loop(
                     interrupt(&sess).await;
                     false
                 }
+                Op::InterruptTurn { turn_id, reply } => {
+                    let claimed = sess
+                        .take_turn_if_active(&turn_id, &TurnAbortReason::Interrupted)
+                        .await;
+                    // A caller may itself be a task cancellation must join. Acknowledge
+                    // the exact claim first; TurnAborted remains the completion signal.
+                    let _ = reply.send(claimed.is_some());
+                    if let Some(turn) = claimed {
+                        sess.finish_turn_abort(turn, TurnAbortReason::Interrupted, None)
+                            .await;
+                    }
+                    false
+                }
+                Op::CompactIfIdle { reply } => {
+                    let result = sess.compact_if_idle(sub.id).await;
+                    let _ = reply.send(result);
+                    false
+                }
                 Op::InterruptIfNoPendingInput { turn_id, reply } => {
                     sess.interrupt_turn_if_no_pending_input(&turn_id, reply)
                         .await;
@@ -678,6 +696,10 @@ pub(super) async fn submission_loop(
                     }
                     false
                 }
+                Op::ReplaceDynamicTools { tools, reply } => {
+                    let _ = reply.send(sess.replace_dynamic_tools(tools).await);
+                    false
+                }
                 Op::TurnSettings {
                     turn_id,
                     update,
@@ -793,6 +815,7 @@ pub(super) async fn submission_loop(
             );
             warn!("failed to shutdown thread persistence after submission channel closed: {err}");
         }
+        sess.cleanup_admission.shutdown_finished();
     }
     debug!("Agent loop exited");
 }

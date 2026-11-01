@@ -1,3 +1,13 @@
+# 공식 0.166.0 기반 R31 소스
+
+현재 고정 후보는 `a56a144d55722c83fffbb0ef7c926919a5b0923f`이며 공식 `rust-v0.166.0` 전체를 기반으로 한다. 이전 공개 커밋 `f28920f`의 후속 시험도 보존했다. [출처 목록](../SOURCE_BASELINE.json)·`upstream/source-inventory.json`·`upstream/official-0.166.0.patch`가 현재 입력을 식별한다.
+
+소스 내보내기 검사는 통과했으나 제품 컴파일·회귀 검증은 진행 중이다. 현재 실행·설치된 R30과 구분하며, [변경 및 검증 범위](../MODIFICATIONS.md)와 [시험 안내](TESTING.md)를 따른다. 기존 README·라이선스·고지문은 보존했다.
+
+## 이전 소스 스냅샷 이력
+
+아래의 버전·검증·설치 설명은 해당 후보를 기록한 당시의 상태다.
+
 # Official 0.165.0 source snapshot
 
 The current snapshot is official `rust-v0.165.0` (`360319d8dee62d87e2d59fc0c21805d79519cfed`) plus the local source revision `57957241e90439377f4e34afbec79a6422f5872c`. It is identified by [SOURCE_BASELINE.json](../SOURCE_BASELINE.json), with file hashes in `upstream/source-inventory.json` and changes in `upstream/official-0.165.0.patch`. The English and Korean READMEs identify the R30 candidate; root LICENSE/NOTICE are unchanged. [R30 검증 상태](TESTING.md)는 현재 소스의 시험 근거와 미완료 범위를 구분하며, [R28 검증](cli-r28-validation.md)은 이전 빌드의 이력이다. See [MODIFICATIONS.md](../MODIFICATIONS.md) for the current change notice.

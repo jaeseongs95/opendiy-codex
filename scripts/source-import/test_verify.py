@@ -24,6 +24,25 @@ class VerifierChecks(unittest.TestCase):
         path.parent.mkdir(parents=True)
         (path.parent/'COPYING').write_bytes(b'synthetic license fixture')
         return root,path
+    def pinned_repository(self):
+        root,_=self.fixture()
+        old=root/'codex-rs/old.rs';old.write_bytes(b'published follow-up')
+        (root/'codex-rs/new.rs').write_bytes(b'published new test')
+        def git(*args):
+            return subprocess.check_output(['git','-c','commit.gpgsign=false','-c','user.name=Synthetic','-c','user.email=test@example.invalid','-C',str(root),*args],stderr=subprocess.DEVNULL)
+        git('init','-q');git('add','--','codex-rs');git('commit','-qm','synthetic')
+        return root,old,git('rev-parse','HEAD').decode().strip()
+    def test_update_accepts_only_git_anchored_public_followups(self):
+        root,old,commit=self.pinned_repository()
+        with patch.object(EXPORT,'PREVIOUS_PUBLIC',commit):
+            previous=EXPORT.pinned_previous_source(root,{'codex-rs/old.rs':EXPORT.sha(b'original export')})
+        self.assertEqual(previous['codex-rs/old.rs'],EXPORT.sha(b'published follow-up'))
+        self.assertEqual(previous['codex-rs/new.rs'],EXPORT.sha(b'published new test'))
+    def test_update_rejects_working_edits_to_pinned_public_followups(self):
+        root,old,commit=self.pinned_repository();old.write_bytes(b'unreviewed edit')
+        with patch.object(EXPORT,'PREVIOUS_PUBLIC',commit),self.assertRaises(subprocess.CalledProcessError):
+            EXPORT.pinned_previous_source(root,{'codex-rs/old.rs':EXPORT.sha(b'original export')})
+        self.assertEqual(old.read_bytes(),b'unreviewed edit')
     def test_windows_placeholder(self):
         root,path=self.fixture();path.write_bytes(b'COPYING')
         self.assertEqual(VERIFY.read_source(root,{'path':VERIFY.LICENSE_LINK,'gitMode':'120000'}),b'COPYING')
@@ -77,16 +96,30 @@ class VerifierChecks(unittest.TestCase):
         fixtures=[item for item in inventory['files'] if item['modified'] and item['path'].startswith('codex-rs/app-server-protocol/schema/typescript/') and item['path'].endswith('.ts')]
         self.assertEqual({item["path"] for item in fixtures}, {
             'codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts',
+            'codex-rs/app-server-protocol/schema/typescript/InitializeResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildCleanupResult.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/CompletedChildSnapshot.ts',
-            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedParams.ts',
-            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/McpServerRefreshResponse.ts',
-            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubscribePassiveParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentControlStatus.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentManagementAction.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentManagementAgent.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentManagementCapabilities.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentManagementStatus.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/SubagentMutationState.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCleanupCompletedResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadCompactStartIfIdleParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadPluginReloadResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadResumeParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadResumeResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSettings.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubagentsControlParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubagentsControlResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubagentsListParams.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubagentsListResponse.ts',
+            'codex-rs/app-server-protocol/schema/typescript/v2/ThreadSubscribePassiveParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleParams.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/TurnStartIfIdleResponse.ts',
             'codex-rs/app-server-protocol/schema/typescript/v2/index.ts',

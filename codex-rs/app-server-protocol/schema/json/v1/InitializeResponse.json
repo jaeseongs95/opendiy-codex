@@ -23,6 +23,14 @@
       "description": "Operating system for the running app-server target, for example `\"macos\"`, `\"linux\"`, or `\"windows\"`.",
       "type": "string"
     },
+    "supportsExpectedTurnInterrupt": {
+      "description": "Core atomically compares the expected turn ID before interrupting.",
+      "type": "boolean"
+    },
+    "supportsSubagentManagement": {
+      "description": "This server provides fenced operator commands and body-free child snapshots.",
+      "type": "boolean"
+    },
     "userAgent": {
       "type": "string"
     }

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use crate::config_manager::ConfigManager;
 use std::sync::Arc;
 
@@ -194,7 +194,7 @@ impl ThreadQueueRequestProcessor {
         let thread = loaded_thread
             .ok_or_else(|| invalid_request("resume the thread before starting a queued message"))?;
         self.config_manager
-            .check_thread_model_provider(thread.config().await.as_ref())
+            .check_thread_model_provider_for_input(thread.config().await.as_ref())
             .await
             .map_err(|error| config_load_error(&error))?;
         let submission = self

@@ -1,3 +1,21 @@
+# 공식 0.166.0 기반 R31 소스 후보
+
+공식 태그 `rust-v0.166.0`의 커밋 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856` 전체를 기반으로 한다. 현재 고정 소스는 `a56a144d55722c83fffbb0ef7c926919a5b0923f`, 버전은 `0.166.0+native-r31.20261101`이다. R30의 선택 이식과 구분한다.
+
+기존 대화에 연결 수명 동안만 도구를 보강하는 경로, 종료된 실행기의 입력 거절과 정리, 대화 조회의 큰 본문 바이트 탐색, 연결 정리 결과 보존을 수정했다. 비영속 도구 보강의 잠금 순환을 제거했고 실제 사용자 응답·전달 기록이 겹치는 회귀시험을 추가했다. 예약 안내·상태·오류는 전역 언어 선택을 따르며 명령·사용자 문구·서버 사유는 보존한다. 응답 자료형과 생성 스키마도 함께 갱신했다.
+
+기존 공개 main `f28920f3761bce6d51f2ceb21d69a3473e7ccfee`에만 있던 실제 호스트 정리 시험 7개와 시험 지원을 보존했다. 시험 지원은 명시적인 `test-support` 기능으로만 활성화한다.
+
+이 후보는 검증 중이다. 첫 라이브러리 시험 컴파일은 시험용 생성자의 공식 신규 필드 누락 두 곳으로 실패했으며 교정 후 다시 컴파일 중이다. 새 후보의 전체 회귀시험·제품 빌드·공동 연동·설치·릴리스는 완료되지 않았다. 이전 버전의 시험 통과나 별도 사전 검토를 R31 전체의 통과 근거로 사용하지 않는다.
+
+공개 내보내기 검사에서는 소스 9,399개, 수정 520개, 작업공간 구성원 165개, 내장 프롬프트 입력 38개의 출처·바이트를 확인했다. 수출 도구 회귀시험은 15개 통과, 실제 심볼릭 링크 생성 시험 1개는 이 Windows 환경에서 건너뛰었다. 이 검사는 Rust 컴파일·실행 검증을 대신하지 않는다.
+
+새 변경 목록과 전체 고정 입력은 `SOURCE_BASELINE.json`·`upstream/source-inventory.json`, 공식 대비 패치는 `upstream/official-0.166.0.patch`에 있다. 소스·빌드 도구만 포함하며 기존 LICENSE·NOTICE·README 두 파일은 보존했다.
+
+## 이전 0.165.0 기반 소스 이력
+
+아래는 각 이전 후보를 기록한 당시의 설명이며 현재 R31의 상태가 아니다.
+
 # Official 0.165.0 local modifications
 
 OpenDIY Codex is independent and unofficial. This source snapshot is based on upstream release `rust-v0.165.0`, commit `360319d8dee62d87e2d59fc0c21805d79519cfed`, with local changes frozen at `57957241e90439377f4e34afbec79a6422f5872c`. The source version is `0.165.0+native-r30.20261030`. Upstream LICENSE, NOTICE and third-party notices are retained.

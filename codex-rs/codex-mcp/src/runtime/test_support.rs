@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! 시험 전용 시작 장치다. 프로세스·네트워크·정리 판정은 대체하지 않는다.
 use super::*;
 use crate::rmcp_client::AsyncManagedClient;
@@ -58,6 +58,7 @@ impl McpRuntime {
                 is_authentication_required: false,
                 is_ema_authentication_required: false,
                 is_termination_unconfirmed: true,
+                shutdown: None,
             })
         }
         .boxed()
@@ -67,6 +68,7 @@ impl McpRuntime {
             "unconfirmed-startup",
             AsyncManagedClient {
                 ema_authority: None,
+                connection_slot: None,
                 client,
                 is_codex_apps_mcp_server: false,
                 server_capabilities: Arc::new(Mutex::new(None)),
@@ -84,6 +86,7 @@ impl McpRuntime {
             auth: previous.auth.clone(),
             auth_token: previous.auth_token.clone(),
             auth_manager: previous.auth_manager.clone(),
+            auth_owner: previous.auth_owner,
             auth_generation: Arc::clone(&previous.auth_generation),
             plugins_available: previous.plugins_available,
             ready_selected_capability_roots: previous.ready_selected_capability_roots.clone(),

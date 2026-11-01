@@ -1,4 +1,4 @@
-<!-- Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md. -->
+<!-- Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md. -->
 # CLI 예약 실행
 
 예약은 CLI를 켜둔 동안만 유지됩니다. 등록한 대화에서 실행하며, 다른 대화로 이동해도 대상은 바뀌지 않습니다. 실행 시 해당 대화가 작업 중이면 이번 회차를 건너뜁니다. 밀린 회차를 한꺼번에 실행하지 않습니다.

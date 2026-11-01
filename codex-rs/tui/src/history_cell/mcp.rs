@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! MCP tool-call, inventory, and output history cells.
 //! Tool output previews share a three-row budget across all result blocks;
 //! the expanded transcript retains the full text.

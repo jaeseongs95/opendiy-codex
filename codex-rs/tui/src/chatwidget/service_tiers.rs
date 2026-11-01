@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Service-tier selection and model-catalog helpers for `ChatWidget`.
 
 use super::ChatWidget;
@@ -74,7 +74,7 @@ impl ChatWidget {
         self.bottom_pane.set_service_tier_commands(commands);
     }
 
-    pub(super) fn current_model_service_tier_commands(&self) -> Vec<ServiceTierCommand> {
+    pub(crate) fn current_model_service_tier_commands(&self) -> Vec<ServiceTierCommand> {
         let model = self.current_model();
         self.model_catalog
             .try_list_models()

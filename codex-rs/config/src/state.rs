@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use crate::CONFIG_TOML_FILE;
 use crate::config_requirements::ConfigRequirements;
 use crate::config_requirements::ConfigRequirementsToml;

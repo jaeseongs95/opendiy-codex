@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 //! Cancellation prevents new speculation without cancelling session-owned work.
 
 use super::*;

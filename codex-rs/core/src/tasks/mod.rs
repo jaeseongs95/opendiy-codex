@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 mod compact;
 mod lifecycle;
 mod regular;
@@ -281,16 +282,37 @@ impl Session {
         self.start_task(turn_context, input, task).await;
     }
 
-    #[expect(
-        clippy::await_holding_invalid_type,
-        reason = "record the started turn atomically with task registration"
-    )]
     pub(crate) async fn start_task<T: SessionTask>(
         self: &Arc<Self>,
         turn_context: Arc<TurnContext>,
         input: Vec<TurnInput>,
         task: T,
     ) {
+        self.start_task_with_reservation(turn_context, input, task, None)
+            .await;
+    }
+
+    /// An idle-compaction reservation keeps mailbox input for the next normal turn.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "task registration and reservation ownership are atomic"
+    )]
+    pub(crate) async fn start_task_with_reservation<T: SessionTask>(
+        self: &Arc<Self>,
+        turn_context: Arc<TurnContext>,
+        input: Vec<TurnInput>,
+        task: T,
+        reservation: Option<Arc<tokio::sync::Mutex<crate::state::TurnState>>>,
+    ) -> bool {
+        if let Some(expected) = &reservation {
+            let active = self.active_turn.lock().await;
+            if active
+                .as_ref()
+                .is_none_or(|turn| turn.task.is_some() || !Arc::ptr_eq(&turn.turn_state, expected))
+            {
+                return false;
+            }
+        }
         // Replace the cache; in-flight acquisitions retain their previous Arc.
         self.services
             .thread_extension_data
@@ -325,9 +347,23 @@ impl Session {
         let cancellation_token = CancellationToken::new();
         let done = Arc::new(Notify::new());
 
-        let (pending_items, _) = self.input_queue.drain_mailbox_input_items().await;
+        let pending_items = if reservation.is_some() {
+            Vec::new()
+        } else {
+            self.input_queue.drain_mailbox_input_items().await.0
+        };
         let turn_state = {
             let mut active = self.active_turn.lock().await;
+            if reservation.as_ref().is_some_and(|expected| {
+                active.as_ref().is_none_or(|turn| {
+                    turn.task.is_some() || !Arc::ptr_eq(&turn.turn_state, expected)
+                })
+            }) {
+                return false;
+            }
+            if active.is_none() {
+                self.clear_disconnected_runtime_tools().await;
+            }
             let turn = active.get_or_insert_with(ActiveTurn::default);
             debug_assert!(turn.task.is_none());
             turn.finishing = None;
@@ -345,6 +381,13 @@ impl Session {
         .await;
 
         let mut active = self.active_turn.lock().await;
+        if reservation.as_ref().is_some_and(|expected| {
+            active
+                .as_ref()
+                .is_none_or(|turn| turn.task.is_some() || !Arc::ptr_eq(&turn.turn_state, expected))
+        }) {
+            return false;
+        }
         let turn = active.get_or_insert_with(ActiveTurn::default);
         debug_assert!(turn.task.is_none());
         // Record lineage only when the task starts: settings changes can invalidate a reservation.
@@ -431,12 +474,14 @@ impl Session {
             kind: task_kind,
             task,
             cancellation_token,
+            interrupted_code_mode_cells: None,
             turn_context: Arc::clone(&turn_context),
             _agent_execution_guard: agent_execution_guard,
             _diagnostics_guard: ACTIVE_TURNS.track(),
             _timer: timer,
         };
         turn.task = Some(running_task);
+        true
     }
 
     /// Returns whether an extension has marked this thread as durably asleep.
@@ -606,30 +651,52 @@ impl Session {
         reason: TurnAbortReason,
         error: Option<ErrorEvent>,
     ) -> bool {
-        let active_turn = {
-            let mut active = self.active_turn.lock().await;
-            if active
-                .as_ref()
-                .and_then(|active_turn| active_turn.task.as_ref())
-                .is_some_and(|task| task.turn_context.sub_id == turn_id)
-            {
-                if matches!(
-                    reason,
-                    TurnAbortReason::Interrupted | TurnAbortReason::BudgetLimited
-                ) {
-                    self.mark_interrupted();
-                }
-                active.take()
-            } else {
-                None
-            }
-        };
-        let Some(active_turn) = active_turn else {
+        let Some(active_turn) = self.take_turn_if_active(turn_id, &reason).await else {
             return false;
         };
-
         self.finish_turn_abort(active_turn, reason, error).await;
         true
+    }
+
+    /// Finish an exact task whose cancellation was committed under active_turn.
+    pub(crate) async fn finish_managed_turn_abort(self: &Arc<Self>, active_turn: ActiveTurn) {
+        self.finish_turn_abort(active_turn, TurnAbortReason::Interrupted, None)
+            .await;
+    }
+
+    /// Caller owns active_turn; snapshot cell identities before signaling the exact task.
+    pub(crate) fn cancel_exact_task(&self, task: &mut RunningTask) {
+        if task
+            .turn_context
+            .config
+            .features
+            .enabled(Feature::CodeModeInterrupt)
+        {
+            task.interrupted_code_mode_cells =
+                Some(self.services.code_mode_service.active_cell_ids());
+        }
+        task.cancellation_token.cancel();
+    }
+
+    /// Compare, cancel and claim the exact task before joining cancellation.
+    pub(crate) async fn take_turn_if_active(
+        &self,
+        turn_id: &str,
+        reason: &TurnAbortReason,
+    ) -> Option<ActiveTurn> {
+        let mut active = self.active_turn.lock().await;
+        let task = active.as_mut().and_then(|turn| turn.task.as_mut())?;
+        if task.turn_context.sub_id != turn_id {
+            return None;
+        }
+        self.cancel_exact_task(task);
+        if matches!(
+            reason,
+            TurnAbortReason::Interrupted | TurnAbortReason::BudgetLimited
+        ) {
+            self.mark_interrupted();
+        }
+        active.take()
     }
 
     pub(crate) async fn finish_turn_abort(
@@ -640,8 +707,16 @@ impl Session {
     ) {
         let task = active_turn.task.take();
         if let Some(task) = task {
-            self.handle_task_abort(task, reason.clone(), &active_turn.turn_state, error)
-                .await;
+            // Taking ActiveTurn transfers exclusive abort ownership, including when
+            // the exact-turn or managed boundary already committed cancellation.
+            self.handle_task_abort_internal(
+                task,
+                reason.clone(),
+                &active_turn.turn_state,
+                error,
+                true,
+            )
+            .await;
         }
         // Let interrupted tasks observe cancellation before dropping pending approvals, or an
         // in-flight approval wait can surface as a model-visible rejection before TurnAborted.
@@ -833,6 +908,11 @@ impl Session {
             .turn_timing_state
             .complete_profile_and_duration_ms()
             .await;
+        crate::turn_timing::record_turn_profile_trace(
+            self.thread_id,
+            &turn_context.sub_id,
+            &profile,
+        );
         self.services
             .analytics_events_client
             .track_turn_profile(TurnProfileFact {
@@ -961,8 +1041,20 @@ impl Session {
         turn_state: &Mutex<TurnState>,
         error: Option<ErrorEvent>,
     ) {
+        self.handle_task_abort_internal(task, reason, turn_state, error, false)
+            .await;
+    }
+
+    async fn handle_task_abort_internal(
+        self: &Arc<Self>,
+        task: RunningTask,
+        reason: TurnAbortReason,
+        turn_state: &Mutex<TurnState>,
+        error: Option<ErrorEvent>,
+        cancellation_owned: bool,
+    ) {
         let sub_id = task.turn_context.sub_id.clone();
-        if task.cancellation_token.is_cancelled() {
+        if task.cancellation_token.is_cancelled() && !cancellation_owned {
             self.emit_turn_abort_lifecycle(reason, task.turn_context.extension_data.as_ref())
                 .await;
             return;
@@ -977,10 +1069,15 @@ impl Session {
                 .features
                 .enabled(Feature::CodeModeInterrupt)
         {
-            self.services
-                .code_mode_service
-                .interrupt_active_cells()
-                .await;
+            match task.interrupted_code_mode_cells {
+                Some(cells) => self.services.code_mode_service.interrupt_cells(cells).await,
+                None => {
+                    self.services
+                        .code_mode_service
+                        .interrupt_active_cells()
+                        .await
+                }
+            }
         }
         task.turn_context
             .turn_metadata_state
@@ -992,10 +1089,16 @@ impl Session {
             },
             _ = tokio::time::sleep(Duration::from_millis(GRACEFULL_INTERRUPTION_TIMEOUT_MS)) => {
                 warn!("task {sub_id} didn't complete gracefully after {}ms", GRACEFULL_INTERRUPTION_TIMEOUT_MS);
+                // Forced teardown can abort independently spawned tool dispatches
+                // whose guards are destroyed later. Do not publish complete totals
+                // for a dependency graph that has not settled.
+                task.turn_context.turn_timing_state.invalidate_critical_path();
             }
         }
 
         task.handle.abort();
+        // Aborting schedules destruction; join before freezing the turn's timing.
+        let _ = task.handle.await;
 
         session_task
             .abort(Arc::clone(self), Arc::clone(&task.turn_context))
@@ -1036,6 +1139,11 @@ impl Session {
             .turn_timing_state
             .complete_profile_and_duration_ms()
             .await;
+        crate::turn_timing::record_turn_profile_trace(
+            self.thread_id,
+            &task.turn_context.sub_id,
+            &profile,
+        );
         self.services
             .analytics_events_client
             .track_turn_profile(TurnProfileFact {

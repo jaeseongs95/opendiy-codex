@@ -1,4 +1,4 @@
-<!-- Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md. -->
+<!-- Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md. -->
 # Native CLI R27
 
 기반은 공식 Codex CLI 0.165.0입니다. R26의 수정과 기능을 유지하며 CLI 로그 수집, 대화별 컨텍스트 창 설정, 한국어 UI를 추가합니다. 기존 설치본과 전역 설정은 자동 변경하지 않습니다.

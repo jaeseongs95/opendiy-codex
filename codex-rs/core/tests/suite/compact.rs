@@ -1,4 +1,3 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
 use anyhow::Result;
 use anyhow::anyhow;
 use codex_core::TurnInputRequest;

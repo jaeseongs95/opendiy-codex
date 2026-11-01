@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Display-only retention budgets. These do not constrain model context or durable rollout.
 //!
 //! The byte budget counts serialized protocol payload or the retained logical source of cells;

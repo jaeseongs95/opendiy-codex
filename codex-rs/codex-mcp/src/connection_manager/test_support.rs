@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 
 // 이 크레이트의 단위시험과 의존 크레이트의 시험 장치가 같은 삽입 경계를 쓴다.
@@ -20,6 +20,7 @@ impl McpConnectionSet {
                 connection: Arc::new(McpServerConnection {
                     identity: None,
                     client,
+                    legacy_fallback: None,
                     startup_timeout: DEFAULT_STARTUP_TIMEOUT,
                     startup_trigger: None,
                     _diagnostics_guard: LIVE_CONNECTIONS.track(),

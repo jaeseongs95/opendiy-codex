@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Checks saved-directory fallback and the user-facing retained-checkout notice.
 use super::*;
 use clap::Parser;
@@ -29,6 +30,7 @@ async fn explicit_remote_worktree_rejection_is_snapshotted() -> anyhow::Result<(
         Arg0DispatchPaths::default(),
         LoaderOverrides::default(),
         Some(endpoint),
+        DesktopCronBootstrap::default(),
     )
     .await
     .expect_err("managed worktrees require a local session");

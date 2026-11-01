@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Older page completion preserves answer order, navigation intent, and pending request ownership.
 
 use super::session_lifecycle_requests::start_recording_app_server;
@@ -212,7 +212,7 @@ async fn beginning_navigation_holds_the_view_until_the_last_page_arrives() -> Re
         app.transcript_cells = crate::thread_transcript::thread_items_to_transcript_cells(
             Some(thread_id),
             &app.config.cwd,
-            started.turns.iter().flat_map(|turn| turn.items.clone()),
+            started.turns.iter().flat_map(Turn::item_payloads).cloned(),
             crate::thread_transcript::RawReasoningVisibility::Hidden,
             Some(&app.config),
         );
@@ -332,7 +332,7 @@ async fn returning_to_latest_retains_pending_pages_without_continuing_to_the_beg
     app.transcript_cells = crate::thread_transcript::thread_items_to_transcript_cells(
         Some(thread_id),
         &app.config.cwd,
-        started.turns.iter().flat_map(|turn| turn.items.clone()),
+        started.turns.iter().flat_map(Turn::item_payloads).cloned(),
         crate::thread_transcript::RawReasoningVisibility::Hidden,
         Some(&app.config),
     );

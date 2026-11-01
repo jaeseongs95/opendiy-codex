@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 // Modified for OpenDIY Codex R30 (2026-10-31); see docs/r30-final-boundary-validation-20261031.ko.md.
 //! Host guards exercised through real cleanup ownership, terminal V2 runtimes and local storage.
 //! Opt-in only: `cargo test -p codex-app-server --features test-support cleanup_guard_tests --lib`.
@@ -544,7 +545,7 @@ async fn cleanup_guard_exact_selection_preserves_unknown_active_and_unselected_d
     }
     // A real cancellable shell task holds the active runtime; no model is involved.
     let command = if cfg!(windows) {
-        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 60\""
+        "ping.exe -n 61 127.0.0.1 > NUL"
     } else {
         "sleep 60"
     };

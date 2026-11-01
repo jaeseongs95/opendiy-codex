@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Project transcript interactions and page-loading feedback into the existing footer.
 //! Loading never inserts transcript rows; the owner schedules motion only while a page is pending.
 //! Surface owners supply the latest shortcut because legacy pagers reserve Escape for editing.
@@ -49,7 +49,40 @@ impl TranscriptView {
                     },
                 ]
                 .into(),
-                cursor_column: self.selection.is_none().then_some(cursor),
+                cursor_column: Some(cursor),
+                is_interactive: true,
+            });
+        }
+        if self.select_mode.is_some() {
+            let hints = if has_selected_text {
+                let copy = crate::key_hint::ctrl(KeyCode::Char('c')).display_label();
+                [
+                    format!(
+                        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/{copy} copy · enter copy & latest · esc clear · q close"
+                    ),
+                    format!(
+                        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · esc clear · q close"
+                    ),
+                    format!("y/{copy} copy · enter copy & latest · esc clear · q close"),
+                    "enter copy · q close".to_owned(),
+                ]
+            } else {
+                [
+                    "arrows/hjkl/w/b/e move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V/shift+arrows mark · / find · n/N next · enter/q/esc close"
+                        .to_owned(),
+                    "arrows/hjkl/w/b/e move · 0/$/g/G ends · v/space/V mark · / find · enter/q/esc close"
+                        .to_owned(),
+                    "arrows/hjkl move · v/space/V mark · / find · enter/q/esc close".to_owned(),
+                    "v mark · enter/q close".to_owned(),
+                ]
+            };
+            return Some(TranscriptFooter {
+                text: first_fitting_line(
+                    hints.iter().map(String::as_str).map(navigation_line),
+                    width,
+                )
+                .into(),
+                cursor_column: None,
                 is_interactive: true,
             });
         }
@@ -248,8 +281,15 @@ pub(super) fn navigation_line(navigation: &str) -> Line<'static> {
         }
         let action = [
             " copy & follow",
+            " copy & latest",
             " clear selection",
             " copy+↓",
+            " move",
+            " ends",
+            " page",
+            " mark",
+            " find",
+            " swap",
             " previous",
             " accept",
             " cancel",

@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Implements shared controller operations using the existing local runtime helpers.
 //! Runtime loading, message delivery and shared state remain in their existing modules.
 
@@ -33,6 +34,30 @@ use futures::future::BoxFuture;
 use std::collections::HashSet;
 
 impl AgentControl for LocalAgentControl {
+    fn list_managed_subagents(
+        &self,
+        parent: ThreadId,
+    ) -> BoxFuture<'_, Result<crate::ManagedSubagentList>> {
+        Box::pin(self.managed_list(parent))
+    }
+
+    fn control_managed_subagent(
+        &self,
+        parent: ThreadId,
+        expected_parent_runtime_id: uuid::Uuid,
+        child: ThreadId,
+        expected_child_runtime_id: Option<uuid::Uuid>,
+        action: crate::ManagedSubagentAction,
+    ) -> BoxFuture<'_, Result<crate::ManagedSubagentControlOutcome>> {
+        Box::pin(self.managed_control(
+            parent,
+            expected_parent_runtime_id,
+            child,
+            expected_child_runtime_id,
+            action,
+        ))
+    }
+
     fn identity(&self) -> SessionId {
         self.session_id()
     }

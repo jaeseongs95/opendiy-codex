@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 // Release builds exceed rustc's default query depth when laying out the async
 // MessageProcessor::handle_initialized_client_request future.
 #![recursion_limit = "256"]
@@ -23,8 +24,9 @@ struct TopCli {
 }
 
 fn main() -> anyhow::Result<()> {
+    let desktop_cron_bootstrap = codex_tui::take_desktop_cron_bootstrap_from_env();
     codex_build_info::initialize!();
-    arg0_dispatch_or_else(|arg0_paths: Arg0DispatchPaths| async move {
+    arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
         let top_cli = TopCli::parse();
         let mut inner = top_cli.inner;
         inner
@@ -36,6 +38,7 @@ fn main() -> anyhow::Result<()> {
             arg0_paths,
             LoaderOverrides::default(),
             /*explicit_remote_endpoint*/ None,
+            desktop_cron_bootstrap,
         )
         .await?;
         let is_fatal = match &exit_info.exit_reason {

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use crate::notification_media::without_notification_media;
 use crate::outgoing_message::ClientRequestResult;
 use crate::outgoing_message::ThreadScopedOutgoingMessageSender;
@@ -55,6 +55,7 @@ use codex_app_server_protocol::ServerRequestPayload;
 use codex_app_server_protocol::StrictReviewRequiredNotification;
 use codex_app_server_protocol::ThreadGoalUpdatedNotification;
 use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::ThreadRealtimeClosedNotification;
 use codex_app_server_protocol::ThreadRealtimeErrorNotification;
 use codex_app_server_protocol::ThreadRealtimeItemAddedNotification;
@@ -157,6 +158,7 @@ pub(crate) async fn apply_bespoke_event_handling(
         id: event_turn_id,
         msg,
     } = event;
+    let approval_starts_command = msg.command_approval_start().is_some();
     match msg {
         EventMsg::TurnStarted(payload) => {
             // While not technically necessary as it was already done on TurnComplete, be extra cautios and abort any pending server requests.
@@ -166,7 +168,8 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .await;
             let turn = {
                 let state = thread_state.lock().await;
-                let mut turn = state.active_turn_snapshot().unwrap_or_else(|| Turn {
+                let turn = state.active_turn_metadata_snapshot().map(Turn::from);
+                turn.unwrap_or_else(|| Turn {
                     id: payload.turn_id.clone(),
                     root_turn_id: payload.root_turn_id.clone(),
                     items: Vec::new(),
@@ -176,10 +179,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                     started_at: payload.started_at,
                     completed_at: None,
                     duration_ms: None,
-                });
-                turn.items.clear();
-                turn.items_view = TurnItemsView::NotLoaded;
-                turn
+                })
             };
             let notification = TurnStartedNotification {
                 thread_id: conversation_id.to_string(),
@@ -301,7 +301,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 &assessment,
                 CommandExecutionStatus::InProgress,
             ) {
-                Some(ThreadItem::CommandExecution {
+                Some(ThreadItemPayload::CommandExecution {
                     id,
                     model_context,
                     plugin_id,
@@ -328,20 +328,15 @@ pub(crate) async fn apply_bespoke_event_handling(
             } else {
                 assessment.turn_id.clone()
             };
-            if assessment.status == codex_protocol::protocol::GuardianAssessmentStatus::InProgress
+            if approval_starts_command
                 && let Some((target_item_id, completion_item)) = pending_command_execution.as_ref()
             {
                 start_command_execution_item(
                     &conversation_id,
                     assessment_turn_id.clone(),
                     target_item_id.clone(),
-                    completion_item.model_context.clone(),
-                    completion_item.plugin_id.clone(),
-                    completion_item.script_path.clone(),
-                    completion_item.command.clone(),
-                    completion_item.cwd.clone(),
-                    completion_item.command_actions.clone(),
-                    CommandExecutionSource::Agent,
+                    assessment.started_at_ms,
+                    completion_item,
                     &outgoing,
                     &thread_state,
                 )
@@ -394,9 +389,8 @@ pub(crate) async fn apply_bespoke_event_handling(
                     assessment_turn_id,
                     target_item_id,
                     completion_item,
-                    /*process_id*/ None,
-                    CommandExecutionSource::Agent,
                     completion_status,
+                    assessment.completed_at_ms,
                     &outgoing,
                     &thread_state,
                 )
@@ -761,20 +755,13 @@ pub(crate) async fn apply_bespoke_event_handling(
                         Some(completion_item),
                     ),
                 };
-            if approval_id.is_none()
-                && let Some(completion_item) = completion_item.as_ref()
-            {
+            if approval_starts_command && let Some(completion_item) = completion_item.as_ref() {
                 start_command_execution_item(
                     &conversation_id,
                     event_turn_id.clone(),
                     call_id.clone(),
-                    completion_item.model_context.clone(),
-                    completion_item.plugin_id.clone(),
-                    completion_item.script_path.clone(),
-                    completion_item.command.clone(),
-                    completion_item.cwd.clone(),
-                    completion_item.command_actions.clone(),
-                    CommandExecutionSource::Agent,
+                    started_at_ms,
+                    completion_item,
                     &outgoing,
                     &thread_state,
                 )
@@ -1089,13 +1076,12 @@ pub(crate) async fn apply_bespoke_event_handling(
         EventMsg::ItemStarted(event) => {
             let should_emit = match &event.item {
                 // Approval and guardian flows can emit the command start notification before core
-                // emits the canonical item. Reuse the same set to suppress that duplicate.
+                // emits the canonical item. Keep the first observed start and suppress that duplicate.
                 CoreTurnItem::CommandExecution(item) => thread_state
                     .lock()
                     .await
                     .turn_summary
-                    .command_execution_started
-                    .insert(item.id.clone()),
+                    .record_command_start(item.id.clone(), event.started_at_ms),
                 _ => true,
             };
             let dynamic_tool_call_params = match &event.item {
@@ -1122,20 +1108,54 @@ pub(crate) async fn apply_bespoke_event_handling(
             }
             if let Some(params) = dynamic_tool_call_params {
                 let call_id = params.call_id.clone();
-                let (_pending_request_id, rx) = outgoing
-                    .send_request(ServerRequestPayload::DynamicToolCall(params))
+                let owner = conversation
+                    .runtime_dynamic_tool_owner(params.namespace.as_deref(), &params.tool)
                     .await;
+                let (_pending_request_id, rx) = match owner {
+                    Some((_, ref disconnected)) if disconnected.is_cancelled() => {
+                        let response = codex_protocol::dynamic_tools::DynamicToolResponse {
+                            content_items: vec![codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputText {
+                                text: "도구를 제공한 연결이 종료됐습니다. 작업을 실행하거나 재전송하지 않았습니다.".into(),
+                            }],
+                            success: false,
+                        };
+                        if let Err(error) = conversation
+                            .submit(codex_protocol::protocol::Op::DynamicToolResponse {
+                                id: call_id,
+                                response,
+                            })
+                            .await
+                        {
+                            tracing::warn!(%error, "failed to reject disconnected runtime tool");
+                        }
+                        return;
+                    }
+                    Some((owner, disconnected)) => {
+                        outgoing
+                            .send_dynamic_tool_request_to_connection(
+                                crate::outgoing_message::ConnectionId(owner),
+                                ServerRequestPayload::DynamicToolCall(params),
+                                disconnected,
+                            )
+                            .await
+                    }
+                    None => {
+                        outgoing
+                            .send_request(ServerRequestPayload::DynamicToolCall(params))
+                            .await
+                    }
+                };
                 tokio::spawn(async move {
                     crate::dynamic_tools::on_call_response(call_id, rx, conversation).await;
                 });
             }
         }
-        EventMsg::ItemCompleted(event) => {
+        EventMsg::ItemCompleted(mut event) => {
             apply_canonical_item_completed_side_effects(
                 &thread_manager,
                 &thread_watch_manager,
                 &thread_state,
-                &event.item,
+                &mut event,
             )
             .await;
             let mut notification = item_event_to_server_notification(
@@ -1409,16 +1429,18 @@ async fn apply_canonical_item_completed_side_effects(
     thread_manager: &Arc<ThreadManager>,
     thread_watch_manager: &ThreadWatchManager,
     thread_state: &Arc<Mutex<ThreadState>>,
-    item: &CoreTurnItem,
+    event: &mut codex_protocol::protocol::ItemCompletedEvent,
 ) {
-    match item {
+    match &event.item {
         CoreTurnItem::CommandExecution(item) => {
-            thread_state
+            let observed_start = thread_state
                 .lock()
                 .await
                 .turn_summary
-                .command_execution_started
+                .command_start_times
                 .remove(&item.id);
+            // A client can already be displaying the command's approval-time start.
+            event.started_at_ms = observed_start.or(event.started_at_ms);
         }
         CoreTurnItem::SubAgentActivity(activity)
             if activity.kind == SubAgentActivityKind::Interrupted =>
@@ -1451,50 +1473,42 @@ async fn remove_missing_thread_watch(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn start_command_execution_item(
     conversation_id: &ThreadId,
     turn_id: String,
     item_id: String,
-    model_context: Option<ModelInvocationContext>,
-    plugin_id: Option<String>,
-    script_path: Option<String>,
-    command: String,
-    cwd: LegacyAppPathString,
-    command_actions: Vec<V2ParsedCommand>,
-    source: CommandExecutionSource,
+    started_at_ms: i64,
+    details: &CommandExecutionCompletionItem,
     outgoing: &ThreadScopedOutgoingMessageSender,
     thread_state: &Arc<Mutex<ThreadState>>,
 ) -> bool {
-    let first_start = {
-        let mut state = thread_state.lock().await;
-        state
-            .turn_summary
-            .command_execution_started
-            .insert(item_id.clone())
-    };
+    let first_start = thread_state
+        .lock()
+        .await
+        .turn_summary
+        .record_command_start(item_id.clone(), started_at_ms);
     if first_start {
-        let notification = ItemStartedNotification {
-            thread_id: conversation_id.to_string(),
+        let notification = ItemStartedNotification::new(
+            conversation_id.to_string(),
             turn_id,
-            started_at_ms: now_unix_timestamp_ms(),
-            item: ThreadItem::CommandExecution {
+            ThreadItemPayload::CommandExecution {
                 id: item_id,
-                model_context,
+                model_context: details.model_context.clone(),
                 sandbox_type: None,
-                plugin_id,
-                script_path,
-                command,
-                cwd,
+                plugin_id: details.plugin_id.clone(),
+                script_path: details.script_path.clone(),
+                command: details.command.clone(),
+                cwd: details.cwd.clone(),
                 process_id: None,
-                source,
+                source: CommandExecutionSource::Agent,
                 status: CommandExecutionStatus::InProgress,
-                command_actions,
+                command_actions: details.command_actions.clone(),
                 aggregated_output: None,
                 exit_code: None,
                 duration_ms: None,
             },
-        };
+            started_at_ms,
+        );
         outgoing
             .send_server_notification(ServerNotification::ItemStarted(notification))
             .await;
@@ -1508,23 +1522,22 @@ async fn complete_command_execution_item(
     turn_id: String,
     item_id: String,
     completion_item: CommandExecutionCompletionItem,
-    process_id: Option<String>,
-    source: CommandExecutionSource,
     status: CommandExecutionStatus,
+    completed_at_ms: Option<i64>,
     outgoing: &ThreadScopedOutgoingMessageSender,
     thread_state: &Arc<Mutex<ThreadState>>,
 ) {
-    let should_emit = thread_state
+    let Some(started_at_ms) = thread_state
         .lock()
         .await
         .turn_summary
-        .command_execution_started
-        .remove(&item_id);
-    if !should_emit {
+        .command_start_times
+        .remove(&item_id)
+    else {
         return;
-    }
+    };
 
-    let item = ThreadItem::CommandExecution {
+    let item = ThreadItemPayload::CommandExecution {
         id: item_id,
         model_context: completion_item.model_context,
         sandbox_type: None,
@@ -1532,20 +1545,22 @@ async fn complete_command_execution_item(
         script_path: completion_item.script_path,
         command: completion_item.command,
         cwd: completion_item.cwd,
-        process_id,
-        source,
+        process_id: None,
+        source: CommandExecutionSource::Agent,
         status,
         command_actions: completion_item.command_actions,
         aggregated_output: None,
         exit_code: None,
         duration_ms: None,
     };
-    let notification = ItemCompletedNotification {
-        thread_id: conversation_id.to_string(),
+    let notification = ItemCompletedNotification::new(
+        conversation_id.to_string(),
         turn_id,
-        completed_at_ms: now_unix_timestamp_ms(),
         item,
-    };
+        Some(started_at_ms),
+        // Guardian supplies the decision time used on resume. Manual approvals are timed here.
+        completed_at_ms.unwrap_or_else(now_unix_timestamp_ms),
+    );
     outgoing
         .send_server_notification(ServerNotification::ItemCompleted(notification))
         .await;
@@ -2133,8 +2148,8 @@ async fn on_command_execution_request_approval_response(
             let state = thread_state.lock().await;
             state
                 .turn_summary
-                .command_execution_started
-                .contains(&item_id)
+                .command_start_times
+                .contains_key(&item_id)
         } else {
             false
         }
@@ -2149,9 +2164,8 @@ async fn on_command_execution_request_approval_response(
             event_turn_id.clone(),
             item_id.clone(),
             completion_item,
-            /*process_id*/ None,
-            CommandExecutionSource::Agent,
             status,
+            /*completed_at_ms*/ None,
             &outgoing,
             &thread_state,
         )
@@ -2552,13 +2566,8 @@ mod tests {
             &conversation_id,
             "turn-1".to_string(),
             "cmd-1".to_string(),
-            completion_item.model_context.clone(),
-            completion_item.plugin_id.clone(),
-            completion_item.script_path.clone(),
-            completion_item.command.clone(),
-            completion_item.cwd.clone(),
-            completion_item.command_actions.clone(),
-            CommandExecutionSource::Agent,
+            /*started_at_ms*/ 1_000,
+            &completion_item,
             &outgoing,
             &thread_state,
         )
@@ -2568,11 +2577,12 @@ mod tests {
         let msg = recv_broadcast_notification(&mut rx).await?;
         match msg {
             ServerNotification::ItemStarted(payload) => {
+                assert_eq!(payload.item.started_at_ms, Some(1_000));
                 assert_eq!(payload.thread_id, conversation_id.to_string());
                 assert_eq!(payload.turn_id, "turn-1");
                 assert_eq!(
-                    payload.item,
-                    ThreadItem::CommandExecution {
+                    payload.item.payload,
+                    ThreadItemPayload::CommandExecution {
                         model_context: None,
                         sandbox_type: None,
                         id: "cmd-1".to_string(),
@@ -2597,13 +2607,8 @@ mod tests {
             &conversation_id,
             "turn-1".to_string(),
             "cmd-1".to_string(),
-            completion_item.model_context.clone(),
-            completion_item.plugin_id.clone(),
-            completion_item.script_path.clone(),
-            completion_item.command.clone(),
-            completion_item.cwd.clone(),
-            completion_item.command_actions.clone(),
-            CommandExecutionSource::Agent,
+            /*started_at_ms*/ 1_100,
+            &completion_item,
             &outgoing,
             &thread_state,
         )
@@ -2634,13 +2639,8 @@ mod tests {
             &conversation_id,
             "turn-1".to_string(),
             "cmd-1".to_string(),
-            completion_item.model_context.clone(),
-            completion_item.plugin_id.clone(),
-            completion_item.script_path.clone(),
-            completion_item.command.clone(),
-            completion_item.cwd.clone(),
-            completion_item.command_actions.clone(),
-            CommandExecutionSource::Agent,
+            /*started_at_ms*/ 1_000,
+            &completion_item,
             &outgoing,
             &thread_state,
         )
@@ -2652,9 +2652,8 @@ mod tests {
             "turn-1".to_string(),
             "cmd-1".to_string(),
             completion_item,
-            /*process_id*/ None,
-            CommandExecutionSource::Agent,
             CommandExecutionStatus::Declined,
+            /*completed_at_ms*/ None,
             &outgoing,
             &thread_state,
         )
@@ -2663,13 +2662,13 @@ mod tests {
         let completed = recv_broadcast_notification(&mut rx).await?;
         match completed {
             ServerNotification::ItemCompleted(payload) => {
-                let ThreadItem::CommandExecution {
+                let ThreadItemPayload::CommandExecution {
                     id,
                     plugin_id,
                     script_path,
                     status,
                     ..
-                } = payload.item
+                } = payload.item.payload
                 else {
                     bail!("expected command execution completion");
                 };
@@ -2686,9 +2685,8 @@ mod tests {
             "turn-1".to_string(),
             "cmd-1".to_string(),
             command_execution_completion_item("printf hi"),
-            /*process_id*/ None,
-            CommandExecutionSource::Agent,
             CommandExecutionStatus::Declined,
+            /*completed_at_ms*/ None,
             &outgoing,
             &thread_state,
         )
@@ -2751,13 +2749,13 @@ mod tests {
         match first {
             ServerNotification::ItemStarted(payload) => {
                 assert_eq!(payload.turn_id, "turn-guardian-approved");
-                let ThreadItem::CommandExecution {
+                let ThreadItemPayload::CommandExecution {
                     id,
                     plugin_id,
                     script_path,
                     status,
                     ..
-                } = payload.item
+                } = payload.item.payload
                 else {
                     bail!("expected command execution item");
                 };
@@ -2823,13 +2821,13 @@ mod tests {
         match fourth {
             ServerNotification::ItemStarted(payload) => {
                 assert_eq!(payload.turn_id, "turn-guardian-denied");
-                let ThreadItem::CommandExecution {
+                let ThreadItemPayload::CommandExecution {
                     id,
                     plugin_id,
                     script_path,
                     status,
                     ..
-                } = payload.item
+                } = payload.item.payload
                 else {
                     bail!("expected command execution item");
                 };
@@ -2879,13 +2877,14 @@ mod tests {
         let seventh = recv_broadcast_notification(&mut rx).await?;
         match seventh {
             ServerNotification::ItemCompleted(payload) => {
-                let ThreadItem::CommandExecution {
+                assert_eq!(payload.item.completed_at_ms, Some(1_042));
+                let ThreadItemPayload::CommandExecution {
                     id,
                     plugin_id,
                     script_path,
                     status,
                     ..
-                } = payload.item
+                } = payload.item.payload
                 else {
                     bail!("expected command execution completion");
                 };
@@ -3361,8 +3360,10 @@ mod tests {
         };
         assert_eq!(
             payload,
-            ItemCompletedNotification {
-                item: ThreadItem::SubAgentActivity {
+            ItemCompletedNotification::new(
+                conversation_id.to_string(),
+                "turn-1".to_string(),
+                ThreadItemPayload::SubAgentActivity {
                     model: None,
                     reasoning_effort: None,
                     id: "activity-1".to_string(),
@@ -3370,10 +3371,9 @@ mod tests {
                     agent_thread_id: child_thread_id_string,
                     agent_path: "/root/worker".to_string(),
                 },
-                thread_id: conversation_id.to_string(),
-                turn_id: "turn-1".to_string(),
-                completed_at_ms: 42,
-            }
+                Some(42),
+                /*completed_at_ms*/ 42
+            )
         );
         Ok(())
     }
@@ -3512,8 +3512,8 @@ mod tests {
                         delivery: None,
                         questions: None,
                     }),
-                    started_at_ms: Some(0),
-                    completed_at_ms: 0,
+                    started_at_ms: Some(42_123),
+                    completed_at_ms: 42_200,
                 }),
             );
             state.track_current_turn_event(
@@ -3531,8 +3531,8 @@ mod tests {
                         delivery: None,
                         questions: None,
                     }),
-                    started_at_ms: Some(0),
-                    completed_at_ms: 0,
+                    started_at_ms: Some(42_321),
+                    completed_at_ms: 42_400,
                 }),
             );
             state.track_current_turn_event(&event_turn_id, &EventMsg::TurnComplete(event.clone()));
@@ -3555,7 +3555,7 @@ mod tests {
                 assert_eq!(n.turn.items_view, TurnItemsView::Summary);
                 assert!(matches!(
                     &n.turn.items[..],
-                    [ThreadItem::AgentMessage { id, text, .. }]
+                    [ThreadItem { payload: ThreadItemPayload::AgentMessage { id, text, .. }, started_at_ms: Some(42_123), completed_at_ms: Some(42_200) }]
                         if id == "msg-1" && text == "complete response"
                 ));
                 assert_eq!(n.turn.error, None);

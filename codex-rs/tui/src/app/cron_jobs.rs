@@ -1,8 +1,9 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! CLI-lifetime cron integration: immutable targets, normal protocol input, one loop deadline.
 use super::*;
 use crate::backend_id::BackendId;
 use crate::cron::{Phase, Schedule, Scheduler, Submission};
+use crate::i18n::text;
 use codex_app_server_protocol::{
     RequestId as AppServerRequestId, TurnInterruptParams, TurnInterruptResponse,
     TurnStartIfIdleParams, TurnStartIfIdleResponse,
@@ -15,9 +16,9 @@ const USAGE: &str = "/cron add --every 10m -- <prompt> | add --at <RFC3339+offse
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CronTarget {
-    backend: BackendId,
-    epoch: u64,
-    thread: ThreadId,
+    pub(super) backend: BackendId,
+    pub(super) epoch: u64,
+    pub(super) thread: ThreadId,
 }
 
 #[derive(Debug)]
@@ -38,14 +39,16 @@ pub(crate) struct CronReply {
 
 #[derive(Default)]
 pub(crate) struct CronState {
-    scheduler: Scheduler<CronTarget>,
+    pub(super) scheduler: Scheduler<CronTarget>,
+    #[cfg(windows)]
+    pub(super) desktop: super::desktop_cron::DesktopOwner,
     epochs: HashMap<BackendId, u64>,
     unsupported: HashSet<BackendId>,
     tasks: HashMap<(u64, u64), (BackendId, JoinHandle<()>)>,
-    cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
+    pub(super) cancel_tasks: HashMap<u64, (BackendId, JoinHandle<()>)>,
     pub(super) tool_tasks:
         HashMap<(BackendId, AppServerRequestId), (ThreadId, CancellationToken, JoinHandle<()>)>,
-    closed_threads: HashSet<(BackendId, ThreadId)>,
+    pub(super) closed_threads: HashSet<(BackendId, ThreadId)>,
     model_calls: HashMap<
         (BackendId, uuid::Uuid, ThreadId, String, String),
         (String, codex_app_server_protocol::DynamicToolCallResponse),
@@ -84,7 +87,7 @@ impl CronState {
         }
         self.scheduler.invalidate(
             |_| true,
-            "실행기 중지: CLI 종료 또는 연결 교체, 자동 재전송 없음",
+            text("Scheduler stopped: CLI exit or connection replacement; no automatic retries"),
         );
     }
 
@@ -128,7 +131,7 @@ impl CronState {
         });
     }
 
-    fn epoch(&self, backend: BackendId) -> u64 {
+    pub(super) fn epoch(&self, backend: BackendId) -> u64 {
         self.epochs.get(&backend).copied().unwrap_or_default()
     }
 
@@ -173,92 +176,89 @@ fn parse_add(args: &str, now: MonotonicInstant) -> Result<(Schedule, String), St
                 "s" => 1,
                 "m" => 60,
                 "h" => 3600,
-                _ => return Err("간격 단위는 s, m, h입니다.".into()),
+                _ => return Err(text("Interval units are s, m, and h.").into()),
             };
             let seconds = number
                 .parse::<u64>()
                 .ok()
                 .and_then(|value| value.checked_mul(multiplier))
                 .filter(|value| *value > 0)
-                .ok_or("간격은 0보다 큰 정수여야 합니다.")?;
+                .ok_or(text("The interval must be an integer greater than zero."))?;
             let interval = Duration::from_secs(seconds);
             now.checked_add(interval)
-                .ok_or("예약 간격이 너무 큽니다.")?;
+                .ok_or(text("The cron interval is too large."))?;
             Schedule::Every(interval)
         }
         ["add", "--at", timestamp] => {
             let at = chrono::DateTime::parse_from_rfc3339(timestamp)
-                .map_err(|_| "시각은 offset이 포함된 RFC3339 형식이어야 합니다.")?;
+                .map_err(|_| text("The time must be an RFC3339 timestamp with an offset."))?;
             let delay = (at.with_timezone(&chrono::Utc) - chrono::Utc::now())
                 .to_std()
-                .map_err(|_| "예약 시각은 미래여야 합니다.")?;
-            Schedule::Once(now.checked_add(delay).ok_or("예약 시각이 너무 멉니다.")?)
+                .map_err(|_| text("The scheduled time must be in the future."))?;
+            Schedule::Once {
+                deadline: now
+                    .checked_add(delay)
+                    .ok_or(text("The scheduled time is too far in the future."))?,
+                at_unix_ms: u64::try_from(at.timestamp_millis())
+                    .map_err(|_| text("The scheduled time is outside the supported range."))?,
+            }
         }
         _ => return Err(USAGE.into()),
     };
     if prompt.trim().is_empty() {
-        return Err("예약 프롬프트가 비어 있습니다.".into());
+        return Err(text("The cron prompt is empty.").into());
     }
     Ok((schedule, prompt.to_string()))
 }
 
 impl App {
-    pub(super) async fn handle_cron_tool_call(
+    pub(super) async fn claim_cli_tool_call(
         &mut self,
         app_server: &AppServerSession,
-        request: crate::cron_tools::Request,
-    ) {
+        request: &crate::cron_tools::Request,
+    ) -> Result<Option<ThreadId>, codex_app_server_protocol::DynamicToolCallResponse> {
         use std::sync::atomic::Ordering;
         let fail = |message| crate::dynamic_tools::failure_response(message);
-        let Ok(thread) = ThreadId::from_string(&request.params.thread_id) else {
-            let _ = request
-                .reply
-                .send(fail("호출 대화 식별자가 올바르지 않습니다."));
-            return;
-        };
+        let thread = ThreadId::from_string(&request.params.thread_id)
+            .map_err(|_| fail(text("The calling thread ID is invalid.")))?;
         if request.reply.is_closed() {
-            return;
+            return Ok(None);
         }
-        let current_connection = app_server.cron_tool_connection();
-        let available = request.connection.backend == current_connection.backend
-            && request.connection.id == current_connection.id
-            && request.connection.live.load(Ordering::Acquire)
-            && !self.reconnect.offline
-            && !self
+        let current = app_server.cron_tool_connection();
+        if request.connection.backend != current.backend
+            || request.connection.id != current.id
+            || !request.connection.live.load(Ordering::Acquire)
+            || self.reconnect.offline
+            || self
                 .cron
                 .closed_threads
                 .contains(&(request.connection.backend, thread))
-            && !self.abandoned_side_threads.contains(&thread)
-            && !self.temporary_structured_requests.contains_key(&thread)
-            && !self.thread_unavailable(thread)
-            && self.active_turn_id_for_thread(thread).await.as_deref()
-                == Some(request.params.turn_id.as_str());
-        if !available {
-            let _ = request.reply.send(fail("원래 호출 대화·활성 turn·연결이 종료되거나 바뀌었습니다. 예약을 변경하지 않았습니다."));
-            return;
+            || self.abandoned_side_threads.contains(&thread)
+            || self.temporary_structured_requests.contains_key(&thread)
+            || self.thread_unavailable(thread)
+            || self.active_turn_id_for_thread(thread).await.as_deref()
+                != Some(request.params.turn_id.as_str())
+        {
+            return Err(fail(text(
+                "The original calling thread, active turn, or connection ended or changed. The request was not executed.",
+            )));
         }
-        let key = (
-            request.connection.backend,
-            request.connection.id,
-            thread,
-            request.params.turn_id.clone(),
-            request.params.call_id.clone(),
-        );
-        if let Some((command, response)) = self.cron.model_calls.get(&key) {
-            let response = if command == &request.command {
-                response.clone()
-            } else {
-                fail("동일 호출 식별자에 다른 요청을 사용할 수 없습니다.")
-            };
-            let _ = request.reply.send(response);
-            return;
+        if let Some((command, response)) = self.cron.model_calls.get(&request.key(thread)) {
+            if command != &request.command {
+                return Err(fail(text(
+                    "The same call ID cannot be reused for a different request.",
+                )));
+            }
+            if !crate::session_control::is_read_only_command(command) {
+                return Err(response.clone());
+            }
         }
         if self.cron.model_calls.len() >= MAX_MODEL_CALLS {
-            let _ = request.reply.send(fail("동시 활성 호출 기록 한도에 도달했습니다. 이전 요청을 다시 등록하지 말고 turn 종료 후 확인하세요."));
-            return;
+            return Err(fail(text(
+                "The active call record limit has been reached. Do not repeat earlier requests; check after the turn ends.",
+            )));
         }
-        // Cancellation before this claim wins. After it, a lost reply is an unknown
-        // outcome, not permission to replay the same mutation.
+        // Cancellation before this claim wins. A lost reply after it never permits replay.
         if request.reply.is_closed()
             || request.cancellation.is_cancelled()
             || request
@@ -268,8 +268,25 @@ impl App {
             || request.cancellation.is_cancelled()
             || !request.connection.live.load(Ordering::Acquire)
         {
-            return;
+            return Ok(None);
         }
+        Ok(Some(thread))
+    }
+
+    pub(super) async fn handle_cron_tool_call(
+        &mut self,
+        app_server: &AppServerSession,
+        request: crate::cron_tools::Request,
+    ) {
+        let thread = match self.claim_cli_tool_call(app_server, &request).await {
+            Ok(Some(thread)) => thread,
+            Ok(None) => return,
+            Err(response) => {
+                let _ = request.reply.send(response);
+                return;
+            }
+        };
+        let key = request.key(thread);
         let response = match self
             .cron_command_scoped(app_server, Some(thread), &request.command, true)
             .await
@@ -329,7 +346,10 @@ impl App {
                         && (job.target.backend != app_server.backend_id()
                             || Some(job.target.thread) != thread)
                 }) {
-                    return Ok("등록된 예약이 없습니다. CLI를 종료하면 예약도 사라집니다.".into());
+                    return Ok(text(
+                        "No cron jobs are registered. Jobs disappear when the CLI exits.",
+                    )
+                    .into());
                 }
                 Ok(self
                     .cron
@@ -343,38 +363,43 @@ impl App {
                     })
                     .map(|job| {
                         let state = match &job.phase {
-                            Phase::Ready => "대기".to_string(),
-                            Phase::Pending { .. } => "입장 응답 대기".to_string(),
+                            Phase::Ready => text("Ready").to_string(),
+                            Phase::Pending { .. } => text("Waiting for admission").to_string(),
                             Phase::Running {
                                 turn_id,
                                 cancelling,
                             } => format!(
                                 "{} turn={turn_id}",
                                 if *cancelling {
-                                    "취소 요청·종료 대기"
+                                    text("Cancellation requested; waiting for completion")
                                 } else {
-                                    "실행 중"
+                                    text("Running")
                                 }
                             ),
                             Phase::Finished(reason) => reason.clone(),
                             Phase::BlockedConnection(reason) => {
-                                format!("연결 변경·실행 차단: {reason}")
+                                format!(
+                                    "{} {reason}",
+                                    text("Connection changed; execution blocked:")
+                                )
                             }
                             Phase::BlockedUnsupported(reason) => {
-                                format!("미지원·실행 차단: {reason}")
+                                format!("{} {reason}", text("Unsupported; execution blocked:"))
                             }
-                            Phase::Unknown(reason) => format!("미확인·실행 중지: {reason}"),
+                            Phase::Unknown(reason) => {
+                                format!("{} {reason}", text("Outcome unknown; execution stopped:"))
+                            }
                         };
                         let schedule = job
                             .interval
                             .map(|interval| format!("every={}s", interval.as_secs()))
-                            .unwrap_or_else(|| "일회성".into());
+                            .unwrap_or_else(|| text("One-shot").into());
                         let next = job
                             .next_due
                             .map(|deadline| {
                                 format!("{}s", deadline.saturating_duration_since(now).as_secs())
                             })
-                            .unwrap_or_else(|| "없음".into());
+                            .unwrap_or_else(|| text("No next run").into());
                         let mut prompt = String::new();
                         for ch in serde_json::json!(job.prompt).to_string().chars() {
                             if ch.is_control() {
@@ -390,9 +415,9 @@ impl App {
                             schedule,
                             next,
                             state,
-                            if job.paused { " (일시중지)" } else { "" },
+                            if job.paused { text(" (paused)") } else { "" },
                             if job.removed {
-                                " (예약 제거됨; 실행 소유권 유지)"
+                                text(" (job removed; run ownership retained)")
                             } else {
                                 ""
                             },
@@ -404,20 +429,25 @@ impl App {
                     .join("\n"))
             }
             ["add", ..] => {
-                let thread = thread.ok_or("등록 대상 대화가 없습니다.")?;
+                let thread = thread.ok_or(text("There is no target thread for this cron job."))?;
                 if (!model_scoped && self.current_displayed_thread_id() != Some(thread))
                     || self.thread_unavailable(thread)
                 {
-                    return Err("등록 대상 대화가 바뀌었거나 사용할 수 없습니다.".into());
+                    return Err(text("The target thread changed or is unavailable.").into());
                 }
                 if !model_scoped && self.chat_widget.has_misalignment_policy_violation() {
-                    return Err("현재 대화는 직접 입력을 허용하지 않습니다.".into());
+                    return Err(text("The current thread does not allow direct input.").into());
                 }
                 if self.cron.unsupported.contains(&app_server.backend_id()) {
-                    return Err("이 backend는 turn/startIfIdle을 지원하지 않아 예약이 비활성화되어 있습니다.".into());
+                    return Err(text(
+                        "Cron is disabled because this backend does not support turn/startIfIdle.",
+                    )
+                    .into());
                 }
                 if self.reconnect.offline {
-                    return Err("backend 연결이 끊겨 예약을 등록할 수 없습니다.".into());
+                    return Err(
+                        text("Cannot add a cron job while the backend is disconnected.").into(),
+                    );
                 }
                 let (schedule, prompt) = parse_add(args, now)?;
                 let target = CronTarget {
@@ -426,9 +456,9 @@ impl App {
                     thread,
                 };
                 let id = self.cron.scheduler.add(target, prompt, schedule, now)?;
-                Ok(format!(
-                    "예약 #{id} 등록: thread={thread}. busy 회차는 건너뜁니다. backend 지원은 첫 전용 요청에서 확인합니다."
-                ))
+                Ok(text(
+                    "Cron job #{id} registered: thread={thread}. Busy slots are skipped. Backend support is checked on the first dedicated request."
+                ).replace("{id}", &id.to_string()).replace("{thread}", &thread.to_string()))
             }
             [action @ ("pause" | "resume" | "remove" | "cancel"), id] => {
                 let id = id.parse::<u64>().map_err(|_| USAGE)?;
@@ -436,17 +466,20 @@ impl App {
                 if job.target.backend != app_server.backend_id()
                     || (model_scoped && Some(job.target.thread) != thread)
                 {
-                    return Err("예약이 다른 backend에 속합니다.".into());
+                    return Err(text("The cron job belongs to a different backend.").into());
                 }
                 let target = job.target.clone();
                 match *action {
                     "pause" => self.cron.scheduler.pause(id)?,
                     "resume" => {
                         if target.epoch != self.cron.epoch(target.backend) {
-                            return Err("등록 당시 backend 연결 세대가 끝났습니다. 실행 상태를 확인한 뒤 새로 등록하세요.".into());
+                            return Err(text("The original backend connection generation ended. Check the run state before registering a new job.").into());
                         }
                         if self.reconnect.offline {
-                            return Err("backend 연결이 끊겨 예약을 재개할 수 없습니다.".into());
+                            return Err(text(
+                                "Cannot resume a cron job while the backend is disconnected.",
+                            )
+                            .into());
                         }
                         self.cron.scheduler.resume(id, now)?;
                     }
@@ -456,25 +489,7 @@ impl App {
                             .await;
                     }
                     "cancel" => {
-                        let job = self.cron.scheduler.job_mut(id)?;
-                        let Phase::Running {
-                            turn_id,
-                            cancelling,
-                        } = &mut job.phase
-                        else {
-                            return Err(
-                                "정확한 소유 turn이 확인된 실행만 취소할 수 있습니다.".into()
-                            );
-                        };
-                        if *cancelling {
-                            return Err("이미 이 turn의 취소 종료를 기다리고 있습니다.".into());
-                        }
-                        // Never substitute active_turn_id: it may belong to manual input.
-                        let params = TurnInterruptParams {
-                            thread_id: target.thread.to_string(),
-                            turn_id: turn_id.clone(),
-                        };
-                        *cancelling = true;
+                        let params = self.claim_cron_cancel(app_server, &target, id)?;
                         let turn_id = params.turn_id.clone();
                         let sender = self.app_event_tx.clone();
                         let request = app_server.request_handle();
@@ -492,11 +507,14 @@ impl App {
                                 ),
                             )
                             .await
-                            .map_err(|_| "취소 응답 timeout: 종료 여부 미확인".to_string())
+                            .map_err(|_| {
+                                text("Cancellation response timed out: completion is unknown")
+                                    .to_string()
+                            })
                             .and_then(|result| {
-                                result
-                                    .map(|_| ())
-                                    .map_err(|error| format!("취소 결과 미확인: {error}"))
+                                result.map(|_| ()).map_err(|error| {
+                                    format!("{} {error}", text("Cancellation outcome unknown:"))
+                                })
                             });
                             sender.send(AppEvent::CronCancelReply(Box::new(CronCancelReply {
                                 target,
@@ -509,12 +527,62 @@ impl App {
                     }
                     _ => unreachable!(),
                 }
-                Ok(format!(
-                    "예약 #{id}: {action}. remove는 이미 수락한 turn을 취소하지 않습니다."
-                ))
+                Ok(text(
+                    "Cron job #{id}: {action}. remove does not cancel an already accepted turn.",
+                )
+                .replace("{id}", &id.to_string())
+                .replace("{action}", action))
             }
             _ => Err(USAGE.into()),
         }
+    }
+
+    pub(super) fn claim_cron_cancel(
+        &mut self,
+        app_server: &AppServerSession,
+        target: &CronTarget,
+        id: u64,
+    ) -> Result<TurnInterruptParams, String> {
+        if target.backend != app_server.backend_id()
+            || target.epoch != self.cron.epoch(target.backend)
+            || self.reconnect.offline
+            || !app_server
+                .cron_tool_connection()
+                .live
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(text("The original backend connection generation ended.").into());
+        }
+        let job = self.cron.scheduler.job_mut(id)?;
+        if &job.target != target {
+            return Err(text(
+                "The cron job's owning thread or connection generation does not match.",
+            )
+            .into());
+        }
+        let Phase::Running {
+            turn_id,
+            cancelling,
+        } = &mut job.phase
+        else {
+            return Err(text("Only a run with a confirmed owning turn can be cancelled.").into());
+        };
+        if turn_id.is_empty() || *cancelling {
+            return Err(text(
+                "The owning turn is empty or already waiting for cancellation to finish.",
+            )
+            .into());
+        }
+        if app_server.supports_expected_turn_interrupt() != Some(true) {
+            return Err("expectedTurnInterruptUnsupported".into());
+        }
+        // active_turn_id로 대체하지 않는다. 수동 입력의 턴일 수 있다.
+        let params = TurnInterruptParams {
+            thread_id: target.thread.to_string(),
+            turn_id: turn_id.clone(),
+        };
+        *cancelling = true;
+        Ok(params)
     }
 
     pub(super) fn dispatch_due_cron(&mut self, backends: &backend_sessions::BackendSessions) {
@@ -527,7 +595,7 @@ impl App {
                 self.cron.scheduler.submitted(
                     dispatch.id,
                     dispatch.attempt,
-                    Submission::Unknown("backend 연결이 없습니다.".into()),
+                    Submission::Unknown(text("There is no backend connection.").into()),
                 );
                 continue;
             };
@@ -537,7 +605,9 @@ impl App {
                 self.cron.scheduler.submitted(
                     dispatch.id,
                     dispatch.attempt,
-                    Submission::Unknown("backend 세대 또는 지원 상태가 바뀌었습니다.".into()),
+                    Submission::Unknown(
+                        text("The backend generation or support status changed.").into(),
+                    ),
                 );
                 continue;
             }
@@ -579,7 +649,8 @@ impl App {
                     }
                     Ok(Err(error)) => CronResult::Unknown(error.to_string()),
                     Err(_) => CronResult::Unknown(
-                        "입장 응답 timeout: 실행 여부 미확인, 재전송 없음".into(),
+                        text("Admission response timed out: execution is unknown; no retries")
+                            .into(),
                     ),
                 };
                 sender.send(AppEvent::CronReply(Box::new(CronReply {
@@ -603,13 +674,16 @@ impl App {
             return;
         }
         let notice = match &reply.result {
-            CronResult::Unknown(reason) => Some(format!(
-                "예약 #{} 실행 여부 미확인: {reason}. 자동 재전송을 중지했습니다.",
-                reply.id
-            )),
+            CronResult::Unknown(reason) => Some(
+                text("Cron job #{id} execution unknown: {reason}. Automatic retries have stopped.")
+                    .replace("{id}", &reply.id.to_string())
+                    .replace("{reason}", reason),
+            ),
             CronResult::Rejected(reason)
             | CronResult::Response(TurnStartIfIdleResponse::NotStarted { reason }) => Some(
-                format!("예약 #{} 미입장: {reason}. 일시중지했습니다.", reply.id),
+                text("Cron job #{id} not admitted: {reason}. Paused.")
+                    .replace("{id}", &reply.id.to_string())
+                    .replace("{reason}", reason),
             ),
             _ => None,
         };
@@ -630,14 +704,16 @@ impl App {
                     .filter(|job| job.target.backend == reply.target.backend)
                     .map(|job| job.target.thread)
                     .collect();
-                self.cron
-                    .invalidate_schedules(reply.target.backend, "turn/startIfIdle 미지원");
+                self.cron.invalidate_schedules(
+                    reply.target.backend,
+                    text("turn/startIfIdle unsupported"),
+                );
                 self.cron.unsupported.insert(reply.target.backend);
                 self.cron
                     .scheduler
                     .block_unsupported(|target| target.backend == reply.target.backend);
                 self.chat_widget.add_error_message(
-                    "이 backend는 안전한 예약 실행을 지원하지 않습니다. 예약을 비활성화했습니다."
+                    text("This backend does not support safe cron execution. Cron jobs have been disabled.")
                         .into(),
                 );
                 if app_server.backend_id() == reply.target.backend {
@@ -693,7 +769,9 @@ impl App {
             self.cron.closed_threads.insert((owner, thread));
             self.cron.scheduler.invalidate(
                 |target| target.backend == owner && target.thread == thread,
-                "대화 종료·삭제·보관: 실행 상태를 자동 추정하지 않음",
+                text(
+                    "Thread closed, deleted, or archived: run state is not inferred automatically",
+                ),
             );
         }
         if let ServerNotification::TurnStarted(started) = notification
@@ -727,7 +805,7 @@ impl App {
         }
     }
 
-    async fn release_cron_thread_if_unused(
+    pub(super) async fn release_cron_thread_if_unused(
         &mut self,
         app_server: &AppServerSession,
         thread: ThreadId,
@@ -763,11 +841,13 @@ impl App {
                 self.abort_thread_event_listener(thread);
                 self.pending_server_profiles.remove(&thread);
             }
-            Ok(Err(error)) => self
-                .chat_widget
-                .add_error_message(format!("예약 대화 구독 정리 실패: {error}")),
+            Ok(Err(error)) => self.chat_widget.add_error_message(format!(
+                "{} {error}",
+                text("Cron thread unsubscribe failed:")
+            )),
             Err(_) => self.chat_widget.add_error_message(
-                "예약 대화 구독 정리 timeout: 해제 여부를 확인하지 못했습니다.".into(),
+                text("Cron thread unsubscribe timed out: detachment could not be confirmed.")
+                    .into(),
             ),
         }
     }
@@ -776,6 +856,144 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn localized_tool_output(
+        app: &mut App,
+        session: &AppServerSession,
+        thread: ThreadId,
+        command: &str,
+    ) -> color_eyre::Result<(bool, String)> {
+        let call_id = uuid::Uuid::new_v4().to_string();
+        let (request, response) =
+            model_request(session.cron_tool_connection(), thread, &call_id, command);
+        app.handle_cron_tool_call(session, request).await;
+        let response = response.await?;
+        assert_eq!(response.content_items.len(), 1);
+        let codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text } =
+            response.content_items.into_iter().next().unwrap()
+        else {
+            panic!("expected a text result");
+        };
+        Ok((response.success, text))
+    }
+
+    #[test]
+    fn cron_commands_and_model_results_follow_ui_locale_without_changing_inputs()
+    -> color_eyre::Result<()> {
+        use crate::i18n::{Locale, with_locale};
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        for locale in [Locale::English, Locale::Korean] {
+            with_locale(locale, || {
+                runtime.block_on(async {
+                let korean = locale == Locale::Korean;
+                let (mut app, mut events, _ops) =
+                    crate::app::tests::make_test_app_with_channels().await;
+                let (session, mut observed, worker) = super::super::app_server_requests::retained_reply_tests::connection_with_expected_turn_interrupt(Some(true)).await?;
+                let thread = ThreadId::new();
+                app.active_thread_id = Some(thread);
+                app.primary_thread_id = Some(thread);
+                app.ensure_thread_channel(thread).store.lock().await
+                    .set_active_turn_id("caller-turn".into());
+                let empty = if korean {
+                    "등록된 예약이 없습니다. CLI를 종료하면 예약도 사라집니다."
+                } else {
+                    "No cron jobs are registered. Jobs disappear when the CLI exits."
+                };
+                assert_eq!(localized_tool_output(&mut app, &session, thread, "list").await?, (true, empty.into()));
+                let prompt = "Ready -- /cron add/list/pause/resume/remove/delete/cancel/at/every {id}";
+                let command = format!("add --every 10m -- {prompt}");
+                let (success, added) = localized_tool_output(&mut app, &session, thread, &command).await?;
+                assert!(success);
+                assert_eq!(added, if korean {
+                    format!("예약 #1 등록: thread={thread}. busy 회차는 건너뜁니다. backend 지원은 첫 전용 요청에서 확인합니다.")
+                } else {
+                    format!("Cron job #1 registered: thread={thread}. Busy slots are skipped. Backend support is checked on the first dedicated request.")
+                });
+                assert_eq!(app.cron.scheduler.jobs[0].prompt, prompt);
+                assert_eq!(app.cron.scheduler.jobs[0].interval, Some(Duration::from_secs(600)));
+                for (action, paused) in [("pause", true), ("resume", false)] {
+                    let (success, message) = localized_tool_output(&mut app, &session, thread, &format!("{action} 1")).await?;
+                    assert!(success);
+                    assert_eq!(message, if korean {
+                        format!("예약 #1: {action}. remove는 이미 수락한 turn을 취소하지 않습니다.")
+                    } else {
+                        format!("Cron job #1: {action}. remove does not cancel an already accepted turn.")
+                    });
+                    let listed = app.cron_command(&session, Some(thread), "list").await.unwrap();
+                    assert!(listed.starts_with(&format!("#1 thread={thread} every=600s next=")));
+                    let state = if korean { "대기" } else { "Ready" };
+                    let suffix = if paused {
+                        if korean { " (일시중지)" } else { " (paused)" }
+                    } else { "" };
+                    assert!(listed.ends_with(&format!(" {state}{suffix} skipped=0 prompt={}", serde_json::json!(prompt))));
+                    if !korean {
+                        for output in [&added, &message, &listed] {
+                            assert!(!output.chars().any(|ch| ('\u{ac00}'..='\u{d7a3}').contains(&ch)), "{output}");
+                        }
+                    }
+                }
+                for (command, expected) in [
+                    ("pause 999", if korean { "예약 999를 찾을 수 없습니다." } else { "Cron job 999 was not found." }),
+                    ("add --every 0s -- unchanged", if korean { "간격은 0보다 큰 정수여야 합니다." } else { "The interval must be an integer greater than zero." }),
+                    ("cancel 1", if korean { "정확한 소유 turn이 확인된 실행만 취소할 수 있습니다." } else { "Only a run with a confirmed owning turn can be cancelled." }),
+                ] {
+                    assert_eq!(localized_tool_output(&mut app, &session, thread, command).await?, (false, expected.into()));
+                }
+                // A new invocation must cancel the exact scheduler-owned turn.
+                app.cron.scheduler.jobs[0].phase = Phase::Running {
+                    turn_id: "owned-cron-turn".into(), cancelling: false,
+                };
+                let (success, cancelled) = localized_tool_output(&mut app, &session, thread, "cancel 1").await?;
+                assert!(success);
+                assert_eq!(cancelled, if korean {
+                    "예약 #1: cancel. remove는 이미 수락한 turn을 취소하지 않습니다."
+                } else { "Cron job #1: cancel. remove does not cancel an already accepted turn." });
+                let codex_app_server_protocol::JSONRPCMessage::Request(request) = tokio::time::timeout(Duration::from_secs(5), observed.recv()).await?.unwrap() else { panic!("expected interrupt"); };
+                assert_eq!(request.method, "turn/interrupt");
+                let params = request.params.unwrap();
+                assert_eq!(params["threadId"], thread.to_string());
+                assert_eq!(params["turnId"], "owned-cron-turn");
+                let reply = tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        if let Some(AppEvent::CronCancelReply(reply)) = events.recv().await { break reply; }
+                    }
+                }).await?;
+                app.handle_cron_cancel_reply(*reply);
+                let (success, removed) = localized_tool_output(&mut app, &session, thread, "remove 1").await?;
+                assert!(success);
+                assert_eq!(removed, if korean {
+                    "예약 #1: remove. remove는 이미 수락한 turn을 취소하지 않습니다."
+                } else { "Cron job #1: remove. remove does not cancel an already accepted turn." });
+                assert!(app.cron.scheduler.jobs[0].removed);
+                let target = app.cron.scheduler.jobs[0].target.clone();
+                app.cron.scheduler.terminal(&target, "owned-cron-turn");
+                assert_eq!(localized_tool_output(&mut app, &session, thread, "list").await?, (true, empty.into()));
+
+                // Dynamic server text and user prompts stay opaque in both locales.
+                let opaque = "대기 -- original {id} {reason} /cron list";
+                let (schedule, parsed) = parse_add(&format!("add --every 1m -- {opaque}"), MonotonicInstant::now()).unwrap();
+                assert_eq!(parsed, opaque);
+                app.cron.scheduler.add(target, parsed, schedule, MonotonicInstant::now()).unwrap();
+                app.cron.scheduler.jobs[0].phase = Phase::Unknown("server 원문 {id}".into());
+                let listed = app.cron_command(&session, Some(thread), "list").await.unwrap();
+                assert!(listed.contains(if korean { "미확인·실행 중지: server 원문 {id}" } else { "Outcome unknown; execution stopped: server 원문 {id}" }));
+                assert!(listed.ends_with(&format!("prompt={}", serde_json::json!(opaque))));
+                app.cron.scheduler.block_unsupported(|_| true);
+                let listed = app.cron_command(&session, Some(thread), "list").await.unwrap();
+                assert!(listed.contains(if korean { "미지원·실행 차단: turn/startIfIdle 미지원: 실행되지 않음" } else { "Unsupported; execution blocked: turn/startIfIdle unsupported: not run" }));
+                assert!(listed.contains(if korean { "next=없음" } else { "next=No next run" }));
+                assert_eq!(app.cron.scheduler.jobs[0].prompt, opaque);
+                app.cron.stop();
+                session.shutdown().await?;
+                worker.await??;
+                Ok::<(), color_eyre::Report>(())
+            })
+            })?;
+        }
+        Ok(())
+    }
 
     fn model_request(
         connection: crate::cron_tools::Connection,
@@ -1599,8 +1817,15 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn model_cron_mcp_metadata_and_cancelled_queue_fail_closed() -> color_eyre::Result<()> {
+    #[test]
+    fn model_cron_mcp_metadata_and_cancelled_queue_fail_closed() -> color_eyre::Result<()> {
+        use crate::i18n::{Locale, with_locale};
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        for locale in [Locale::English, Locale::Korean] {
+            with_locale(locale, || {
+                runtime.block_on(async {
         use codex_utils_absolute_path::test_support::PathExt;
         use serde_json::json;
         let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
@@ -1690,12 +1915,12 @@ mod tests {
             (
                 1,
                 json!({"threadId":caller,"turnId":"caller-turn"}),
-                "예약에는 실제 turn·call 메타데이터가 필요합니다.",
+                text("Local control requires actual turn and call metadata."),
             ),
             (
                 2,
                 json!({"threadId":caller,"turnId":"caller-turn","callId":"conflict","x-codex-turn-metadata":{"thread_id":ThreadId::new().to_string(),"turn_id":"caller-turn"}}),
-                "호출 메타데이터가 서로 다릅니다.",
+                text("Calling metadata does not match."),
             ),
         ] {
             let body = call(id, metadata).send().await?.text().await?;
@@ -1731,7 +1956,8 @@ mod tests {
         assert!(app.cron.scheduler.jobs.is_empty());
         let body = response.await??;
         assert!(
-            body.contains("중단") || body.contains("결과 미확인"),
+            body.contains(text("The local control request was cancelled. If the outcome is unclear, query the relevant setting and do not retry automatically."))
+                || body.contains(text("Local control outcome unknown: do not retry automatically. Use list for cron jobs or the relevant query for other settings.")),
             "{body}"
         );
         let request = call(
@@ -1752,16 +1978,21 @@ mod tests {
         server.suspend();
         app.handle_cron_tool_call(&session, *queued).await;
         let body = response.await??;
-        assert!(body.contains("원래 호출 대화"), "{body}");
+        assert!(body.contains(text("The original calling thread, active turn, or connection ended or changed. The request was not executed.")), "{body}");
         assert!(app.cron.scheduler.jobs.is_empty());
         drop(transport);
         drop(server);
         session.shutdown().await?;
+                Ok::<(), color_eyre::Report>(())
+            })
+            })?;
+        }
         Ok(())
     }
 
     #[tokio::test]
-    async fn model_cron_native_roundtrip_registers_and_survives_resume() -> color_eyre::Result<()> {
+    async fn model_cron_native_roundtrip_lists_and_resumes_existing_job() -> color_eyre::Result<()>
+    {
         use app_test_support::{
             MockResponsesConfig, create_final_assistant_message_sse_response,
             create_mock_responses_server_sequence_unchecked,
@@ -1771,19 +2002,44 @@ mod tests {
         use codex_utils_absolute_path::test_support::PathExt;
         use core_test_support::responses;
         let mut responses = Vec::new();
-        for (id, arguments) in [
+        for (id, tool, arguments) in [
             (
                 "model-cron-add",
+                crate::cron_tools::NAME,
                 serde_json::json!({"action":"add","every":"5m","prompt":"주기 확인"}),
             ),
-            ("model-cron-list", serde_json::json!({"action":"list"})),
+            (
+                "model-cron-pause",
+                crate::cron_tools::NAME,
+                serde_json::json!({"action":"pause","id":1}),
+            ),
+            (
+                "model-cron-list-paused",
+                crate::cron_tools::NAME,
+                serde_json::json!({"action":"list"}),
+            ),
+            (
+                "model-cron-resume",
+                crate::cron_tools::NAME,
+                serde_json::json!({"action":"resume","id":1}),
+            ),
+            (
+                "model-cron-list-resumed",
+                crate::cron_tools::NAME,
+                serde_json::json!({"action":"list"}),
+            ),
+            (
+                "model-session-status",
+                crate::session_control::NAME,
+                serde_json::json!({"action":"status"}),
+            ),
         ] {
             responses.push(responses::sse(vec![
                 responses::ev_response_created(id),
                 responses::ev_function_call_with_namespace(
                     id,
                     crate::dynamic_tools::NAMESPACE,
-                    crate::cron_tools::NAME,
+                    tool,
                     &arguments.to_string(),
                 ),
                 responses::ev_completed(id),
@@ -1826,8 +2082,16 @@ mod tests {
         app.enqueue_primary_thread_session(started.session, started.turns)
             .await?;
         let mut tui = crate::tui::test_support::make_test_tui()?;
-        for round in 0..2 {
-            if round == 1 {
+        let prompts = [
+            "5분마다 주기 확인을 실행하도록 cron 걸어줘",
+            "예약 잠시 멈춰줘",
+            "등록된 예약 목록을 보여줘",
+            "너한테 걸려있던 예약작업 다시 걸어줘",
+            "재개한 예약을 확인해줘",
+            "메모리·문맥·속도 설정 기능을 확인해줘",
+        ];
+        for (round, prompt) in prompts.into_iter().enumerate() {
+            if round == 2 {
                 let resumed = session
                     .resume_thread(
                         &app.local_settings,
@@ -1845,12 +2109,7 @@ mod tests {
                     params: codex_app_server_protocol::TurnStartParams {
                         thread_id: caller.to_string(),
                         input: vec![codex_app_server_protocol::UserInput::Text {
-                            text: if round == 0 {
-                                "5분마다 주기 확인을 실행하도록 cron 걸어줘"
-                            } else {
-                                "등록된 예약 목록을 보여줘"
-                            }
-                            .into(),
+                            text: prompt.into(),
                             text_elements: Vec::new(),
                         }],
                         ..Default::default()
@@ -1872,7 +2131,9 @@ mod tests {
                 Ok::<_, color_eyre::Report>(())
             }).await??;
             assert_eq!(app.cron.scheduler.jobs.len(), 1);
+            assert_eq!(app.cron.scheduler.jobs[0].id, 1);
             assert_eq!(app.cron.scheduler.jobs[0].target.thread, caller);
+            assert_eq!(app.cron.scheduler.jobs[0].paused, matches!(round, 1 | 2));
             assert_eq!(
                 app.cron.scheduler.jobs[0].interval,
                 Some(Duration::from_secs(300))
@@ -1884,7 +2145,7 @@ mod tests {
             .iter()
             .filter(|request| request.url.path().ends_with("/responses"))
             .collect();
-        assert_eq!(requests.len(), 4);
+        assert_eq!(requests.len(), 12);
         let first: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
         assert!(
             first["input"]
@@ -1893,13 +2154,45 @@ mod tests {
         );
         let tools = first["tools"].to_string();
         assert!(tools.contains("cron"));
-        assert!(tools.contains("자연어로 '5분마다 확인해줘'"));
+        assert!(tools.contains(crate::session_control::NAME));
+        assert!(tools.contains("너한테 걸려있던 예약작업 다시 걸어줘"));
+        assert!(tools.contains("대상 id에 resume을 호출하세요"));
         assert!(tools.contains("다른 스케줄러 등록으로 대체하지 마세요"));
         assert!(!tools.contains("list_threads"));
         let registered: serde_json::Value = serde_json::from_slice(&requests[1].body)?;
-        assert!(registered["input"].to_string().contains("예약 #1 등록"));
-        let listed: serde_json::Value = serde_json::from_slice(&requests[3].body)?;
-        assert!(listed["input"].to_string().contains("#1 thread="));
+        assert!(
+            registered["input"]
+                .to_string()
+                .contains(match crate::i18n::locale() {
+                    crate::i18n::Locale::English => "Cron job #1 registered",
+                    crate::i18n::Locale::Korean => "예약 #1 등록",
+                })
+        );
+        for (request_index, call_id, paused) in [
+            (5, "model-cron-list-paused", true),
+            (9, "model-cron-list-resumed", false),
+        ] {
+            let listed: serde_json::Value = serde_json::from_slice(&requests[request_index].body)?;
+            let output = listed["input"]
+                .as_array()
+                .expect("model input")
+                .iter()
+                .find(|item| item["type"] == "function_call_output" && item["call_id"] == call_id)
+                .expect("caller-scoped list output")["output"]
+                .to_string();
+            assert!(output.contains("#1 thread="));
+            assert_eq!(output.contains(text(" (paused)")), paused);
+        }
+        let status: serde_json::Value = serde_json::from_slice(&requests[11].body)?;
+        assert!(
+            status["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["type"] == "function_call_output"
+                    && item["call_id"] == "model-session-status"
+                    && item["output"].to_string().contains("supportedServiceTiers"))
+        );
         app.cron.stop();
         session.shutdown().await?;
         Ok(())
@@ -2015,6 +2308,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cron_cancel_missing_false_or_replaced_capability_sends_nothing()
+    -> color_eyre::Result<()> {
+        for capability in [None, Some(false), Some(true)] {
+            let (mut app, _events, _ops) = crate::app::tests::make_test_app_with_channels().await;
+            let (session, mut observed, worker) = super::super::app_server_requests::retained_reply_tests::connection_with_expected_turn_interrupt(capability).await?;
+            let thread = ThreadId::new();
+            app.active_thread_id = Some(thread);
+            app.primary_thread_id = Some(thread);
+            app.ensure_thread_channel(thread);
+            let target = CronTarget {
+                backend: session.backend_id(),
+                epoch: 0,
+                thread,
+            };
+            let now = MonotonicInstant::now();
+            let id = app
+                .cron
+                .scheduler
+                .add(
+                    target.clone(),
+                    "saved".into(),
+                    Schedule::Every(Duration::from_secs(1)),
+                    now,
+                )
+                .unwrap();
+            let attempt = app
+                .cron
+                .scheduler
+                .due(now + Duration::from_secs(1))
+                .pop()
+                .unwrap()
+                .attempt;
+            app.cron
+                .scheduler
+                .submitted(id, attempt, Submission::Started("owned".into()));
+            if capability == Some(true) {
+                app.cron
+                    .invalidate_schedules(session.backend_id(), "교체된 연결");
+            }
+            let result = app.claim_cron_cancel(&session, &target, id);
+            assert!(result.is_err());
+            assert!(app.cron.cancel_tasks.is_empty());
+            assert!(observed.try_recv().is_err());
+            if capability != Some(true) {
+                assert!(
+                    matches!(&app.cron.scheduler.jobs[0].phase, Phase::Running { cancelling: false, turn_id } if turn_id == "owned")
+                );
+            }
+            session.shutdown().await?;
+            worker.await??;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn cron_remove_cancel_and_late_reply_keep_exact_turn_until_terminal()
     -> color_eyre::Result<()> {
         use codex_app_server_protocol::{
@@ -2022,7 +2370,7 @@ mod tests {
         };
         let (mut app, mut events, _ops) = crate::app::tests::make_test_app_with_channels().await;
         let (session, mut observed, worker) =
-            super::super::app_server_requests::retained_reply_tests::connection().await?;
+            super::super::app_server_requests::retained_reply_tests::connection_with_expected_turn_interrupt(Some(true)).await?;
         let registered = ThreadId::new();
         let displayed = ThreadId::new();
         app.active_thread_id = Some(displayed);

@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "SubagentManagementAgent": {
+      "properties": {
+        "activeTurnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "$ref": "#/definitions/SubagentManagementCapabilities"
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nickname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentThreadId": {
+          "type": "string"
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/SubagentManagementStatus"
+        }
+      },
+      "required": [
+        "capabilities",
+        "id",
+        "parentThreadId",
+        "runtimeId",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementCapabilities": {
+      "properties": {
+        "close": {
+          "type": "boolean"
+        },
+        "interrupt": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "boolean"
+        },
+        "send": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "close",
+        "interrupt",
+        "resume",
+        "send"
+      ],
+      "type": "object"
+    },
+    "SubagentManagementStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "idle",
+        "completed",
+        "errored",
+        "closed",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "SubagentMutationState": {
+      "enum": [
+        "clear",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "agents": {
+      "items": {
+        "$ref": "#/definitions/SubagentManagementAgent"
+      },
+      "type": "array"
+    },
+    "mutationState": {
+      "$ref": "#/definitions/SubagentMutationState"
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "parentRuntimeId": {
+      "type": "string"
+    },
+    "parentThreadId": {
+      "type": "string"
+    },
+    "reconciledRequestId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "agents",
+    "mutationState",
+    "parentRuntimeId",
+    "parentThreadId"
+  ],
+  "title": "ThreadSubagentsListResponse",
+  "type": "object"
+}

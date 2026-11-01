@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::cell::Cell;
 use std::fs;
 use std::io::Write;
@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use codex_app_server_protocol::McpToolCallResult;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_protocol::ThreadId;
 use codex_protocol::items::AgentMessageContent;
 use codex_protocol::items::AgentMessageItem;
@@ -634,9 +634,9 @@ async fn paginated_command_history_caps_aggregated_output() {
     .fetch_one(&pool)
     .await
     .expect("read projected command");
-    let projected: ThreadItem =
+    let projected: ThreadItemPayload =
         serde_json::from_str(&item_json).expect("deserialize projected command");
-    let ThreadItem::CommandExecution {
+    let ThreadItemPayload::CommandExecution {
         aggregated_output: Some(output),
         ..
     } = projected
@@ -708,9 +708,9 @@ async fn paginated_mcp_history_caps_large_results() {
     .fetch_one(&pool)
     .await
     .expect("read projected MCP tool call");
-    let projected: ThreadItem =
+    let projected: ThreadItemPayload =
         serde_json::from_str(&item_json).expect("deserialize projected MCP tool call");
-    let ThreadItem::McpToolCall {
+    let ThreadItemPayload::McpToolCall {
         arguments: projected_arguments,
         result: Some(result),
         ..
@@ -1813,8 +1813,8 @@ WHERE thread_id = ? AND turn_id = ? AND item_id = ?
     .expect("read projected item");
     assert_eq!((item.0, item.1, item.2), (2, 3, first_created_at_ms));
     assert_eq!(
-        serde_json::from_str::<ThreadItem>(item.3.as_str()).expect("parse projected item"),
-        ThreadItem::UserMessage {
+        serde_json::from_str::<ThreadItemPayload>(item.3.as_str()).expect("parse projected item"),
+        ThreadItemPayload::UserMessage {
             id: "user-1".to_string(),
             client_id: Some("updated".to_string()),
             content: Vec::new(),

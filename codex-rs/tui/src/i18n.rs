@@ -1,5 +1,5 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
-//! UI-only language selection. Never apply this dictionary to prompts, tool payloads,
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
+//! UI-only language selection. Never apply this dictionary to prompts, tool arguments,
 //! slash command tokens, paths, or text supplied by the user or a server.
 //!
 //! `CODEX_UI_LANGUAGE=ko|en` overrides the saved base user `ui_language`; default is English.
@@ -691,6 +691,174 @@ pub fn text_for(locale: Locale, original: &str) -> &str {
         "Emit JSON instead of plain text." => "일반 텍스트 대신 JSON 출력",
         "Emit machine-readable JSON" => "기계가 읽을 수 있는 JSON 출력",
         "Emit machine-readable JSON." => "기계가 읽을 수 있는 JSON 출력",
+        "At most 100 cron jobs are allowed, including removed jobs that still own a run." => {
+            "예약은 최대 100개입니다. 소유 실행이 남은 제거 예약도 포함합니다."
+        }
+        "The cron prompt must be nonempty, contain no NUL, and be at most 64KiB." => {
+            "예약 프롬프트는 비어 있지 않은 NUL 없는 64KiB 이하 문자열이어야 합니다."
+        }
+        "The cron interval must be greater than zero." => "예약 간격은 0보다 커야 합니다.",
+        "The scheduled time is outside the supported range." => {
+            "예약 시각이 허용 범위를 넘었습니다."
+        }
+        "The cron interval is too large." => "예약 간격이 너무 큽니다.",
+        "No more cron job IDs are available." => "예약 ID를 더 만들 수 없습니다.",
+        "Finished" => "종료",
+        "Target busy: skipped" => "대상 busy: 건너뜀",
+        "A removed cron job cannot be resumed." => "제거한 예약은 다시 시작할 수 없습니다.",
+        "The run state is unknown. It will not be retried automatically." => {
+            "실행 상태가 미확인입니다. 자동 재전송하지 않습니다."
+        }
+        "This one-shot cron job has finished. Register a new job." => {
+            "종료한 일회성 예약입니다. 새로 등록하세요."
+        }
+        "turn/startIfIdle unsupported: not run" => "turn/startIfIdle 미지원: 실행되지 않음",
+        "The schedule must be an interval without whitespace or an RFC3339 timestamp with an offset." => {
+            "일정은 공백 없는 간격 또는 offset이 포함된 RFC3339 시각이어야 합니다."
+        }
+        "A prompt is required to add a cron job." => "등록에는 실행할 prompt가 필요합니다.",
+        "A cron job id is required." => "관리할 예약 id가 필요합니다.",
+        "Use arguments for the selected action. add requires exactly one of every or at and a prompt; management actions require only an id." => {
+            "action에 맞는 인자를 사용하세요. add에는 every 또는 at 하나와 prompt, 관리에는 id만 필요합니다."
+        }
+        "This is not a local control tool for this connection." => {
+            "이 연결의 로컬 제어 도구가 아닙니다."
+        }
+        "The actual calling thread, turn, and call are required." => {
+            "실제 호출 대화·turn·call 정보가 필요합니다."
+        }
+        "This thread cannot use local control tools." => {
+            "이 대화는 로컬 제어 도구를 사용할 수 없습니다."
+        }
+        "Calling thread verification timed out: no cron request was sent." => {
+            "호출 대화 확인 시간초과: 예약 요청을 보내지 않았습니다."
+        }
+        "Local control outcome unknown: do not retry automatically. Use list for cron jobs or the relevant query for other settings." => {
+            "로컬 제어 결과 미확인: 자동 재전송하지 마세요. 예약은 list, 다른 설정은 해당 조회로 확인하세요."
+        }
+        "Scheduler stopped: CLI exit or connection replacement; no automatic retries" => {
+            "실행기 중지: CLI 종료 또는 연결 교체, 자동 재전송 없음"
+        }
+        "Interval units are s, m, and h." => "간격 단위는 s, m, h입니다.",
+        "The interval must be an integer greater than zero." => "간격은 0보다 큰 정수여야 합니다.",
+        "The time must be an RFC3339 timestamp with an offset." => {
+            "시각은 offset이 포함된 RFC3339 형식이어야 합니다."
+        }
+        "The scheduled time must be in the future." => "예약 시각은 미래여야 합니다.",
+        "The scheduled time is too far in the future." => "예약 시각이 너무 멉니다.",
+        "The cron prompt is empty." => "예약 프롬프트가 비어 있습니다.",
+        "The calling thread ID is invalid." => "호출 대화 식별자가 올바르지 않습니다.",
+        "The original calling thread, active turn, or connection ended or changed. The request was not executed." => {
+            "원래 호출 대화·활성 turn·연결이 종료되거나 바뀌었습니다. 요청을 실행하지 않았습니다."
+        }
+        "The same call ID cannot be reused for a different request." => {
+            "동일 호출 식별자에 다른 요청을 사용할 수 없습니다."
+        }
+        "The active call record limit has been reached. Do not repeat earlier requests; check after the turn ends." => {
+            "동시 활성 호출 기록 한도에 도달했습니다. 이전 요청을 다시 실행하지 말고 turn 종료 후 확인하세요."
+        }
+        "No cron jobs are registered. Jobs disappear when the CLI exits." => {
+            "등록된 예약이 없습니다. CLI를 종료하면 예약도 사라집니다."
+        }
+        "Ready" => "대기",
+        "Waiting for admission" => "입장 응답 대기",
+        "Cancellation requested; waiting for completion" => "취소 요청·종료 대기",
+        "Running" => "실행 중",
+        "One-shot" => "일회성",
+        "No next run" => "없음",
+        " (paused)" => " (일시중지)",
+        " (job removed; run ownership retained)" => " (예약 제거됨; 실행 소유권 유지)",
+        "There is no target thread for this cron job." => "등록 대상 대화가 없습니다.",
+        "The target thread changed or is unavailable." => {
+            "등록 대상 대화가 바뀌었거나 사용할 수 없습니다."
+        }
+        "The current thread does not allow direct input." => {
+            "현재 대화는 직접 입력을 허용하지 않습니다."
+        }
+        "Cron is disabled because this backend does not support turn/startIfIdle." => {
+            "이 backend는 turn/startIfIdle을 지원하지 않아 예약이 비활성화되어 있습니다."
+        }
+        "Cannot add a cron job while the backend is disconnected." => {
+            "backend 연결이 끊겨 예약을 등록할 수 없습니다."
+        }
+        "The cron job belongs to a different backend." => "예약이 다른 backend에 속합니다.",
+        "The original backend connection generation ended. Check the run state before registering a new job." => {
+            "등록 당시 backend 연결 세대가 끝났습니다. 실행 상태를 확인한 뒤 새로 등록하세요."
+        }
+        "Cannot resume a cron job while the backend is disconnected." => {
+            "backend 연결이 끊겨 예약을 재개할 수 없습니다."
+        }
+        "Cancellation response timed out: completion is unknown" => {
+            "취소 응답 timeout: 종료 여부 미확인"
+        }
+        "The original backend connection generation ended." => {
+            "등록 당시 backend 연결 세대가 끝났습니다."
+        }
+        "The cron job's owning thread or connection generation does not match." => {
+            "예약의 소유 대화 또는 연결 세대가 일치하지 않습니다."
+        }
+        "Only a run with a confirmed owning turn can be cancelled." => {
+            "정확한 소유 turn이 확인된 실행만 취소할 수 있습니다."
+        }
+        "The owning turn is empty or already waiting for cancellation to finish." => {
+            "소유 turn이 비어 있거나 이미 취소 종료를 기다리고 있습니다."
+        }
+        "There is no backend connection." => "backend 연결이 없습니다.",
+        "The backend generation or support status changed." => {
+            "backend 세대 또는 지원 상태가 바뀌었습니다."
+        }
+        "Admission response timed out: execution is unknown; no retries" => {
+            "입장 응답 timeout: 실행 여부 미확인, 재전송 없음"
+        }
+        "turn/startIfIdle unsupported" => "turn/startIfIdle 미지원",
+        "This backend does not support safe cron execution. Cron jobs have been disabled." => {
+            "이 backend는 안전한 예약 실행을 지원하지 않습니다. 예약을 비활성화했습니다."
+        }
+        "Thread closed, deleted, or archived: run state is not inferred automatically" => {
+            "대화 종료·삭제·보관: 실행 상태를 자동 추정하지 않음"
+        }
+        "Cron thread unsubscribe timed out: detachment could not be confirmed." => {
+            "예약 대화 구독 정리 timeout: 해제 여부를 확인하지 못했습니다."
+        }
+        "Backend event stream ended: cron execution stopped" => {
+            "backend 이벤트 스트림 종료: 예약 실행 중지"
+        }
+        "Backend connection or events lost: cron execution stopped" => {
+            "backend 연결 또는 이벤트 수신 유실: 예약 실행 중지"
+        }
+        "Original connection replaced: cron execution stopped" => "원래 연결 교체: 예약 실행 중지",
+        "Cron job {id} was not found." => "예약 {id}를 찾을 수 없습니다.",
+        "Not admitted:" => "미입장:",
+        "Calling thread verification failed:" => "호출 대화 확인 실패:",
+        "Connection changed; execution blocked:" => "연결 변경·실행 차단:",
+        "Unsupported; execution blocked:" => "미지원·실행 차단:",
+        "Outcome unknown; execution stopped:" => "미확인·실행 중지:",
+        "Cron job #{id} registered: thread={thread}. Busy slots are skipped. Backend support is checked on the first dedicated request." => {
+            "예약 #{id} 등록: thread={thread}. busy 회차는 건너뜁니다. backend 지원은 첫 전용 요청에서 확인합니다."
+        }
+        "Cancellation outcome unknown:" => "취소 결과 미확인:",
+        "Cron job #{id}: {action}. remove does not cancel an already accepted turn." => {
+            "예약 #{id}: {action}. remove는 이미 수락한 turn을 취소하지 않습니다."
+        }
+        "Cron job #{id} execution unknown: {reason}. Automatic retries have stopped." => {
+            "예약 #{id} 실행 여부 미확인: {reason}. 자동 재전송을 중지했습니다."
+        }
+        "Cron job #{id} not admitted: {reason}. Paused." => {
+            "예약 #{id} 미입장: {reason}. 일시중지했습니다."
+        }
+        "Cron thread unsubscribe failed:" => "예약 대화 구독 정리 실패:",
+        "Calling metadata does not match." => "호출 메타데이터가 서로 다릅니다.",
+        "Local control requires actual turn and call metadata." => {
+            "로컬 제어에는 실제 turn·call 메타데이터가 필요합니다."
+        }
+        "missing task metadata" => "작업 메타데이터가 없습니다",
+        "TUI is reconnecting; tool was not sent" => "TUI 재연결 중: 도구 요청을 보내지 않았습니다",
+        "Local control tools are unavailable on this connection." => {
+            "로컬 제어 도구가 이 연결에서 제공되지 않습니다."
+        }
+        "The local control request was cancelled. If the outcome is unclear, query the relevant setting and do not retry automatically." => {
+            "로컬 제어 요청이 중단되었습니다. 결과가 불명확하면 해당 설정을 조회하고 자동 재전송하지 마세요."
+        }
         _ => original,
     }
 }

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::*;
 use async_channel::bounded;
 use codex_extension_api::ExtensionFuture;
@@ -413,7 +413,8 @@ async fn assert_one_shot_owned_shutdown(
     stop_release.send(()).unwrap();
     timeout(Duration::from_secs(10), termination)
         .await
-        .expect("the real one-shot bridge must finish its owned shutdown");
+        .expect("the real one-shot bridge must finish its owned shutdown")
+        .expect("the real one-shot bridge must confirm cleanup");
     assert_eq!(*agent_status.borrow(), AgentStatus::Shutdown);
     assert_eq!(
         session
@@ -575,24 +576,24 @@ async fn delegate_isolation_does_not_depend_on_attribution() {
         .services
         .extensions = Arc::new(extensions.build());
 
-    let selection = parent_ctx
+    let request = parent_ctx
         .initial_environments
-        .inheritable_selections()
+        .inheritable_requests()
         .into_iter()
         .next()
         .expect("parent environment");
     let root = SelectedCapabilityRoot {
         id: "parent-root".to_string(),
         location: CapabilityRootLocation::Environment {
-            environment_id: selection.environment_id.clone(),
-            path: selection.cwd.clone(),
+            environment_id: request.environment_id.clone(),
+            path: request.cwd.clone(),
         },
     };
     parent_session
         .services
         .turn_environments
         .update_selections(&[TurnEnvironmentSelection::new(
-            selection.into_request(),
+            request,
             std::slice::from_ref(&root),
         )]);
     let parent_environments = parent_session.services.turn_environments.snapshot().await;

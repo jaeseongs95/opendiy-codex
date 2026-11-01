@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Root of the `codex-core` library.
 
 // Prevent accidental direct writes to stdout/stderr in library code. All
@@ -68,6 +68,7 @@ pub use agent::api::AgentTurnOutcome;
 pub use agent::api::DeliveryReceipt;
 pub use agent::api::SendRequest;
 pub use agent::api::SpawnRequest;
+pub use agent::management::*;
 pub use agent::types::AgentExecutionGuard;
 pub use agent::types::AgentMessage;
 pub use agent::types::AgentMetadata;
@@ -153,6 +154,13 @@ mod event_mapping;
 pub use codex_prompts as review_prompts;
 mod thread_manager;
 mod thread_spawn;
+pub use agent::host::HostThreadSpawnReservation;
+pub use agent::host::HostToolInvocationLookup;
+pub use agent::host::PreparedThreadSpawn;
+pub use agent::host::ToolInvocationContext;
+pub use thread_spawn::ThreadCreateRequest;
+pub use thread_spawn::ThreadSpawnError;
+pub use thread_spawn::ThreadSpawnResult;
 pub(crate) mod web_search;
 pub(crate) mod windows_sandbox_read_grants;
 pub use agent::control::ThreadEvictionOutcome;
@@ -168,6 +176,7 @@ pub use thread_manager::NewThread;
 pub use thread_manager::PromptCacheKey;
 pub use thread_manager::StartThreadOptions;
 pub use thread_manager::ThreadManager;
+pub use thread_manager::ThreadRegistration;
 pub use thread_manager::ThreadShutdownReport;
 pub use thread_manager::build_models_manager;
 pub use thread_manager::cleanup::CompletedChildCleanupResult;

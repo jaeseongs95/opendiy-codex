@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use anyhow::Result;
 use codex_config::test_support::CloudConfigBundleFixture;
 use codex_core::CodexThread;
@@ -138,6 +138,8 @@ async fn protected_model_settings_use_the_proposed_permissions(
         on_request_auto_review: Some(REVIEW_INSTRUCTIONS.to_string()),
         never: None,
         unless_trusted: None,
+        granular: None,
+        ..Default::default()
     });
     messages.permissions = Some(PermissionMessages {
         danger_full_access: None,

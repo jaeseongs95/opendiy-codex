@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Public history requests preserve bounded metadata loading, cursor ownership and retry settings.
 
 use super::session_lifecycle_requests::recorded_params;
@@ -157,7 +157,7 @@ async fn history_hydration_metadata_tracks_missing_turns_and_stale_completions_k
             .turns
             .iter()
             .flat_map(|turn| &turn.items)
-            .map(ThreadItem::id)
+            .map(codex_app_server_protocol::ThreadItem::id)
             .collect::<Vec<_>>(),
         vec!["item-12-0"]
     );
@@ -176,7 +176,7 @@ async fn history_hydration_metadata_tracks_missing_turns_and_stale_completions_k
         .apply_older_history_page(target.thread_id, &old_cursor, page, &mut thread.turns)
         .await?;
     assert_eq!(
-        items.iter().map(ThreadItem::id).collect::<Vec<_>>(),
+        items.iter().map(ThreadItemPayload::id).collect::<Vec<_>>(),
         vec!["item-3-0", "item-5-0"]
     );
     assert_eq!(
@@ -184,7 +184,7 @@ async fn history_hydration_metadata_tracks_missing_turns_and_stale_completions_k
             .turns
             .iter()
             .flat_map(|turn| &turn.items)
-            .map(ThreadItem::id)
+            .map(codex_app_server_protocol::ThreadItem::id)
             .collect::<Vec<_>>(),
         vec!["item-3-0", "item-5-0", "item-12-0"]
     );
@@ -696,7 +696,7 @@ async fn oversized_display_item_stays_available_to_complete_and_anchor_queries()
             .flat_map(|turn| &turn.items)
             .find(|item| item.id() == "item-1-0")
             .unwrap();
-        let ThreadItem::UserMessage { content, .. } = giant else {
+        let ThreadItemPayload::UserMessage { content, .. } = &giant.payload else {
             panic!("user item");
         };
         assert!(content.iter().any(|input| matches!(input, codex_app_server_protocol::UserInput::Text { text, .. } if text.len() == size)));
@@ -1008,7 +1008,7 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             matches!(event, ThreadBufferedEvent::Notification(notification)
                 if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
                     if event.thread_id == started.thread.id && event.turn_id == turn_id
-                        && matches!(&event.item, ThreadItem::UserMessage { content, .. }
+                        && matches!(&event.item.payload, ThreadItemPayload::UserMessage { content, .. }
                             if content.iter().any(|input| matches!(input, UserInput::Text { text, .. }
                                 if text == "First real input")))))).count(), 1);
         assert_eq!(
@@ -1019,7 +1019,7 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
                     |event| matches!(event, ThreadBufferedEvent::Notification(notification)
                 if matches!(notification.as_ref(), ServerNotification::ItemCompleted(event)
                     if event.thread_id == started.thread.id && event.turn_id == turn_id
-                        && matches!(&event.item, ThreadItem::AgentMessage { text, .. }
+                        && matches!(&event.item.payload, ThreadItemPayload::AgentMessage { text, .. }
                             if text == "Done")))
                 )
                 .count(),
@@ -1090,7 +1090,7 @@ async fn live_unmaterialized_resume_keeps_session_input_and_incomplete_history()
             TranscriptHistoryState::Complete
         );
         assert!(rehydrated.turns.iter().flat_map(|turn| &turn.items).any(|item|
-            matches!(item, ThreadItem::UserMessage { content, .. } if content.iter().any(|input|
+            matches!(&item.payload, ThreadItemPayload::UserMessage { content, .. } if content.iter().any(|input|
                 matches!(input, UserInput::Text { text, .. } if text == "First real input")))));
         server.shutdown().await?;
         proxy.await??;

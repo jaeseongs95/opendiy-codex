@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use super::super::ForkGoalContinuation;
 use super::super::ForkPermissionMode;
 use super::super::HistoryHydrationScope;
@@ -10,7 +10,7 @@ use crate::legacy_core::config::ConfigBuilder;
 use app_test_support::create_fake_paginated_rollout;
 use app_test_support::create_fake_rollout;
 use codex_app_server_protocol::ThreadHistoryMode;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemPayload;
 use codex_app_server_protocol::UserInput;
 use codex_features::Feature;
 use codex_protocol::ThreadId;
@@ -320,7 +320,7 @@ async fn embedded_legacy_history_uses_full_read_even_with_pagination_support() -
                 .iter()
                 .flat_map(|turn| &turn.items)
                 .any(|item| {
-                    matches!(item, ThreadItem::UserMessage { content, .. }
+                    matches!(&item.payload, ThreadItemPayload::UserMessage { content, .. }
                 if content.iter().any(|input| matches!(input,
                     UserInput::Text { text, .. } if text == "Saved legacy user message")))
                 })
@@ -462,7 +462,7 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
                 .iter()
                 .flat_map(|turn| &turn.items)
                 .any(|item| {
-                    matches!(item, ThreadItem::UserMessage { content, .. }
+                    matches!(&item.payload, ThreadItemPayload::UserMessage { content, .. }
                 if content.iter().any(|input| matches!(input,
                     UserInput::Text { text, .. } if text == "Saved legacy user message")))
                 })

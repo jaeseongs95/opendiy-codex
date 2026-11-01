@@ -10,7 +10,17 @@ import type { AskForApproval } from "./AskForApproval";
 import type { SandboxPolicy } from "./SandboxPolicy";
 import type { Thread } from "./Thread";
 
-export type ThreadResumeResponse = {thread: Thread, model: string, modelProvider: string, serviceTier: string | null, /**
+export type ThreadResumeResponse = {/**
+ * True only after runtime publication; false means busy with no change.
+ * Null when no supplement was requested; missing fields from older servers are accepted.
+ */
+runtimeDynamicToolsApplied: boolean | null, runtimeDynamicToolsRuntimeId: string | null, /**
+ * Available only when Core supports non-destructive idle compaction.
+ */
+supportsCompactIfIdle?: boolean, /**
+ * Independent of compaction: exact turn cancellation is checked atomically in Core.
+ */
+supportsExpectedTurnInterrupt?: boolean, thread: Thread, model: string, modelProvider: string, serviceTier: string | null, /**
  * Saved list of disabled plugin IDs. Does not yet filter plugin capabilities.
  */
 disabledPluginIds: Array<string>, cwd: AbsolutePathBuf, /**

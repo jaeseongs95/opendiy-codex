@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 //! Status output and setup controls for `ChatWidget`.
 //!
 //! Rendering details live in `status_surfaces`; this module owns the mutable
@@ -6,6 +6,7 @@
 //! history-facing `/status` surface.
 
 use super::*;
+use crate::status::thread_cost_micros;
 
 impl ChatWidget {
     /// Update the status indicator header and details.
@@ -393,7 +394,7 @@ impl ChatWidget {
 
         if self
             .estimated_thread_usage()
-            .is_some_and(|usage| usage.estimated_usage_usd_micros.is_none())
+            .is_some_and(|usage| thread_cost_micros(usage, self.plan_type).is_none())
         {
             preview_data.suppress_placeholder(StatusSurfacePreviewItem::EstimatedThreadCost);
         }

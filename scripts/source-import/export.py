@@ -8,13 +8,14 @@ from pathlib import Path
 import subprocess
 import tarfile
 
-OFFICIAL='360319d8dee62d87e2d59fc0c21805d79519cfed'
-PATCHED='57957241e90439377f4e34afbec79a6422f5872c'
+OFFICIAL='6ff1e1ca3b30fc8b914720681fcf5fe62e95f856'
+PATCHED='a56a144d55722c83fffbb0ef7c926919a5b0923f'
+PREVIOUS_PUBLIC='f28920f3761bce6d51f2ceb21d69a3473e7ccfee'
 PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes','docs/native-cli-r27.ko.md','docs/native-cli-cron.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
-DATE='2026-10-30'
-PATCH_PATH='upstream/official-0.165.0.patch'
-LABEL='R30'
+DATE='2026-11-01'
+PATCH_PATH='upstream/official-0.166.0.patch'
+LABEL='R31'
 ATTR_BEGIN=b'# BEGIN OpenDIY pinned source attributes\n'
 ATTR_END=b'# END OpenDIY pinned source attributes\n'
 WINDOWS_INPUTS_PATH='upstream/windows-prompt-inputs.json'
@@ -62,6 +63,21 @@ def publish(root,outputs,previous):
         if not target.exists() or existing_bytes(target,path)!=data:target.write_bytes(data)
     for path in previous.keys()-outputs.keys():checked_target(root,path).unlink()
 
+def pinned_previous_source(root,previous):
+    # Later public test commits must be preserved in R31, never silently stamped.
+    # Both their bytes and the import metadata are anchored to the reviewed Git commit.
+    git(root,'diff','--quiet',PREVIOUS_PUBLIC,'--',*PREFIXES,'SOURCE_BASELINE.json','upstream/source-inventory.json')
+    tracked=set(git(root,'ls-tree','-r','--name-only',PREVIOUS_PUBLIC,'--',*PREFIXES).decode().splitlines())
+    previous=dict(previous)
+    for path in tracked:
+        target=checked_target(root,path)
+        current=existing_bytes(target,path)
+        if path not in previous or sha(current)!=previous[path]:
+            pinned=canonical_bytes(path,git(root,'show',PREVIOUS_PUBLIC+':'+path))
+            if current!=pinned:raise ValueError(f'Public source differs from reviewed commit: {path}')
+            previous[path]=sha(pinned)
+    return previous
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-repository',type=Path)
@@ -90,6 +106,7 @@ def main():
         inventory_raw=(root/'upstream/source-inventory.json').read_bytes()
         if sha(inventory_raw)!=baseline['sourceInventorySha256']:raise ValueError('Previous inventory changed')
         previous={item['path']:item['publishedSha256'] for item in json.loads(inventory_raw)['files']}
+        previous=pinned_previous_source(root,previous)
         if baseline.get('patchPath')==PATCH_PATH:previous[PATCH_PATH]=baseline['patchSha256']
         for p in ['SOURCE_BASELINE.json','upstream/source-inventory.json','upstream/LICENSE','upstream/NOTICE']:
             previous[p]=sha((root/p).read_bytes())
@@ -135,7 +152,7 @@ def main():
     for name in ['LICENSE','NOTICE']:outputs['upstream/'+name]=git(source,'show',PATCHED+':'+name)
     outputs[PATCH_PATH]=patch
     outputs['upstream/source-inventory.json']=encode({'schema':2,'sourceCommit':PATCHED,'files':inventory,'excluded':excluded,'symlinks':symlinks})
-    outputs['SOURCE_BASELINE.json']=encode({'schema':2,'upstream':'https://github.com/openai/codex','officialVersion':'0.165.0','officialCommit':OFFICIAL,'patchedCommit':PATCHED,'officialTree':git(source,'rev-parse',OFFICIAL+'^{tree}').decode().strip(),'patchedTree':git(source,'rev-parse',PATCHED+'^{tree}').decode().strip(),'selectedPrefixes':PREFIXES,'patchPath':PATCH_PATH,'patchSha256':sha(patch),'sourceInventorySha256':sha(outputs['upstream/source-inventory.json']),'windowsPromptInputsPath':WINDOWS_INPUTS_PATH,'windowsPromptInputsSha256':sha((root/WINDOWS_INPUTS_PATH).read_bytes()),'sourceFileCount':len(inventory),'publishedBytes':sum(p['bytes'] for p in inventory),'modifiedNoticeDate':DATE,'modifiedNoticeLabel':LABEL,'modifiedFiles':[p for p in inventory if p['modified']],'preservedRepositoryDocuments':existing,'limitations':['This public export has not been built or run as a fresh public checkout.','Operational checks, logs, credentials, binaries, local receipts and local Git history are excluded.','Tracked compressed schemas and other upstream source resources remain build inputs, not installable binaries.','Cargo.lock and workspace path dependencies are preserved; no machine-local cache/config overrides are exported.']})
+    outputs['SOURCE_BASELINE.json']=encode({'schema':2,'upstream':'https://github.com/openai/codex','officialVersion':'0.166.0','previousPublicCommit':PREVIOUS_PUBLIC,'officialCommit':OFFICIAL,'patchedCommit':PATCHED,'officialTree':git(source,'rev-parse',OFFICIAL+'^{tree}').decode().strip(),'patchedTree':git(source,'rev-parse',PATCHED+'^{tree}').decode().strip(),'selectedPrefixes':PREFIXES,'patchPath':PATCH_PATH,'patchSha256':sha(patch),'sourceInventorySha256':sha(outputs['upstream/source-inventory.json']),'windowsPromptInputsPath':WINDOWS_INPUTS_PATH,'windowsPromptInputsSha256':sha((root/WINDOWS_INPUTS_PATH).read_bytes()),'sourceFileCount':len(inventory),'publishedBytes':sum(p['bytes'] for p in inventory),'modifiedNoticeDate':DATE,'modifiedNoticeLabel':LABEL,'modifiedFiles':[p for p in inventory if p['modified']],'preservedRepositoryDocuments':existing,'limitations':['This public export has not been built or run as a fresh public checkout.','Operational checks, logs, credentials, binaries, local receipts and local Git history are excluded.','Tracked compressed schemas and other upstream source resources remain build inputs, not installable binaries.','Cargo.lock and workspace path dependencies are preserved; no machine-local cache/config overrides are exported.']})
     publish(root,outputs,previous)
     if os.name=='nt':
         for path,item in WINDOWS_INPUTS.items():

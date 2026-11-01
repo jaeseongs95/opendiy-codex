@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,6 +19,81 @@ fn delivered_message() -> RetainedUserMessage {
         complete: true,
         phase: None,
     }
+}
+
+#[test_case(false; "runtime supplementation")]
+#[test_case(true; "official replacement")]
+#[tokio::test]
+async fn tool_catalog_updates_do_not_deadlock_a_user_reply_behind_delivery(replace: bool) {
+    let (session, _) = make_session_and_context().await;
+    let session = Arc::new(session);
+    let active = crate::state::ActiveTurn::default();
+    let (accepted, response) = tokio::sync::oneshot::channel();
+    active
+        .turn_state
+        .lock()
+        .await
+        .insert_pending_user_input("reply".into(), accepted);
+    *session.active_turn.lock().await = Some(active);
+
+    // Hold the real state lock only to deterministically stop the delivered-message
+    // reservation after it owns the communication boundary, before it can persist.
+    let state = session.state.lock().await;
+    let (mut recording, _) = session.record_delivered_assistant_message(delivered_message());
+    let mut reply = Box::pin(session.notify_user_input_response(
+        "reply",
+        codex_protocol::request_user_input::RequestUserInputResponse {
+            answers: Default::default(),
+        },
+    ));
+    assert!(futures::poll!(reply.as_mut()).is_pending());
+    // The public reply now owns active_turn and is waiting on that real boundary.
+    // The former catalog implementation took persistence here before active_turn,
+    // completing a cycle when the delivery reservation was released below.
+    let mut update = Box::pin(async {
+        if replace {
+            session
+                .replace_dynamic_tools(Vec::new())
+                .await
+                .map(|()| false)
+        } else {
+            session
+                .supplement_runtime_dynamic_tools(
+                    7,
+                    tokio_util::sync::CancellationToken::new(),
+                    Vec::new(),
+                    &[],
+                )
+                .await
+        }
+    });
+    assert!(futures::poll!(update.as_mut()).is_pending());
+    drop(state);
+    let completed = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(&mut recording, &mut reply, &mut update)
+    })
+    .await;
+    if completed.is_err() {
+        recording.abort();
+    }
+    let (recorded, (), updated) = completed
+        .expect("catalog update must not close the active/boundary/persistence lock cycle");
+    recorded.expect("delivered message persisted");
+    assert!(!updated.expect("catalog update completes, with busy for runtime supplementation"));
+    let reply_order = response
+        .await
+        .expect("official user reply accepted")
+        .acceptance_order;
+    let assistant_order = session
+        .clone_history()
+        .await
+        .retained_context()
+        .ordered_entries()
+        .find_map(|(order, entry)| {
+            matches!(entry, RetainedContextEntry::AssistantMessage(_)).then_some(order)
+        })
+        .expect("confirmed delivery retained");
+    assert!(assistant_order < codex_history::RetainedContextOrder::Local(reply_order));
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R30 (2026-10-30); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R31 (2026-11-01); see MODIFICATIONS.md.
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::ThreadHistoryMode;
 use serde::Deserialize;
@@ -224,6 +224,9 @@ pub(super) async fn validate_thread_for_paginated_reads(
     }
 }
 
+// 이미 알려진 요약 항목 두 개는 턴 전체를 훑지 않고 복합 기본키로 조회한다.
+const SUMMARY_ITEMS_QUERY: &str = "SELECT turn_id, item_id, rollout_ordinal, octet_length(item_json) AS item_json_bytes FROM thread_items INDEXED BY sqlite_autoindex_thread_items_1 WHERE thread_id = ? AND turn_id = ? AND rollout_ordinal >= ? AND (? IS NULL OR rollout_ordinal < ?) AND (item_id = ? OR item_id = ?) ORDER BY rollout_ordinal ASC";
+
 async fn load_summary_items(
     pool: &sqlx::SqlitePool,
     lineage: &RolloutLineage,
@@ -262,9 +265,17 @@ async fn load_summary_items(
         .map(|ordinal| sqlite_integer(ordinal, "rollout ordinal"))
         .transpose()?;
     let mut transaction = pool.begin().await.map_err(super::thread_history_error)?;
-    let candidates = sqlx::query("SELECT turn_id, item_id, rollout_ordinal, length(CAST(item_json AS BLOB)) AS item_json_bytes FROM thread_items WHERE thread_id = ? AND turn_id = ? AND rollout_ordinal >= ? AND (? IS NULL OR rollout_ordinal < ?) AND (item_id = ? OR item_id = ?) ORDER BY rollout_ordinal ASC")
-        .bind(rollout_id.to_string()).bind(&turn.turn_id).bind(start).bind(end).bind(end)
-        .bind(first_user).bind(final_agent).fetch_all(&mut *transaction).await.map_err(super::thread_history_error)?;
+    let candidates = sqlx::query(SUMMARY_ITEMS_QUERY)
+        .bind(rollout_id.to_string())
+        .bind(&turn.turn_id)
+        .bind(start)
+        .bind(end)
+        .bind(end)
+        .bind(first_user)
+        .bind(final_agent)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(super::thread_history_error)?;
     let mut raw_bytes = turn.error_json_bytes;
     for candidate in &candidates {
         let bytes = usize::try_from(candidate.try_get::<i64, _>("item_json_bytes")?)
