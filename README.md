@@ -75,7 +75,7 @@ The projects coordinate around the same backend. This repository does not distri
 | --- | --- | --- |
 | Published R30, based on official 0.165.0 | No validated pair designated | R30's own checks are separate from joint Desktop validation |
 | R31 candidate, based on official 0.166.0, `1cd3bbff` | v0.6.0 candidate, `deba0725` | Static comparison of compatibility-related protocol fields only; joint checks with final executables pending |
-| R32 follow-up patch on R31, `2f42356a` | Follow-up candidate, `6929409` | Source candidates for pairing review; no executable or joint-test result yet |
+| R32 redesign; implementation draft `2f42356a` | Desktop follow-up code `2fefa895` | [Minimal correction design](docs/native-cli-r32-design.ko.md); implementation and joint checks pending |
 
 Rows identify candidates to check together, not a compatibility guarantee. Only pairs that pass actual joint tests will be marked validated. The default CLI may select an existing shared server, so checks must identify the running CLI and server paths, versions, and hashes separately.
 
