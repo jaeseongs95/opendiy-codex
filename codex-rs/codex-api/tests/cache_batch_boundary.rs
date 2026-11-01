@@ -168,7 +168,13 @@ async fn boundary_child() -> anyhow::Result<()> {
         let address = listener.local_addr()?;
         let server = tokio::spawn(async move {
             let (socket, _) = listener.accept().await?;
-            let mut socket = tokio_tungstenite::accept_async(socket).await?;
+            // Match the real client's permessage-deflate offer. The fork rejects
+            // that header when the fixture has no extension configuration.
+            let mut config = tungstenite::protocol::WebSocketConfig::default();
+            config.extensions.permessage_deflate = Some(
+                tungstenite::extensions::compression::deflate::DeflateConfig::default(),
+            );
+            let mut socket = tokio_tungstenite::accept_async_with_config(socket, Some(config)).await?;
             for (id, cached, previous) in [
                 ("resp_ws_full", Some(0), None),
                 ("resp_ws_delta", None, Some("resp_ws_full")),
@@ -192,7 +198,7 @@ async fn boundary_child() -> anyhow::Result<()> {
         });
         let client =
             ResponsesWebsocketClient::new(provider(format!("http://{address}")), Arc::new(NoAuth));
-        let connection = client
+        let connection_result = client
             .connect(
                 &HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
                 HeaderMap::new(),
@@ -200,8 +206,16 @@ async fn boundary_child() -> anyhow::Result<()> {
                 None,
                 None,
             )
-            .await?;
+            .await;
+        let connection = match connection_result {
+            Ok(connection) => connection,
+            Err(error) => {
+                let fixture = tokio::time::timeout(Duration::from_secs(2), server).await;
+                anyhow::bail!("client handshake: {error}; local fixture: {fixture:?}");
+            }
+        };
         let request = request()?;
+        let mut rejected_usage = 0;
         for previous in [None, Some("resp_ws_full".to_string())] {
             let mut ws_request = ResponseCreateWsRequest::from(&request);
             ws_request.previous_response_id = previous.clone();
@@ -213,18 +227,26 @@ async fn boundary_child() -> anyhow::Result<()> {
                 )
                 .await?;
             while let Some(event) = stream.next().await {
-                if matches!(event?, ResponseEvent::Completed { .. }) {
-                    completed += 1;
+                match event {
+                    Ok(ResponseEvent::Completed { .. }) => completed += 1,
+                    Ok(_) => {},
+                    Err(error) if previous.is_some()
+                        && error.to_string().contains("missing field `cached_tokens`") => {
+                        // Raw presence must survive the existing protocol rejection;
+                        // missing usage must not become a successful zero-token response.
+                        rejected_usage += 1;
+                    },
+                    Err(error) => return Err(error.into()),
                 }
             }
         }
         server.await??;
-        Ok::<_, anyhow::Error>(completed)
+        Ok::<_, anyhow::Error>((completed, rejected_usage))
     }
     .with_subscriber(dispatch);
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(20), received).await??,
-        3
+        (2, 1)
     );
     drop(guard);
     let spool = home.path().join("log/cli-batches");

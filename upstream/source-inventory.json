@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "4499514bd6021c6de32832918a1eb0a36e8d05fd",
+  "sourceCommit": "07b98a15cb6143f8198a6463c59656cd6bb98c82",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -23108,10 +23108,10 @@
     {
       "path": "codex-rs/codex-api/tests/cache_batch_boundary.rs",
       "gitMode": "100644",
-      "gitBlob": "b2a486427a16e896fc70abb3d9524886c168abb4",
-      "sourceSha256": "f6d25fb55fdb17c3c6335d6c677c307e25fa7e90f73b9e6ed64439a009ce6ec9",
-      "publishedSha256": "2039a1cac25db3eda6369630f170c55e247e143fe8e39a83cea280090a8da029",
-      "bytes": 11715,
+      "gitBlob": "d0d9a67ad9ddeecda6b718e18f7bc2128169997f",
+      "sourceSha256": "66ab650006acbbdea0c8f573469a21fb1215e442884bfdf945e1d83efd09007a",
+      "publishedSha256": "0dd79b48905817c8cffb0827ff13fc3c1d50351a7bd18573d1ae5df086829a0f",
+      "bytes": 13010,
       "modified": true,
       "noticeOnly": true
     },
