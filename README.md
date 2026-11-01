@@ -69,6 +69,16 @@ Logging is off unless explicitly enabled in `CODEX_HOME/cli-logging.toml`. Categ
 
 The projects coordinate around the same backend. This repository does not distribute private ChatGPT desktop assets. Source and build tools live in Git; executable packages are published separately in Releases. Credentials and operational logs are excluded.
 
+### Version pairs and validation
+
+| CLI and App Server | OpenDIY Desktop | Verified scope |
+| --- | --- | --- |
+| Published R30, based on official 0.165.0 | No validated pair designated | R30's own checks are separate from joint Desktop validation |
+| R31 candidate, based on official 0.166.0, `e8a1d84d` | v0.6.0 candidate, `deba0725` | Static comparison of compatibility-related protocol fields only; joint checks with final executables pending |
+| R32 follow-up patch on R31, `b0d8fa11` | Follow-up candidate, `13f20c6` | Source candidates for pairing review; no executable or joint-test result yet |
+
+Rows identify candidates to check together, not a compatibility guarantee. Only pairs that pass actual joint tests will be marked validated. The default CLI may select an existing shared server, so checks must identify the running CLI and server paths, versions, and hashes separately.
+
 ## Build and license
 
 See the [source and build guide](docs/source-import.md) for the pinned toolchain, source verification, and CLI/App Server build commands, and the [Windows packaging tools](tools/windows-cli/README.md). Source-export verification does not establish that a fresh public checkout has completed a full build or runtime validation.
