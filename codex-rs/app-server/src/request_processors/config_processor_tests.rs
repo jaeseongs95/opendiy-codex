@@ -324,7 +324,7 @@ async fn config_read_rejects_superseded_policy_and_account_snapshots() -> Result
             policy.effective.policy().invalidate();
         } else {
             // Same network rules, different cloud snapshot: revision alone is insufficient.
-            manager.clear_cloud_config_bundle_loader();
+            manager.clear_chatgpt_config_loader();
             manager.refresh_application_network_policy().await?;
         }
         release.add_permits(1);

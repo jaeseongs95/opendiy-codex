@@ -479,7 +479,7 @@ async fn passive_listener_replays_general_pending_but_emits_no_idle_lifecycle() 
     let created = manager
         .start_thread(codex_core::StartThreadOptions::new((*config).clone()))
         .await?;
-    host.try_attach_thread_listener(created.thread_id, vec![owner])
+    host.try_attach_thread_listener(created.thread_id, Arc::clone(&created.thread), vec![owner])
         .await;
     processor
         .outgoing

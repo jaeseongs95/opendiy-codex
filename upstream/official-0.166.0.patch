@@ -25489,7 +25489,7 @@ index 000000000..eb3356c08
 +}
 diff --git a/codex-rs/app-server/src/message_processor_passive_tests.rs b/codex-rs/app-server/src/message_processor_passive_tests.rs
 new file mode 100644
-index 000000000..ab6396c2a
+index 000000000..39c652c16
 --- /dev/null
 +++ b/codex-rs/app-server/src/message_processor_passive_tests.rs
 @@ -0,0 +1,1018 @@
@@ -25973,7 +25973,7 @@ index 000000000..ab6396c2a
 +    let created = manager
 +        .start_thread(codex_core::StartThreadOptions::new((*config).clone()))
 +        .await?;
-+    host.try_attach_thread_listener(created.thread_id, vec![owner])
++    host.try_attach_thread_listener(created.thread_id, Arc::clone(&created.thread), vec![owner])
 +        .await;
 +    processor
 +        .outgoing
@@ -27222,7 +27222,7 @@ index b31f910fe..9e50ff6cd 100644
      use super::map_requirements_to_api;
 diff --git a/codex-rs/app-server/src/request_processors/config_processor_tests.rs b/codex-rs/app-server/src/request_processors/config_processor_tests.rs
 new file mode 100644
-index 000000000..6d767eb29
+index 000000000..48f5b8114
 --- /dev/null
 +++ b/codex-rs/app-server/src/request_processors/config_processor_tests.rs
 @@ -0,0 +1,438 @@
@@ -27551,7 +27551,7 @@ index 000000000..6d767eb29
 +            policy.effective.policy().invalidate();
 +        } else {
 +            // Same network rules, different cloud snapshot: revision alone is insufficient.
-+            manager.clear_cloud_config_bundle_loader();
++            manager.clear_chatgpt_config_loader();
 +            manager.refresh_application_network_policy().await?;
 +        }
 +        release.add_permits(1);
@@ -29586,6 +29586,18 @@ index a6d8250d6..9a9a0e33d 100644
  }
  
  pub(super) async fn send_thread_goal_snapshot_notification(
+diff --git a/codex-rs/app-server/src/request_processors/thread_listener_shutdown_tests.rs b/codex-rs/app-server/src/request_processors/thread_listener_shutdown_tests.rs
+index 9b7fd97c3..24d304337 100644
+--- a/codex-rs/app-server/src/request_processors/thread_listener_shutdown_tests.rs
++++ b/codex-rs/app-server/src/request_processors/thread_listener_shutdown_tests.rs
+@@ -86,6 +86,7 @@ async fn listener_shutdown_releases_runtime_and_preserves_other_subscribers(
+         thread_watch_manager,
+         Arc::new(Semaphore::new(/*permits*/ 1)),
+         thread_goal_processor,
++        /*cleanup_queue_service*/ None,
+         /*state_db*/ None,
+         /*log_db*/ None,
+         skills_watcher.clone(),
 diff --git a/codex-rs/app-server/src/request_processors/thread_memory.rs b/codex-rs/app-server/src/request_processors/thread_memory.rs
 index b58ea6e8b..7c2f9a597 100644
 --- a/codex-rs/app-server/src/request_processors/thread_memory.rs
@@ -49696,10 +49708,10 @@ index e622f4102..118ea91f1 100644
          ThreadStoreError::InvalidRequest { .. } => "thread_store_invalid_request",
          ThreadStoreError::Conflict { .. } => "thread_store_conflict",
 diff --git a/codex-rs/core/src/thread_manager_tests.rs b/codex-rs/core/src/thread_manager_tests.rs
-index b46fe16e2..d4e373414 100644
+index b46fe16e2..e215e1333 100644
 --- a/codex-rs/core/src/thread_manager_tests.rs
 +++ b/codex-rs/core/src/thread_manager_tests.rs
-@@ -57,6 +57,172 @@ use wiremock::MockServer;
+@@ -57,6 +57,173 @@ use wiremock::MockServer;
  
  const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
  
@@ -49724,7 +49736,8 @@ index b46fe16e2..d4e373414 100644
 +        .expect("start source");
 +    source
 +        .thread
-+        .checkpoint_preparation()
++        .session
++        .try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard)
 +        .await
 +        .expect("persist the source before testing resume");
 +    source.thread.flush_rollout().await.expect("flush source");

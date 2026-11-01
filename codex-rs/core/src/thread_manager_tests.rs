@@ -79,7 +79,8 @@ async fn stopped_runtime_resume_requires_confirmed_cleanup_before_replacement() 
         .expect("start source");
     source
         .thread
-        .checkpoint_preparation()
+        .session
+        .try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard)
         .await
         .expect("persist the source before testing resume");
     source.thread.flush_rollout().await.expect("flush source");
