@@ -52839,10 +52839,10 @@ index 2eb2125a1..dd29700e7 100644
  pretty_assertions = { workspace = true }
 diff --git a/codex-rs/diagnostics/src/batch_log.rs b/codex-rs/diagnostics/src/batch_log.rs
 new file mode 100644
-index 000000000..f4d55ab5e
+index 000000000..bab359fa2
 --- /dev/null
 +++ b/codex-rs/diagnostics/src/batch_log.rs
-@@ -0,0 +1,1365 @@
+@@ -0,0 +1,1371 @@
 +//! Content-free tracing batches. The producer never performs filesystem I/O.
 +//! Completed local batches are copied once to an optional streaming-drive path.
 +use crate::cache_diagnostics::CacheMode;
@@ -53092,7 +53092,7 @@ index 000000000..f4d55ab5e
 +    /// Opt in only the structural cache event, never general DEBUG traffic.
 +    pub fn metadata_filter(
 +        &self,
-+    ) -> impl Fn(&tracing::Metadata<'_>) -> bool + Send + Sync + 'static {
++    ) -> impl Fn(&tracing::Metadata<'_>) -> bool + Send + Sync + 'static + use<> {
 +        let mode = self.run.cache;
 +        move |metadata| {
 +            if cache_metadata(metadata) {
@@ -53810,9 +53810,15 @@ index 000000000..f4d55ab5e
 +                ..Settings::default()
 +            },
 +        };
-+        let filter = layer.metadata_filter();
-+        let subscriber = tracing_subscriber::registry()
-+            .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter)));
++        // Production startup returns this subscriber from its map closure.
++        // Requiring the same ownership boundary catches implicit Rust 2024
++        // capture of the layer even when the filter's value is already static.
++        fn owned_subscriber(layer: BatchLayer) -> impl Subscriber + Send + Sync + 'static {
++            let filter = layer.metadata_filter();
++            tracing_subscriber::registry()
++                .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter)))
++        }
++        let subscriber = owned_subscriber(layer);
 +        tracing::subscriber::with_default(subscriber, emit);
 +        receiver
 +            .try_iter()

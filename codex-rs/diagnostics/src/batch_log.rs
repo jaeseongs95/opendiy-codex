@@ -248,7 +248,7 @@ impl BatchLayer {
     /// Opt in only the structural cache event, never general DEBUG traffic.
     pub fn metadata_filter(
         &self,
-    ) -> impl Fn(&tracing::Metadata<'_>) -> bool + Send + Sync + 'static {
+    ) -> impl Fn(&tracing::Metadata<'_>) -> bool + Send + Sync + 'static + use<> {
         let mode = self.run.cache;
         move |metadata| {
             if cache_metadata(metadata) {
@@ -966,9 +966,15 @@ mod tests {
                 ..Settings::default()
             },
         };
-        let filter = layer.metadata_filter();
-        let subscriber = tracing_subscriber::registry()
-            .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter)));
+        // Production startup returns this subscriber from its map closure.
+        // Requiring the same ownership boundary catches implicit Rust 2024
+        // capture of the layer even when the filter's value is already static.
+        fn owned_subscriber(layer: BatchLayer) -> impl Subscriber + Send + Sync + 'static {
+            let filter = layer.metadata_filter();
+            tracing_subscriber::registry()
+                .with(layer.with_filter(tracing_subscriber::filter::filter_fn(filter)))
+        }
+        let subscriber = owned_subscriber(layer);
         tracing::subscriber::with_default(subscriber, emit);
         receiver
             .try_iter()

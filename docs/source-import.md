@@ -1,6 +1,6 @@
 # 공식 0.166.0 기반 R32 소스 후보
 
-고정 Git 소스는 `07b98a15cb6143f8198a6463c59656cd6bb98c82`이며, 공개 입력은 `SOURCE_BASELINE.json`과 `upstream/source-inventory.json`으로 대조한다. 공식 원본은 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`이다. 출처 검사는 통과했으며 R32 시험과 컴파일은 진행 중이다. R31은 별도로 배포하지 않는다.
+고정 Git 소스는 `c23bf2aaed0c31d147ce915d5478c926282a5482`이며, 공개 입력은 `SOURCE_BASELINE.json`과 `upstream/source-inventory.json`으로 대조한다. 공식 원본은 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`이다. 출처 검사는 통과했으며 R32 시험과 컴파일은 진행 중이다. R31은 별도로 배포하지 않는다.
 
 ## 이전 후보의 수입 이력
 

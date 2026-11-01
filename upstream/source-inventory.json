@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "07b98a15cb6143f8198a6463c59656cd6bb98c82",
+  "sourceCommit": "c23bf2aaed0c31d147ce915d5478c926282a5482",
   "files": [
     {
       "path": ".cargo/config.toml",
@@ -37908,10 +37908,10 @@
     {
       "path": "codex-rs/diagnostics/src/batch_log.rs",
       "gitMode": "100644",
-      "gitBlob": "f4d55ab5ea0ecb298a44a879aebd39c60a9b2fea",
-      "sourceSha256": "3c8d7efba886d2974f51b1b7a503728bdbbc18e291a2a87c8b65a38fc3987e3b",
-      "publishedSha256": "affb0cda1204b6bc68379c1ca08d1dd0b5ab1b304ffcac7ef340bb4d782f2dbd",
-      "bytes": 51614,
+      "gitBlob": "bab359fa2ef3dc257c74d98e12a3bf8d71bc84cf",
+      "sourceSha256": "b83b43fb1739bd7218911fbc0ca314c063a8e716e687532480c2d0a2d191e2cf",
+      "publishedSha256": "6211712375e71d8e248291cd7b81c86c1c6c2af24f3e6a5363b55780eeabd489",
+      "bytes": 52000,
       "modified": true,
       "noticeOnly": true
     },
