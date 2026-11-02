@@ -9,13 +9,18 @@ import subprocess
 import tarfile
 
 OFFICIAL='6ff1e1ca3b30fc8b914720681fcf5fe62e95f856'
-PATCHED='c23bf2aaed0c31d147ce915d5478c926282a5482'
-PREVIOUS_PUBLIC='c4f503062fd8e48c019e3ca50a2cb2b2ed4da41f'
+PATCHED='278f41f74f26b72cd2f3bf068400d8454a00ff75'
+PREVIOUS_PUBLIC='3f2185d69aa14ff8cb9f0991f119bdc6f222de7e'
 PREFIXES=['codex-rs','third_party','patches','.cargo/config.toml','tools/windows-cli','.gitattributes','docs/native-cli-r27.ko.md','docs/native-cli-cron.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
 DATE='2026-11-01'
 PATCH_PATH='upstream/official-0.166.0.patch'
 LABEL='R32'
+NOTICE_OVERRIDES={path:('R33','2026-11-02') for path in (
+    'codex-rs/tui/src/app/replay_filter.rs',
+    'codex-rs/tui/src/app/thread_routing.rs',
+    'codex-rs/tui/src/app/tests/buffered_replay.rs',
+)}
 ATTR_BEGIN=b'# BEGIN OpenDIY pinned source attributes\n'
 ATTR_END=b'# END OpenDIY pinned source attributes\n'
 WINDOWS_INPUTS_PATH='upstream/windows-prompt-inputs.json'
@@ -26,12 +31,13 @@ def git(repository,*args):return subprocess.check_output(['git','-c','core.autoc
 def encode(value):return (json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode()
 
 def notice(path):
+    label,date=NOTICE_OVERRIDES.get(path,(LABEL,DATE))
     if path.startswith('codex-rs/app-server-protocol/schema/typescript/') and path.endswith('.ts'):return b''
     if path.endswith(('.rs','.ts')):prefix='//'
     elif path.endswith(('.py','.toml','Cargo.lock','.gitattributes','.gitignore')):prefix='#'
-    elif path.endswith('.md') and path.startswith('docs/'):return f'<!-- Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md. -->\n'.encode()
+    elif path.endswith('.md') and path.startswith('docs/'):return f'<!-- Modified for OpenDIY Codex {label} ({date}); see MODIFICATIONS.md. -->\n'.encode()
     else:return b''  # Data formats and snapshots stay exact; MODIFICATIONS.md lists each one.
-    return f'{prefix} Modified for OpenDIY Codex {LABEL} ({DATE}); see MODIFICATIONS.md.\n'.encode()
+    return f'{prefix} Modified for OpenDIY Codex {label} ({date}); see MODIFICATIONS.md.\n'.encode()
 
 def checked_target(root,path):
     relative=Path(path)

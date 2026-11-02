@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R33 (2026-11-02); see MODIFICATIONS.md.
 //! Real buffered notifications must use finalized rendering without losing live stream tails.
 
 use super::*;
@@ -624,6 +625,293 @@ async fn buffered_replay_renders_completed_text_without_streaming_again() {
     insta::assert_snapshot!(text.trim(), @"
     • Final answer
     ");
+}
+
+fn replay_message_turn(id: &str) -> Turn {
+    Turn {
+        duration_ms: Some(8_000),
+        ..test_turn(
+            id,
+            TurnStatus::Completed,
+            vec![
+                ThreadItemPayload::UserMessage {
+                    id: format!("{id}-user"),
+                    client_id: None,
+                    content: vec![AppServerUserInput::Text {
+                        text: "Synthetic replay question".into(),
+                        text_elements: Vec::new(),
+                    }],
+                },
+                ThreadItemPayload::AgentMessage {
+                    id: format!("{id}-answer"),
+                    text: "Synthetic replay answer".into(),
+                    phase: None,
+                    memory_citation: None,
+                    delivery: None,
+                    questions: None,
+                },
+            ],
+        )
+    }
+}
+
+async fn replay_message_counts(buffered_turn_id: &str) -> (usize, usize, usize) {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let thread_id = ThreadId::new();
+    let mut store = ThreadEventStore::new_with_session(
+        /*capacity*/ 16,
+        test_thread_session(thread_id, app.config.cwd.to_path_buf()),
+        vec![replay_message_turn("snapshot-turn")],
+    );
+    let buffered_turn = replay_message_turn(buffered_turn_id);
+    for item in &buffered_turn.items {
+        store.push_notification(ServerNotification::ItemCompleted(
+            ItemCompletedNotification::new(
+                thread_id.to_string(),
+                buffered_turn.id.clone(),
+                item.payload.clone(),
+                /*started_at_ms*/ None,
+                /*completed_at_ms*/ 8_000,
+            ),
+        ));
+    }
+    store.push_notification(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread_id.to_string(),
+            turn: buffered_turn,
+        },
+    ));
+    app.replay_thread_snapshot(store.snapshot(), /*resume_restored_queue*/ false);
+    let mut counts = (0, 0, 0);
+    while let Ok(event) = events.try_recv() {
+        if let AppEvent::InsertHistoryCell(cell) = event {
+            let text = lines_to_single_string(&cell.transcript_lines(/*width*/ 100));
+            counts.0 += usize::from(text.contains("Synthetic replay question"));
+            counts.1 += usize::from(text.contains("Synthetic replay answer"));
+            counts.2 += usize::from(
+                cell.as_any()
+                    .is::<crate::history_cell::FinalMessageSeparator>(),
+            );
+        }
+    }
+    counts
+}
+
+#[tokio::test]
+async fn snapshot_and_buffered_replay_render_same_message_ids_once() {
+    assert_eq!(replay_message_counts("snapshot-turn").await, (1, 1, 1));
+}
+
+#[tokio::test]
+async fn snapshot_and_buffered_replay_preserve_same_text_with_distinct_message_ids() {
+    assert_eq!(replay_message_counts("different-turn").await, (2, 2, 2));
+}
+
+#[tokio::test]
+async fn snapshot_overlap_across_turns_keeps_one_display_and_finishes() {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let thread_id = ThreadId::new();
+    let turns = vec![replay_message_turn("first"), replay_message_turn("second")];
+    let mut store = ThreadEventStore::new_with_session(
+        32,
+        test_thread_session(thread_id, app.config.cwd.to_path_buf()),
+        turns.clone(),
+    );
+    for turn in turns {
+        store.push_notification(turn_started_notification(thread_id, &turn.id));
+        for item in &turn.items {
+            store.push_notification(ServerNotification::ItemCompleted(
+                ItemCompletedNotification::new(
+                    thread_id.to_string(),
+                    turn.id.clone(),
+                    item.payload.clone(),
+                    None,
+                    8_000,
+                ),
+            ));
+        }
+        store.push_notification(ServerNotification::TurnCompleted(
+            TurnCompletedNotification {
+                thread_id: thread_id.to_string(),
+                turn,
+            },
+        ));
+    }
+    app.replay_thread_snapshot(store.snapshot(), false);
+    let text = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => {
+                Some(lines_to_single_string(&cell.transcript_lines(100)))
+            }
+            _ => None,
+        })
+        .collect::<String>();
+    assert_eq!(text.matches("Synthetic replay question").count(), 2);
+    assert_eq!(text.matches("Synthetic replay answer").count(), 2);
+    assert!(!app.chat_widget.is_task_running_for_test());
+}
+
+#[tokio::test]
+async fn snapshot_overlap_suppresses_old_stream_but_keeps_new_item() {
+    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
+    let thread_id = ThreadId::new();
+    let turn = replay_message_turn("turn");
+    let mut store = ThreadEventStore::new_with_session(
+        32,
+        test_thread_session(thread_id, app.config.cwd.to_path_buf()),
+        vec![turn.clone()],
+    );
+    store.push_notification(turn_started_notification(thread_id, &turn.id));
+    store.push_notification(ServerNotification::ItemStarted(
+        ItemStartedNotification::new(
+            thread_id.to_string(),
+            turn.id.clone(),
+            turn.items[1].payload.clone(),
+            0,
+        ),
+    ));
+    store.push_notification(delta(&thread_id.to_string(), &turn.id, "turn-answer"));
+    for item in &turn.items {
+        store.push_notification(ServerNotification::ItemCompleted(
+            ItemCompletedNotification::new(
+                thread_id.to_string(),
+                turn.id.clone(),
+                item.payload.clone(),
+                None,
+                8_000,
+            ),
+        ));
+    }
+    let mut newer = turn;
+    let mut extra = newer.items[1].clone();
+    if let ThreadItemPayload::AgentMessage { id, text, .. } = &mut extra.payload {
+        *id = "new-answer".into();
+        *text = "New item must survive".into();
+    }
+    store.push_notification(ServerNotification::ItemCompleted(
+        ItemCompletedNotification::new(
+            thread_id.to_string(),
+            newer.id.clone(),
+            extra.payload.clone(),
+            None,
+            8_001,
+        ),
+    ));
+    newer.items.push(extra);
+    store.push_notification(ServerNotification::TurnCompleted(
+        TurnCompletedNotification {
+            thread_id: thread_id.to_string(),
+            turn: newer,
+        },
+    ));
+    app.replay_thread_snapshot(store.snapshot(), false);
+    let text = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => {
+                Some(lines_to_single_string(&cell.transcript_lines(100)))
+            }
+            _ => None,
+        })
+        .collect::<String>();
+    assert_eq!(text.matches("Synthetic replay answer").count(), 1);
+    assert_eq!(text.matches("New item must survive").count(), 1);
+    assert!(!text.contains("Partial"));
+    assert!(!app.chat_widget.is_task_running_for_test());
+}
+
+#[test]
+fn snapshot_overlap_preserves_questions_requests_and_unfinished_deltas() {
+    let mut turn = replay_message_turn("turn");
+    let questions = vec![codex_protocol::items::AsyncUserInputQuestion {
+        title: "Which environment?".into(),
+        options: None,
+    }];
+    if let ThreadItemPayload::AgentMessage {
+        questions: value, ..
+    } = &mut turn.items[1].payload
+    {
+        *value = Some(questions.clone());
+    }
+    let thread_id = ThreadId::new();
+    let mut store = ThreadEventStore::new_with_session(
+        32,
+        test_thread_session(thread_id, std::env::temp_dir()),
+        vec![turn.clone()],
+    );
+    store.push_notification(ServerNotification::ItemCompleted(
+        ItemCompletedNotification::new(
+            thread_id.to_string(),
+            turn.id.clone(),
+            turn.items[1].payload.clone(),
+            None,
+            8_000,
+        ),
+    ));
+    store.push_request(ServerRequest::ToolRequestUserInput {
+        request_id: codex_app_server_protocol::RequestId::Integer(72),
+        params: codex_app_server_protocol::ToolRequestUserInputParams {
+            thread_id: thread_id.to_string(),
+            turn_id: "pending-turn".into(),
+            item_id: "pending-tool".into(),
+            questions: Vec::new(),
+            is_blocking: true,
+            auto_resolution_ms: None,
+        },
+    });
+    store.push_notification(delta(
+        &thread_id.to_string(),
+        "pending-turn",
+        "pending-answer",
+    ));
+    let original = format!("{:?}", store.snapshot().events);
+    let mut snapshot = store.snapshot();
+    replay_filter::omit_messages_covered_by_history(&mut snapshot);
+    assert_eq!(format!("{:?}", store.snapshot().events), original);
+    assert!(
+        snapshot
+            .events
+            .iter()
+            .any(|event| matches!(event, ThreadBufferedEvent::Request(_)))
+    );
+    assert!(snapshot.events.iter().any(|event| matches!(event, ThreadBufferedEvent::Notification(n)
+        if matches!(n.as_ref(), ServerNotification::AgentMessageDelta(d) if d.item_id == "pending-answer"))));
+    assert!(snapshot.events.iter().any(|event| matches!(event, ThreadBufferedEvent::Notification(n)
+        if matches!(n.as_ref(), ServerNotification::ItemCompleted(c)
+            if matches!(&c.item.payload, ThreadItemPayload::AgentMessage { text, questions: Some(q), .. }
+                if text.is_empty() && q == &questions)))));
+}
+
+#[test]
+fn snapshot_overlap_preserves_partial_and_changed_payloads() {
+    let thread_id = ThreadId::new();
+    for in_progress in [false, true] {
+        let mut turn = replay_message_turn("turn");
+        if in_progress {
+            turn.status = TurnStatus::InProgress;
+        }
+        let mut completion = turn.items[1].payload.clone();
+        if !in_progress && let ThreadItemPayload::AgentMessage { text, .. } = &mut completion {
+            *text = "Changed final answer".into();
+        }
+        let mut store = ThreadEventStore::new_with_session(
+            16,
+            test_thread_session(thread_id, std::env::temp_dir()),
+            vec![turn],
+        );
+        store.push_notification(ServerNotification::ItemCompleted(
+            ItemCompletedNotification::new(
+                thread_id.to_string(),
+                "turn".into(),
+                completion,
+                None,
+                8_000,
+            ),
+        ));
+        let mut snapshot = store.snapshot();
+        let before = format!("{:?}", snapshot.events);
+        replay_filter::omit_messages_covered_by_history(&mut snapshot);
+        assert_eq!(format!("{:?}", snapshot.events), before);
+    }
 }
 
 #[test]

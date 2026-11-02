@@ -1,13 +1,112 @@
+// Modified for OpenDIY Codex R33 (2026-11-02); see MODIFICATIONS.md.
 //! Helpers for deciding which buffered events to replay when switching threads.
 
 use codex_app_server_protocol::CodexErrorInfo;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::ThreadItemPayload;
+use codex_app_server_protocol::TurnStatus;
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::ThreadBufferedEvent;
 use super::ThreadEventSnapshot;
+
+/// Completed history and the live buffer can overlap after pagination. Suppress only
+/// identical message displays in this copy; keep terminal events and live questions.
+pub(super) fn omit_messages_covered_by_history(snapshot: &mut ThreadEventSnapshot) {
+    let Some(session) = &snapshot.session else {
+        return;
+    };
+    let thread_id = session.thread_id.to_string();
+    let mut covered = snapshot
+        .turns
+        .iter()
+        .filter(|turn| turn.status == TurnStatus::Completed)
+        .flat_map(|turn| {
+            turn.item_payloads().filter_map(move |item| {
+                (matches!(
+                    item,
+                    ThreadItemPayload::UserMessage { .. } | ThreadItemPayload::AgentMessage { .. }
+                ) && !item.id().is_empty())
+                .then_some(((turn.id.clone(), item.id().to_string()), item))
+            })
+        })
+        .collect::<HashMap<_, _>>();
+    // The same ID with a newer payload is not covered by an older history page.
+    for event in &snapshot.events {
+        let ThreadBufferedEvent::Notification(notification) = event else {
+            continue;
+        };
+        let (event_thread, turn_id, items): (_, _, &[codex_app_server_protocol::ThreadItem]) =
+            match notification.as_ref() {
+                ServerNotification::ItemCompleted(n) => (
+                    &n.thread_id,
+                    n.turn_id.as_str(),
+                    std::slice::from_ref(&n.item),
+                ),
+                ServerNotification::TurnCompleted(n) => {
+                    (&n.thread_id, n.turn.id.as_str(), &n.turn.items)
+                }
+                _ => continue,
+            };
+        if event_thread != &thread_id {
+            continue;
+        }
+        for item in items {
+            let key = (turn_id.to_string(), item.id().to_string());
+            if covered
+                .get(&key)
+                .is_some_and(|previous| *previous != &item.payload)
+            {
+                covered.remove(&key);
+            }
+        }
+    }
+    let mut completed = HashSet::new();
+    snapshot.events.reverse();
+    snapshot.events.retain_mut(|event| {
+        let ThreadBufferedEvent::Notification(notification) = event else {
+            return true;
+        };
+        match notification.as_mut() {
+            ServerNotification::ItemCompleted(n) if n.thread_id == thread_id => {
+                let key = (n.turn_id.clone(), n.item.id().to_string());
+                if covered
+                    .get(&key)
+                    .is_some_and(|previous| *previous == &n.item.payload)
+                {
+                    completed.insert((n.turn_id.clone(), n.item.id().to_string()));
+                    match &mut n.item.payload {
+                        ThreadItemPayload::UserMessage { .. } => return false,
+                        // The item handler still restores questions and completion state.
+                        ThreadItemPayload::AgentMessage { text, .. } => text.clear(),
+                        _ => {}
+                    }
+                }
+            }
+            ServerNotification::TurnCompleted(n) if n.thread_id == thread_id => {
+                for item in &mut n.turn.items {
+                    let key = (n.turn.id.clone(), item.id().to_string());
+                    if covered
+                        .get(&key)
+                        .is_some_and(|previous| *previous == &item.payload)
+                        && let ThreadItemPayload::AgentMessage { id, text, .. } = &mut item.payload
+                    {
+                        completed.insert((n.turn.id.clone(), id.clone()));
+                        text.clear();
+                    }
+                }
+            }
+            ServerNotification::AgentMessageDelta(n) if n.thread_id == thread_id => {
+                return !completed.contains(&(n.turn_id.clone(), n.item_id.clone()));
+            }
+            _ => {}
+        }
+        true
+    });
+    snapshot.events.reverse();
+}
 
 pub(super) fn snapshot_has_pending_interactive_request(snapshot: &ThreadEventSnapshot) -> bool {
     snapshot.events.iter().any(|event| {
