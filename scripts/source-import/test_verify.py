@@ -152,6 +152,13 @@ class VerifierChecks(unittest.TestCase):
         self.assertEqual(EXPORT.notice('codex-rs/schema.json'),b'')
         self.assertEqual(EXPORT.notice('codex-rs/schema.json.zst'),b'')
         self.assertEqual(EXPORT.notice('codex-rs/expected.snap'),b'')
+    def test_r33_notice_is_limited_to_replay_followup(self):
+        for path in ['codex-rs/tui/src/app/replay_filter.rs',
+                     'codex-rs/tui/src/app/thread_routing.rs',
+                     'codex-rs/tui/src/app/tests/buffered_replay.rs']:
+            with self.subTest(path=path):
+                self.assertEqual(EXPORT.notice(path),b'// Modified for OpenDIY Codex R33 (2026-11-02); see MODIFICATIONS.md.\n')
+        self.assertEqual(EXPORT.notice('codex-rs/core/src/lib.rs'),b'// Modified for OpenDIY Codex R32 (2026-11-01); see MODIFICATIONS.md.\n')
     def test_runtime_markdown_prompts_do_not_receive_local_notices(self):
         for path in EXPORT.WINDOWS_INPUTS:
             with self.subTest(path=path):

@@ -1,6 +1,8 @@
 # 공식 0.166.0 기반 R32 소스 후보
 
-고정 Git 소스는 `c23bf2aaed0c31d147ce915d5478c926282a5482`이며, 공개 입력은 `SOURCE_BASELINE.json`과 `upstream/source-inventory.json`으로 대조한다. 공식 원본은 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`이다. 출처 검사는 통과했으며 R32 시험과 컴파일은 진행 중이다. R31은 별도로 배포하지 않는다.
+고정 Git 소스는 `278f41f74f26b72cd2f3bf068400d8454a00ff75`이며, 공개 입력은 `SOURCE_BASELINE.json`과 `upstream/source-inventory.json`으로 대조한다. 공식 원본은 `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`, 이전 공개 기준은 `3f2185d69aa14ff8cb9f0991f119bdc6f222de7e`다. R33 후속 변경은 R32 소스의 메시지 재생 3파일에 한정된다. 원본의 관련 시험 33개와 공개 출처 검증은 통과했으며, 공개 checkout의 새 빌드·실제 앱 실행·설치·릴리스는 미검증이다. [R33 검증 요약](r33-replay-verification.ko.md)을 따른다.
+
+기본 수정 고지는 R32로 보존하고 `export.py`의 `NOTICE_OVERRIDES`에 지정한 세 파일만 R33 고지를 사용한다. 따라서 `SOURCE_BASELINE.json`의 `modifiedNoticeLabel`·`modifiedNoticeDate`는 기본 고지이며, 각 파일의 실제 공개 바이트는 inventory의 `publishedSha256`과 검증기의 동일한 고지 선택으로 검사한다. 내장 프롬프트 38개의 소스 바이트·Windows 바이트 해시는 유지하고 catalog의 `sourceCommit`만 현재 고정 소스에 맞췄다.
 
 ## 이전 후보의 수입 이력
 
