@@ -26,10 +26,10 @@
 
 ```sh
 cd codex-rs
-cargo test --locked -p codex-tui app::tests::buffered_replay:: -- --nocapture --test-threads=1
-cargo test --locked -p codex-tui app::tests::pagination_completion_tests:: -- --nocapture --test-threads=1
-cargo test --locked -p codex-tui app::tests::history_hydration_tests:: -- --nocapture --test-threads=1
-cargo test --locked -p codex-tui chatwidget::tests::question_notifications_tests:: -- --nocapture --test-threads=1
+cargo test --profile dev-small --locked --target x86_64-pc-windows-msvc -p codex-tui --lib app::tests::buffered_replay:: -- --nocapture --test-threads=1
+cargo test --profile dev-small --locked --target x86_64-pc-windows-msvc -p codex-tui --lib app::tests::pagination_completion_tests:: -- --nocapture --test-threads=1
+cargo test --profile dev-small --locked --target x86_64-pc-windows-msvc -p codex-tui --lib app::tests::history_hydration_tests:: -- --nocapture --test-threads=1
+cargo test --profile dev-small --locked --target x86_64-pc-windows-msvc -p codex-tui --lib chatwidget::tests::question_notifications_tests:: -- --nocapture --test-threads=1
 ```
 
 ## 공개 소스 출처 검증
