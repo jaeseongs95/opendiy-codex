@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! Retained-instruction and answer lifecycles through real sessions and durable checkpoints.
 //! Real user input covers steering and compaction. Resume and child forks use production paths.
 
@@ -629,8 +630,8 @@ async fn retained_instructions_keep_identity_across_compaction_and_resume(
             compacted
                 .items()
                 .any(|item| item.id().map(ResponseItemId::as_str) == message["message_id"].as_str()),
-            true,
-            "compaction preserves original user-message identity"
+            false,
+            "completed user-message identity stays in retained originals, outside the active window"
         );
     }
     let thread = resume(&test, &thread).await?;

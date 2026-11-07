@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R36 (2026-11-03); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -47,7 +47,6 @@ use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::items::ContextCompactionItem;
 use codex_protocol::items::TurnItem;
-use codex_protocol::models::AgentMessageInputContent;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputContentItem;
@@ -86,7 +85,6 @@ enum RetainedImageBudget {
 }
 
 pub(crate) const RETAINED_MESSAGE_TOKEN_BUDGET: usize = 64_000;
-const MAX_RETAINED_AGENT_MESSAGE_TOKENS: i64 = 10_000;
 // Compact attempts can run much longer than normal turns, so keep the per-transport
 // retry budget smaller than the general Responses stream retry budget.
 const MAX_REMOTE_COMPACTION_V2_STREAM_RETRIES: u64 = 2;
@@ -561,48 +559,11 @@ fn is_retained_for_remote_compaction_v2(
     if features.enabled(Feature::RetainClientToolOutputs) && is_retained_tool_output(envelope) {
         return true;
     }
-    let item = &envelope.item;
-    if let ResponseItem::AgentMessage {
-        author,
-        recipient,
-        content,
-        ..
-    } = item
-    {
-        let is_descendant_progress = author
-            .strip_prefix(recipient)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-            && matches!(
-                content.first(),
-                Some(AgentMessageInputContent::InputText { text })
-                    if text.starts_with("Message Type: MESSAGE\n")
-                        || text.starts_with("Message Type: CHANNEL_POST\n")
-            );
-        let is_completion = matches!(
-            content.first(),
-            Some(AgentMessageInputContent::InputText { text })
-                if text.starts_with("Message Type: FINAL_ANSWER\n")
-        );
-        return !is_descendant_progress
-            && !is_completion
-            && estimate_item_token_count(item) <= MAX_RETAINED_AGENT_MESSAGE_TOKENS;
-    }
-
-    let ResponseItem::Message { role, .. } = item else {
-        return false;
-    };
-
-    match role.as_str() {
-        "user" => matches!(
-            crate::event_mapping::parse_turn_item(item),
-            Some(TurnItem::UserMessage(_) | TurnItem::HookPrompt(_))
-        ),
-        "developer" => {
-            features.enabled(Feature::RetainClientDeveloperMessages)
-                && is_client_authored_developer_message(envelope)
-        }
-        _ => false,
-    }
+    // Task transcript belongs in the new handoff state, not an unconditional raw prefix.
+    // Keep only client-declared persistent control messages under their explicit feature.
+    // Canonical initial context and a background attempt's live suffix are installed later.
+    features.enabled(Feature::RetainClientDeveloperMessages)
+        && is_client_authored_developer_message(envelope)
 }
 
 fn retained_input_image_count(item: &ResponseItem) -> usize {
@@ -871,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn build_v2_compacted_history_filters_to_installed_retention_shape() {
+    fn build_v2_compacted_history_does_not_reinstall_completed_task_transcript() {
         let hook = codex_protocol::items::build_hook_prompt_message(&[
             codex_protocol::items::HookPromptFragment::from_single_hook("hook", "hook-run"),
         ])
@@ -908,10 +869,7 @@ mod tests {
 
         let (history, _) = build_without_metadata(input, output.clone());
 
-        assert_eq!(
-            raw(history),
-            vec![message("user", "user", /*phase*/ None), hook, output]
-        );
+        assert_eq!(raw(history), vec![output]);
     }
 
     #[test]
@@ -959,14 +917,7 @@ mod tests {
                 &features,
                 RetainedImageBudget::Disabled,
             );
-            let mut expected = vec![
-                ResponseItemEnvelope {
-                    item: retained.clone(),
-                    metadata: Some(CodexHarnessMetadata::default()),
-                },
-                ResponseItemEnvelope::new(generated_notice.clone()),
-                ResponseItemEnvelope::new(output.clone()),
-            ];
+            let mut expected = vec![ResponseItemEnvelope::new(output.clone())];
             if enabled {
                 expected.insert(
                     0,
@@ -1020,11 +971,11 @@ mod tests {
 
         let (history, _) = build_without_metadata(input, output.clone());
 
-        assert_eq!(raw(history), vec![old, new, output]);
+        assert_eq!(raw(history), vec![output]);
     }
 
     #[test]
-    fn build_v2_compacted_history_counts_retained_input_images() {
+    fn build_v2_compacted_history_does_not_reinstall_old_user_images() {
         let input = vec![ResponseItem::Message {
             status: None,
             encrypted_content: None,
@@ -1058,7 +1009,7 @@ mod tests {
 
         let (_, retained_image_count) = build_without_metadata(input, output);
 
-        assert_eq!(retained_image_count, 2);
+        assert_eq!(retained_image_count, 0);
     }
 
     #[test]

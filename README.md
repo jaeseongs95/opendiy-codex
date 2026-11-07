@@ -10,7 +10,8 @@ An unofficial Windows edition of Codex CLI and Rust App Server. It repairs confi
 
 | Version | Official base | State |
 | --- | --- | --- |
-| R38 | 0.167.0 | Ported to official `rust-v0.167.0`; the 0.167 development candidate is under joint validation. It includes payload checks, full server version diagnostics, opt-in Stop repair, localized plugin reload warnings and main-agent mouse return, integrated with upstream session, approval, keymap and MCP changes. Previous 0.166-based test results are historical and do not validate this candidate. See [scope and limits](docs/native-cli-r38.ko.md). No R38 final binary, release or installation. |
+| R39 | 0.167.0 | Compact-only development candidate based on frozen R38. It changes the summary policy and prevents completed task messages from being reattached after compaction. Tests are in progress; final binaries and release publication are pending. Summary quality with a real model is unverified. See [scope and limits](docs/native-cli-r39.ko.md). |
+| R38 | 0.167.0 | [Published and frozen (`v0.167.0-r38.20261106`)](https://github.com/jaeseongs95/opendiy-codex/releases/tag/v0.167.0-r38.20261106). See the tagged release notes for final package validation. Publication does not establish the version installed on a PC. |
 | R37 | 0.166.0 + selected upstream changes | Published and frozen (`v0.166.0-r37.20261104`). Source pinned to `2289ae3aa847cd64e7e987f56180160ce67a8694`: daemon version selection guards, scoped memory writes and consolidation, shared language preferences, plugin cache handling, replay filtering, selectable subagent footer and input-dispatch fixes. Development tests include 81 input regressions and four Desktop submission/save/restart-restore scenarios in English and Korean UI. Managed Windows memory policy and the unsupported busy connection-close scenario remain outside that verified scope. Tagged release notes report final package verification; a source checkout or development test is not an installed release. |
 | R36 | 0.166.0 + selected upstream changes | Published stable Windows release integrating R35 changes. Frozen after publication. |
 | R35 | 0.166.0 | Integrated into R36 without a separate release. |
@@ -39,7 +40,9 @@ The changes integrated into R36 distinguish a server's optional capability decla
 2. Verify SHA-256 and follow the package's `USAGE.ko.md`; retain your existing installation.
 3. Use `codex-local.cmd` for an engine separate from an existing shared server.
 
-Individual `codex.exe` and `codex-app-server.exe` downloads omit helpers. The default CLI may attach to an existing server: verify its identity separately from the selected CLI.
+The complete ZIP is recommended: extract it with its directory layout intact. An individual `codex.exe` or `codex-app-server.exe` is not a complete package. To use code-mode tools (including `functions`), place the matching release's `codex-code-mode-host.exe` in the **same folder as the executable being run**, keeping that exact filename. If it is missing, code-mode host startup can fail with `os error 2`.
+
+R38 did not provide the helper as an individual release asset; obtain it from the R38 complete ZIP. R39 is planned to add `codex-code-mode-host.exe` as a separate asset; its publication is pending. Voice and other additional resources still require the complete ZIP. The default CLI may attach to an existing server: verify its identity and that server's helper location separately from the selected CLI.
 
 ## Conversation commands
 

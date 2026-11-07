@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! Integration tests that cover compacting, resuming, and forking conversations.
 //!
 //! Each test sets up a mocked SSE conversation and drives the conversation through
@@ -79,26 +80,24 @@ fn response_message_contains_text(item: &ResponseItem, expected: &str) -> bool {
     )
 }
 
-fn seed_first_checkpoint_harness_metadata(path: &Path, retained_text: &str) -> Result<()> {
+fn seed_archived_user_harness_metadata(path: &Path, retained_text: &str) -> Result<()> {
     let mut lines = std::fs::read_to_string(path)?
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(codex_rollout::parse_rollout_line)
         .collect::<Result<Vec<_>, _>>()?;
-    let replacement_history = lines
+    let archived_user = lines
         .iter_mut()
         .find_map(|line| match &mut line.item {
-            RolloutItem::Compacted(compacted) => compacted.replacement_history.as_mut(),
+            RolloutItem::ResponseItem(envelope)
+                if response_message_contains_text(&envelope.item, retained_text) =>
+            {
+                Some(envelope)
+            }
             _ => None,
         })
-        .context("first compacted checkpoint missing replacement history")?;
-    replacement_history
-        .iter()
-        .find(|envelope| response_message_contains_text(&envelope.item, retained_text))
-        .context("retained user message missing from first compacted checkpoint")?;
-    for envelope in replacement_history {
-        envelope.metadata = Some(CodexHarnessMetadata::default());
-    }
+        .context("original user message missing from synthetic rollout archive")?;
+    archived_user.metadata = Some(CodexHarnessMetadata::default());
 
     let rewritten = lines
         .iter()
@@ -109,37 +108,45 @@ fn seed_first_checkpoint_harness_metadata(path: &Path, retained_text: &str) -> R
     Ok(())
 }
 
-fn assert_latest_checkpoint_retains_harness_metadata(
-    path: &Path,
-    retained_text: &str,
-) -> Result<()> {
-    let replacement_history = std::fs::read_to_string(path)?
+fn assert_archived_user_retains_harness_metadata(path: &Path, retained_text: &str) -> Result<()> {
+    let lines = std::fs::read_to_string(path)?
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(codex_rollout::parse_rollout_line)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    assert!(
+        lines.iter().any(|line| {
+            matches!(&line.item, RolloutItem::ResponseItem(envelope)
+            if response_message_contains_text(&envelope.item, retained_text)
+                && envelope.metadata == Some(CodexHarnessMetadata::default()))
+        }),
+        "archived source metadata must survive compaction, resume, and fork"
+    );
+    let latest_checkpoint = lines
+        .iter()
         .rev()
-        .find_map(|line| match line.item {
-            RolloutItem::Compacted(compacted) => compacted.replacement_history,
+        .find_map(|line| match &line.item {
+            RolloutItem::Compacted(compacted) => compacted.replacement_history.as_ref(),
             _ => None,
         })
         .context("latest compacted checkpoint missing replacement history")?;
     assert!(
-        replacement_history.iter().any(|envelope| {
-            response_message_contains_text(&envelope.item, retained_text)
-                && envelope.metadata.is_some()
-        }),
-        "latest compacted checkpoint should retain aligned harness metadata on {retained_text:?}"
+        latest_checkpoint
+            .iter()
+            .all(|envelope| { !response_message_contains_text(&envelope.item, retained_text) }),
+        "archived source must stay outside the active checkpoint"
     );
     Ok(())
 }
 
 fn extract_summary_user_text(request: &Value, summary_text: &str) -> String {
-    json_message_input_texts(request, "user")
+    let expected = format!("{}\n{summary_text}", codex_core::compact::SUMMARY_PREFIX);
+    let summaries = json_message_input_texts(request, "user")
         .into_iter()
-        .find(|text| text.contains(summary_text))
-        .expect("expected summary message")
+        .filter(|text| text.contains(summary_text))
+        .collect::<Vec<_>>();
+    assert_eq!(summaries, vec![expected.clone()]);
+    expected
 }
 
 fn json_message_input_texts(request: &Value, role: &str) -> Vec<String> {
@@ -278,7 +285,7 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
     let summary_after_resume = extract_summary_user_text(&requests[3], SUMMARY_TEXT);
     let summary_after_fork = extract_summary_user_text(&requests[4], SUMMARY_TEXT);
     let mut expected_after_compact_user_texts = seeded_user_prefix.to_vec();
-    expected_after_compact_user_texts.extend(["hello world".to_string(), summary_after_compact]);
+    expected_after_compact_user_texts.push(summary_after_compact);
     expected_after_compact_user_texts.push("AFTER_COMPACT".to_string());
     assert_eq!(
         json_message_input_texts(&requests[2], "user"),
@@ -286,7 +293,7 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
     );
 
     let mut expected_after_resume_user_texts = seeded_user_prefix.to_vec();
-    expected_after_resume_user_texts.extend(["hello world".to_string(), summary_after_resume]);
+    expected_after_resume_user_texts.push(summary_after_resume);
     expected_after_resume_user_texts.push("AFTER_COMPACT".to_string());
     let after_resume_user_texts = json_message_input_texts(&requests[3], "user");
     let (after_resume_last, after_resume_prefix) = after_resume_user_texts
@@ -316,7 +323,7 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
 
     let after_fork_user_texts = json_message_input_texts(&requests[4], "user");
     let mut expected_after_fork_history_prefix = seeded_user_prefix.to_vec();
-    expected_after_fork_history_prefix.extend(["hello world".to_string(), summary_after_fork]);
+    expected_after_fork_history_prefix.push(summary_after_fork);
     expected_after_fork_history_prefix.push("AFTER_COMPACT".to_string());
     let (after_fork_last, after_fork_prefix) = after_fork_user_texts
         .split_last()
@@ -372,7 +379,7 @@ async fn compact_resume_after_second_compaction_preserves_history() -> Result<()
     );
 
     shutdown_conversation(&base).await;
-    seed_first_checkpoint_harness_metadata(&base_path, "hello world")?;
+    seed_archived_user_harness_metadata(&base_path, "hello world")?;
     let resumed = resume_conversation(&manager, &config, base_path).await;
     user_turn(&resumed, "AFTER_RESUME").await;
     let resumed_path = fetch_conversation_path(&resumed);
@@ -393,7 +400,7 @@ async fn compact_resume_after_second_compaction_preserves_history() -> Result<()
     );
 
     shutdown_conversation(&forked).await;
-    assert_latest_checkpoint_retains_harness_metadata(&forked_path, "hello world")?;
+    assert_archived_user_retains_harness_metadata(&forked_path, "hello world")?;
     let resumed_again = resume_conversation(&manager, &config, forked_path).await;
     user_turn(&resumed_again, AFTER_SECOND_RESUME).await;
 
@@ -443,57 +450,19 @@ async fn compact_resume_after_second_compaction_preserves_history() -> Result<()
     let seeded_user_prefix = &first_request_user_texts[..first_turn_user_index];
     let summary_after_second_compact =
         extract_summary_user_text(&requests[requests.len() - 2], SUMMARY_TEXT);
-    let mut expected_after_second_compact_user_texts = vec![
-        "hello world".to_string(),
-        "AFTER_COMPACT".to_string(),
-        "AFTER_RESUME".to_string(),
-    ];
-    expected_after_second_compact_user_texts.extend_from_slice(seeded_user_prefix);
-    expected_after_second_compact_user_texts.extend([
-        "AFTER_FORK".to_string(),
-        summary_after_second_compact.clone(),
-        "AFTER_COMPACT_2".to_string(),
-    ]);
-    let mut expected_fork_local_user_texts = seeded_user_prefix.to_vec();
-    expected_fork_local_user_texts.extend([
-        "AFTER_FORK".to_string(),
-        summary_after_second_compact,
-        "AFTER_COMPACT_2".to_string(),
-    ]);
-    let final_user_texts = json_message_input_texts(&requests[requests.len() - 1], "user");
-    let (final_last, final_prefix) = final_user_texts
-        .split_last()
-        .expect("after-second-resume request missing user messages");
-    assert_eq!(final_last, AFTER_SECOND_RESUME);
-    let matched_prefix_len = if let Some(start) = final_prefix
-        .windows(expected_after_second_compact_user_texts.len())
-        .position(|window| window == expected_after_second_compact_user_texts)
-    {
-        start + expected_after_second_compact_user_texts.len()
-    } else if let Some(start) = final_prefix
-        .windows(expected_fork_local_user_texts.len())
-        .position(|window| window == expected_fork_local_user_texts)
-    {
-        start + expected_fork_local_user_texts.len()
-    } else {
-        panic!("after-second-resume user texts should preserve post-compact user history prefix");
-    };
-    let final_seeded_suffix = &final_prefix[matched_prefix_len..];
-    if seeded_user_prefix.is_empty() {
-        assert!(
-            final_seeded_suffix.is_empty(),
-            "after-second-resume request should not append unexpected user prefix items"
-        );
-    } else {
-        let mut chunks = final_seeded_suffix.chunks_exact(seeded_user_prefix.len());
-        assert!(
-            chunks.remainder().is_empty(),
-            "after-second-resume suffix should be whole seeded-prefix repeats"
-        );
-        for chunk in &mut chunks {
-            assert_eq!(chunk, seeded_user_prefix);
-        }
-    }
+    let mut expected_after_second_compact_user_texts = seeded_user_prefix.to_vec();
+    expected_after_second_compact_user_texts
+        .extend([summary_after_second_compact, "AFTER_COMPACT_2".to_string()]);
+    assert_eq!(
+        json_message_input_texts(&requests[requests.len() - 2], "user"),
+        expected_after_second_compact_user_texts
+    );
+    expected_after_second_compact_user_texts.push(AFTER_SECOND_RESUME.to_string());
+    assert_eq!(
+        json_message_input_texts(&requests[requests.len() - 1], "user"),
+        expected_after_second_compact_user_texts
+    );
+    assert_eq!(requests.len(), 8);
     Ok(())
 }
 

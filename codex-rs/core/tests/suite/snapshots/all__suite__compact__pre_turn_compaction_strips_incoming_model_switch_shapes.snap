@@ -48,9 +48,7 @@ Scenario: Pre-turn compaction during model switch (without pre-sampling model-sw
 02:message/user:
     <ENVIRONMENT_CONTEXT>
 03:message/user:
-    BEFORE_SWITCH_USER
-04:message/user:
     <COMPACTION_SUMMARY>
     PRETURN_SWITCH_SUMMARY
-05:message/user:
+04:message/user:
     AFTER_SWITCH_USER

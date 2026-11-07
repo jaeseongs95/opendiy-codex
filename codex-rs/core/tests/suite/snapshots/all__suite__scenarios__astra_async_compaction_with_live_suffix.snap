@@ -38,7 +38,9 @@ Scenario: Astra compacts a completed launch-notes turn in the background. The us
 -- request 2 (request) --
 08:message/assistant:
     I drafted the launch notes.
-09:compaction_trigger
+09:message/developer:
+    <SUMMARIZATION_PROMPT>
+10:compaction_trigger
 
 ## Window 2 (after request 2: input diverged at item 09)
 -- request 3 (request) --
@@ -97,23 +99,21 @@ Scenario: Astra compacts a completed launch-notes turn in the background. The us
           - function/wait_agent
 01:message/developer:
     <MODEL_INSTRUCTIONS>
-02:message/user:
-    Draft the launch notes.
-03:compaction:encrypted=true; chars=23; hash=159cfcb231cc70f0
-04:message/developer[2]:
+02:compaction:encrypted=true; chars=23; hash=159cfcb231cc70f0
+03:message/developer[2]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <COLLABORATION_MODE>
-05:message/developer:
+04:message/developer:
     <MULTI_AGENT_ROLE>
-06:message/developer:
+05:message/developer:
     <MULTI_AGENT_MODE>
-07:message/user:
+06:message/user:
     <ENVIRONMENT_CONTEXT>
-08:message/developer:
+07:message/developer:
     <COLLABORATION_MODE>
-09:message/user:
+08:message/user:
     Check who can finish the notes.
-10:message/assistant:
+09:message/assistant:
     I will check who is available.
-11:function_call/collaboration.list_agents:{}
-12:function_call_output:{"agents":[{"agent_name":"/root","agent_status":"running"}]}
+10:function_call/collaboration.list_agents:{}
+11:function_call_output:{"agents":[{"agent_name":"/root","agent_status":"running"}]}

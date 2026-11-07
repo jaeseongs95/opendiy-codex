@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! Direct-call metadata coverage, including malformed calls and metadata budgets.
 
 use anyhow::Result;
@@ -431,12 +432,12 @@ async fn direct_call_metadata_during_compaction_respects_provider_support(
     let compacted = test.codex.conversation_history_snapshot().await;
     let compacted = serde_json::to_value(compacted.items().collect::<Vec<_>>())?;
     let compacted = compacted.as_array().expect("compacted history");
-    // Both paths retain the user message and summary, not the old call or output.
+    // Completed user text and calls leave the active window; the rollout retains originals.
     assert!(compacted.iter().all(|item| item["call_id"] != "shared"));
     assert!(
         compacted
             .iter()
-            .any(|item| item["role"] == "user" && &item["content"] == user_content)
+            .all(|item| item["role"] != "user" || &item["content"] != user_content)
     );
     match remote_compaction {
         RemoteCompactionSupport::Unsupported => assert!(compacted.iter().any(|item| {
@@ -450,10 +451,34 @@ async fn direct_call_metadata_during_compaction_respects_provider_support(
             }))
         }
     }
+    test.codex.flush_rollout().await?;
+    let rollout = std::fs::read_to_string(test.codex.rollout_path().expect("synthetic rollout"))?;
+    let archived_user = rollout
+        .lines()
+        .map(codex_rollout::parse_rollout_line)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(|line| match line.item {
+            codex_history::RolloutItem::ResponseItem(envelope) => Some(envelope.item),
+            _ => None,
+        })
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert!(
+        archived_user
+            .iter()
+            .any(|item| { item["role"] == "user" && &item["content"] == user_content })
+    );
     test.submit_turn("Update the plan").await?;
 
     let requests = mock.requests();
     assert_eq!(requests.len(), 5);
+    assert!(
+        requests[3]
+            .input()
+            .iter()
+            .all(|item| { item["role"] != "user" || &item["content"] != user_content })
+    );
     let compact_request = &requests[2];
     assert_eq!(
         compact_request.inputs_of_type("compaction_trigger").len(),

@@ -38,7 +38,7 @@ Scenario: True mid-turn continuation compaction after tool output: compact reque
 06:message/user:
     <SUMMARIZATION_PROMPT>
 
-## Window 3 (after request 2: input diverged at item 04, settings changed (parallel_tool_calls, tools))
+## Window 3 (after request 2: input diverged at item 03, settings changed (parallel_tool_calls, tools))
 -- request 3 (turn) --
 00:message/developer:
     <MODEL_INSTRUCTIONS>
@@ -51,7 +51,5 @@ Scenario: True mid-turn continuation compaction after tool output: compact reque
 02:message/user:
     <ENVIRONMENT_CONTEXT>
 03:message/user:
-    function call limit push
-04:message/user:
     <COMPACTION_SUMMARY>
     AUTO_SUMMARY

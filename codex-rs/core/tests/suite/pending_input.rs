@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 use core_test_support::test_codex::local_requests;
 use std::sync::Arc;
 use std::time::Duration;
@@ -2196,7 +2197,7 @@ async fn steer_during_compaction_is_sent_after_compaction() {
             chunk(ev_function_call("call-1", "test_tool", "{}")),
             chunk(ev_completed_with_tokens(
                 "resp-first",
-                /*total_tokens*/ 500,
+                /*total_tokens*/ 50_000,
             )),
         ],
         vec![
@@ -2209,9 +2210,21 @@ async fn steer_during_compaction_is_sent_after_compaction() {
                 ],
             ),
         ],
-        response_completed_chunks("resp-follow-up"),
-        response_completed_chunks("resp-extra-compaction"),
-        response_completed_chunks("resp-steered"),
+        vec![
+            chunk(ev_response_created("resp-follow-up")),
+            chunk(ev_completed_with_tokens(
+                "resp-follow-up",
+                /*total_tokens*/ 60,
+            )),
+        ],
+        // InstantInterrupt can preempt the first continuation before draining the steer.
+        vec![
+            chunk(ev_response_created("resp-steered")),
+            chunk(ev_completed_with_tokens(
+                "resp-steered",
+                /*total_tokens*/ 70,
+            )),
+        ],
     ])
     .await;
     let test = test_codex()
@@ -2219,7 +2232,9 @@ async fn steer_during_compaction_is_sent_after_compaction() {
         .with_config(|config| {
             config.model_provider.name = "OpenAI (test)".into();
             config.model_provider.supports_websockets = false;
-            config.model_auto_compact_token_limit = Some(200);
+            // Compaction recomputes the full canonical context, not the mock's 50 tokens.
+            // Keep that context below the limit while the initial usage still triggers it.
+            config.model_auto_compact_token_limit = Some(20_000);
             config
                 .features
                 .enable(Feature::InstantInterrupt)
@@ -2243,27 +2258,76 @@ async fn steer_during_compaction_is_sent_after_compaction() {
     .expect("compaction request should begin");
     steer_user_input(&codex, "old steer").await;
     release_compact.send(()).expect("finish compaction");
-    tokio::time::timeout(
+    let turn_result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        wait_for_successful_turn(&codex),
+        wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))),
     )
-    .await
-    .expect("turn should complete after the steer");
-
+    .await;
     let requests = server.requests().await;
-    let steer_counts = requests
+    // Only synthetic marker counts are retained for a failed wait; never print request text.
+    let request_markers = requests
         .iter()
-        .skip(2)
         .map(|request| {
-            let body: Value = from_slice(request).expect("parse follow-up request");
-            message_input_texts(&body, "user")
-                .into_iter()
-                .filter(|text| text == "old steer")
-                .count()
+            let body: Value = from_slice(request).expect("parse synthetic request");
+            let user_texts = message_input_texts(&body, "user");
+            (
+                user_texts
+                    .iter()
+                    .filter(|text| text.as_str() == "first prompt")
+                    .count(),
+                user_texts
+                    .iter()
+                    .filter(|text| text.as_str() == "old steer")
+                    .count(),
+                user_texts
+                    .iter()
+                    .filter(|text| text.contains("AUTO_COMPACT_SUMMARY"))
+                    .count(),
+                user_texts
+                    .iter()
+                    .any(|text| text == codex_core::compact::SUMMARIZATION_PROMPT),
+            )
         })
         .collect::<Vec<_>>();
-    assert!(steer_counts.contains(&1), "steer counts: {steer_counts:?}");
-    assert!(steer_counts.iter().all(|count| *count <= 1));
+    if turn_result.is_err() {
+        eprintln!(
+            "[compact-steer-timeout] requests={} markers(first,steer,summary,compact)={request_markers:?}",
+            requests.len()
+        );
+    }
+    let completed = turn_result.expect("turn should complete after the steer");
+    assert!(
+        matches!(&completed, EventMsg::TurnComplete(completed) if completed.error.is_none()),
+        "turn should complete successfully after the steer"
+    );
+    assert!(
+        matches!(requests.len(), 3 | 4),
+        "request markers: {request_markers:?}"
+    );
+    assert_eq!(request_markers[0].0, 1);
+    assert_eq!(request_markers[1].0, 1);
+    assert!(
+        request_markers[1].3,
+        "second request must be the gated compaction"
+    );
+    assert!(
+        request_markers[..2].iter().all(|marker| marker.1 == 0),
+        "accepted steer must stay outside the initial request and in-flight compaction snapshot"
+    );
+    assert!(
+        request_markers[2..]
+            .iter()
+            .all(|marker| marker.0 == 0 && marker.2 == 1 && !marker.3),
+        "follow-up requests must carry the handoff without completed source text or another compaction"
+    );
+    let steer_counts = request_markers[2..]
+        .iter()
+        .map(|marker| marker.1)
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(steer_counts.as_slice(), [1] | [0, 1]),
+        "accepted steer must be delivered once in the final request: {steer_counts:?}"
+    );
 
     codex
         .shutdown_and_wait()

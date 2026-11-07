@@ -52,9 +52,7 @@ Scenario: Pre-sampling compaction on model switch to a smaller context window: c
 02:message/user:
     <ENVIRONMENT_CONTEXT>
 03:message/user:
-    before switch
-04:message/user:
     <COMPACTION_SUMMARY>
     PRE_SAMPLING_SUMMARY
-05:message/user:
+04:message/user:
     after switch

@@ -1,4 +1,4 @@
-// Modified for OpenDIY Codex R36 (2026-11-03); see MODIFICATIONS.md.
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! Builds and sends foreground and speculative remote V2 compaction attempts.
 
 use crate::context::UserGoalUpdate;
@@ -177,6 +177,8 @@ pub(super) async fn run_remote_compact_v2_attempt(
             .iter()
             .any(|item| matches!(item, ResponseItem::AdditionalTools { .. }));
     let tool_router = &step_context.tool_router;
+    let prompt_input_len = input.len();
+    input.push(crate::compact::compaction_handoff_instructions());
     input.push(ResponseItem::CompactionTrigger {});
     let prompt = Prompt {
         input,
@@ -228,7 +230,9 @@ pub(super) async fn run_remote_compact_v2_attempt(
         token_usage,
     } = compaction_output_result?;
     let mut prompt_input = prompt.input;
-    prompt_input.pop();
+    // Both the policy message and trigger are request-only. Keep the original metadata
+    // sidecar aligned, and never reintroduce the policy into the installed model window.
+    prompt_input.truncate(prompt_input_len);
     Ok(RemoteCompactV2Attempt {
         input_goal_ids,
         trace_input_history,

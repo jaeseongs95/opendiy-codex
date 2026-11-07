@@ -80,7 +80,9 @@ Scenario: With retention disabled, the client can still send retain=true. Tool o
     I will use those task details.
 11:function_call_output/codex_app.send_message_to_thread:Output exceeded the available model context and was truncated
 12:function_call_output/example.progress:Output exceeded the available model context and was truncated
-13:compaction_trigger
+13:message/developer:
+    <SUMMARIZATION_PROMPT>
+14:compaction_trigger
 
 ## Window 3 (after request 4: input diverged at item 06)
 -- request 5 (turn) --

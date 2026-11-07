@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceCommit": "230567050d3f4bdce4315a2b3e0393bbe17431a6",
+  "sourceCommit": "c4399dce957bb63fe1fdc276aa4306c06f6cf47f",
   "files": [
     {
       "path": "codex-rs/collaboration-mode-templates/templates/default.md",
@@ -89,8 +89,8 @@
     },
     {
       "path": "codex-rs/prompts/templates/compact/prompt.md",
-      "gitBlobSha256": "ab0c334d4faca17e3afbb9b16967c1b2fdcc7242a9a0880af57949fa236d6d07",
-      "windowsSourceSha256": "bcdd8c0240c38c88a1beb53b0736a606bed60b278e0170912d4ebbc7d3b419eb"
+      "gitBlobSha256": "12d871157d40c552e7c46b61f2175bc50bad2b43eb6ba3a3f5c7ce9ee9e1f8a6",
+      "windowsSourceSha256": "ce53078c2e55862267bc422f631285ce99ca8b1cbb527dd31f89ba0a71fadee5"
     },
     {
       "path": "codex-rs/prompts/templates/compact/summary_prefix.md",

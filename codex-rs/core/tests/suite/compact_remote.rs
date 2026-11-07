@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! Exercises streamed remote compaction, including the retained checkpoint and continuing history.
 
 use anyhow::Context;
@@ -245,12 +246,21 @@ fn annotate_retained_user_in_rollout(path: &Path, retained_text: &str) -> Result
     Ok(())
 }
 
-fn assert_compacted_user_metadata(path: &Path, retained_text: &str) -> Result<()> {
-    let replacement_history = fs::read_to_string(path)?
+fn assert_original_metadata_is_not_reinstalled(path: &Path, retained_text: &str) -> Result<()> {
+    let lines = fs::read_to_string(path)?
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(codex_rollout::parse_rollout_line)
-        .collect::<std::result::Result<Vec<_>, _>>()?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    assert!(
+        lines.iter().any(|line| matches!(&line.item,
+            RolloutItem::ResponseItem(envelope)
+                if is_retained_user_message(&envelope.item, retained_text)
+                    && envelope.metadata.is_some()
+        )),
+        "stored original user evidence must remain intact"
+    );
+    let replacement_history = lines
         .into_iter()
         .rev()
         .find_map(|line| match line.item {
@@ -259,10 +269,10 @@ fn assert_compacted_user_metadata(path: &Path, retained_text: &str) -> Result<()
         })
         .context("compacted replacement history missing")?;
     assert!(
-        replacement_history.iter().any(|envelope| {
-            is_retained_user_message(&envelope.item, retained_text) && envelope.metadata.is_some()
-        }),
-        "compacted user message should retain its aligned harness metadata"
+        !replacement_history
+            .iter()
+            .any(|envelope| { is_retained_user_message(&envelope.item, retained_text) }),
+        "compaction must not reinstall the original task transcript"
     );
     Ok(())
 }
@@ -277,7 +287,7 @@ fn assert_compact_request_omits_harness_metadata(request: &responses::ResponsesR
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_compact_v2_retains_metadata_from_resumed_history() -> Result<()> {
+async fn remote_compact_v2_preserves_stored_evidence_without_reinstalling_it() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = wiremock::MockServer::start().await;
@@ -340,7 +350,8 @@ async fn remote_compact_v2_retains_metadata_from_resumed_history() -> Result<()>
         1
     );
     assert_compact_request_omits_harness_metadata(compact_request);
-    assert_compacted_user_metadata(&rollout_path, retained_text)?;
+    assert_original_metadata_is_not_reinstalled(&rollout_path, retained_text)?;
+    assert!(!requests[2].body_contains_text(retained_text));
     assert_eq!(
         requests[2].inputs_of_type("compaction")[0]["encrypted_content"],
         "ANNOTATED_V2_COMPACTION_SUMMARY"
@@ -663,12 +674,12 @@ async fn provider_automatic_compaction_uses_v2_responses_endpoint(
     Ok(())
 }
 
-#[test_case(None, "image_url"; "default_trims_images")]
-#[test_case(Some(false), "image_url"; "disabled_preserves_images")]
-#[test_case(None, "file_id"; "default_trims_file_images")]
-#[test_case(Some(false), "file_id"; "disabled_preserves_file_images")]
+#[test_case(None, "image_url"; "default_omits_old_images")]
+#[test_case(Some(false), "image_url"; "disabled_budget_still_omits_old_images")]
+#[test_case(None, "file_id"; "default_omits_old_file_images")]
+#[test_case(Some(false), "file_id"; "disabled_budget_still_omits_old_file_images")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn remote_compact_v2_charges_retained_images_to_token_budget(
+async fn remote_compact_v2_does_not_reinstall_task_images(
     image_budget_enabled: Option<bool>,
     image_field: &str,
 ) -> Result<()> {
@@ -796,21 +807,6 @@ async fn remote_compact_v2_charges_retained_images_to_token_budget(
             follow_up.inputs_of_type("compaction")[0]["encrypted_content"],
             "IMAGE_BUDGET_SUMMARY"
         );
-        let dropped = if image_budget_enabled.unwrap_or(true) {
-            cycle
-        } else {
-            0
-        };
-        let mut expected_images = prepared_images[dropped..].to_vec();
-        if cycle == 2 {
-            let UserInput::Image { image, .. } = &image_inputs[7] else {
-                unreachable!()
-            };
-            expected_images.push(match image {
-                ImageReference::Inline { image_url } => image_url.clone(),
-                ImageReference::File { file_id } => file_id.clone(),
-            });
-        }
         let retained_images = follow_up
             .inputs_of_type("message")
             .into_iter()
@@ -829,12 +825,15 @@ async fn remote_compact_v2_charges_retained_images_to_token_budget(
                     .to_owned()
             })
             .collect::<Vec<_>>();
-        assert_eq!(retained_images, expected_images);
+        assert!(
+            retained_images.is_empty(),
+            "past task media must not be reattached after the handoff"
+        );
         assert!(
             follow_up
                 .message_input_texts("user")
                 .iter()
-                .any(|text| text == "Compare these images")
+                .all(|text| text != "Compare these images")
         );
 
         if cycle == 1 {
@@ -1057,9 +1056,16 @@ async fn remote_compact_v2_reuses_compaction_trigger_for_followups() -> Result<(
             })
             .expect("matching message should include a creation timestamp")
     };
-    let original_user_create_time = item_create_time(&response_requests[0], "hello remote compact");
-    let delegated_task_create_time =
-        item_create_time(&response_requests[1], &delegated_task_ciphertext);
+    assert!(
+        item_create_time(&response_requests[0], "hello remote compact")
+            .as_f64()
+            .is_some()
+    );
+    assert!(
+        item_create_time(&response_requests[1], &delegated_task_ciphertext)
+            .as_f64()
+            .is_some()
+    );
     assert!(
         compact_request
             .inputs_of_type("agent_message")
@@ -1137,6 +1143,22 @@ async fn remote_compact_v2_reuses_compaction_trigger_for_followups() -> Result<(
         })
     );
     let compact_body = compact_request.body_json().to_string();
+    let policy_count = compact_request
+        .input()
+        .iter()
+        .filter(|item| {
+            item["role"] == "developer"
+                && item["content"][0]["text"].as_str() == Some(codex_prompts::SUMMARIZATION_PROMPT)
+        })
+        .count();
+    assert_eq!(
+        policy_count, 1,
+        "the compact policy must be request-only and appear once"
+    );
+    assert_eq!(
+        compact_request.inputs_of_type("compaction_trigger").len(),
+        1
+    );
     assert!(
         compact_body.contains("\"type\":\"compaction_trigger\""),
         "expected v2 compaction request to include the compaction_trigger item"
@@ -1147,14 +1169,6 @@ async fn remote_compact_v2_reuses_compaction_trigger_for_followups() -> Result<(
     );
 
     let follow_up_request = response_requests.last().expect("follow-up request missing");
-    assert_eq!(
-        item_create_time(follow_up_request, "hello remote compact"),
-        original_user_create_time
-    );
-    assert_eq!(
-        item_create_time(follow_up_request, &delegated_task_ciphertext),
-        delegated_task_create_time
-    );
     assert!(
         item_create_time(follow_up_request, "after compact")
             .as_f64()
@@ -1164,17 +1178,17 @@ async fn remote_compact_v2_reuses_compaction_trigger_for_followups() -> Result<(
         follow_up_request
             .inputs_of_type("agent_message")
             .iter()
-            .any(|item| item["content"][1]["encrypted_content"].as_str()
-                == Some(delegated_task_ciphertext.as_str())),
-        "expected v2 follow-up request to retain the encrypted delegated task"
+            .all(|item| item["content"][1]["encrypted_content"].as_str()
+                != Some(delegated_task_ciphertext.as_str())),
+        "the handoff must replace the old delegated-task transcript"
     );
     assert!(
         follow_up_request
             .inputs_of_type("agent_message")
             .iter()
-            .any(|item| item["content"][1]["encrypted_content"].as_str()
-                == Some(descendant_followup_ciphertext)),
-        "expected v2 follow-up request to retain the descendant-authored follow-up task"
+            .all(|item| item["content"][1]["encrypted_content"].as_str()
+                != Some(descendant_followup_ciphertext)),
+        "the handoff must replace the old descendant-task transcript"
     );
     assert!(
         follow_up_request
@@ -1206,18 +1220,19 @@ async fn remote_compact_v2_reuses_compaction_trigger_for_followups() -> Result<(
         "expected follow-up request to include the compaction payload"
     );
     assert!(!follow_up_body.contains("IGNORED_COMPACT_REPLY"));
+    assert!(!follow_up_request.body_contains_text(codex_prompts::SUMMARIZATION_PROMPT));
     assert!(
-        follow_up_body.contains("hello remote compact"),
-        "expected v2 follow-up request to preserve retained original user messages"
+        follow_up_request
+            .inputs_of_type("compaction_trigger")
+            .is_empty()
     );
     assert!(
-        follow_up_request.input().windows(2).any(|items| {
-            items[0]["role"] == "user"
-                && items[0]["content"][0]["text"] == "retained image source"
-                && items[1]["role"] == "developer"
-                && items[1]["content"][0]["text"] == user_notice
-        }),
-        "expected v2 compaction to retain the user image and its adjacent resize notice"
+        !follow_up_body.contains("hello remote compact"),
+        "completed raw user history must not be reattached after compaction"
+    );
+    assert!(
+        !follow_up_body.contains("retained image source") && !follow_up_body.contains(user_notice),
+        "old user media and its resize notice must not reinstall the task transcript"
     );
     assert!(
         !follow_up_body.contains(unlisted_notice),

@@ -58,4 +58,6 @@ Settings:
 05:message/user:
     Check the configuration.
 -- request 2 (compaction) --
-06:compaction_trigger
+06:message/developer:
+    <SUMMARIZATION_PROMPT>
+07:compaction_trigger

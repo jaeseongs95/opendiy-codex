@@ -1,3 +1,4 @@
+// Modified for OpenDIY Codex R39 (2026-11-07); see MODIFICATIONS.md.
 //! All display normalization for context snapshots: known text, volatile values and tool schemas.
 //! Request grouping stays independent of these display rules.
 
@@ -295,6 +296,11 @@ fn normalize_path(value: &str, aliases: &[(String, String)]) -> Option<String> {
 }
 
 fn known_segment_name(text: &str, source: TextSource<'_>) -> Option<String> {
+    if matches!(source, TextSource::Message("user" | "developer"))
+        && text.trim() == normalize_line_endings(codex_core::compact::SUMMARIZATION_PROMPT).trim()
+    {
+        return Some("SUMMARIZATION_PROMPT".to_string());
+    }
     let prefixes: &[(&str, &str)] = match source {
         TextSource::ModelInstructions => &[
             (GUARDIAN_INSTRUCTIONS_PREFIX, "GUARDIAN_INSTRUCTIONS"),

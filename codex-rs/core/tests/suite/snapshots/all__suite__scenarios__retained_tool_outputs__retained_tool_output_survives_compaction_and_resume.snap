@@ -44,7 +44,9 @@ Scenario: Retained thread instructions stop emergency tool-output trimming. Comp
 11:function_call_output/codex_app.send_message_to_thread:Report your findings without changing files.
 -- request 4 (compaction) --
 12:function_call_output/example.progress:Output exceeded the available model context and was truncated
-13:compaction_trigger
+13:message/developer:
+    <SUMMARIZATION_PROMPT>
+14:compaction_trigger
 
 ## Window 2 (after request 4: input diverged at item 06)
 -- request 5 (turn) --

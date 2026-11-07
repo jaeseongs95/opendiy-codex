@@ -139,9 +139,7 @@ Settings: same as window 1
 -- request 5 (turn) --
 00:message/developer:
     <MODEL_INSTRUCTIONS>
-01:message/user:
-    Inspect the available skills.
-02:message/developer[5]:
+01:message/developer[5]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <environments_instructions>
         ## Execution environments
@@ -157,18 +155,16 @@ Settings: same as window 1
         </tools>
     [04] <SKILLS_INSTRUCTIONS>
     [05] <SKILLS_INSTRUCTIONS>
-03:message/user:
+02:message/user:
     <ENVIRONMENT_CONTEXT>
-04:message/user:
-    Inspect the available skills again.
-05:message/user:
+03:message/user:
     <COMPACTION_SUMMARY>
     The available skills were inspected.
-06:message/user:
+04:message/user:
     <ENVIRONMENT_CONTEXT>
-07:message/developer:
+05:message/developer:
     <SKILLS_INSTRUCTIONS>
-08:message/user:
+06:message/user:
     Inspect the skills after resuming.
 
 ## Window 5 (after request 5)
@@ -176,9 +172,7 @@ Settings: same as window 2
 -- request 6 (turn) --
 00:message/developer:
     <MODEL_INSTRUCTIONS>
-01:message/user:
-    Inspect the available skills.
-02:message/developer[5]:
+01:message/developer[5]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <environments_instructions>
         ## Execution environments
@@ -194,22 +188,20 @@ Settings: same as window 2
         </tools>
     [04] <SKILLS_INSTRUCTIONS>
     [05] <SKILLS_INSTRUCTIONS>
-03:message/user:
+02:message/user:
     <ENVIRONMENT_CONTEXT>
-04:message/user:
-    Inspect the available skills again.
-05:message/user:
+03:message/user:
     <COMPACTION_SUMMARY>
     The available skills were inspected.
-06:message/user:
+04:message/user:
     <ENVIRONMENT_CONTEXT>
-07:message/developer:
+05:message/developer:
     <SKILLS_INSTRUCTIONS>
-08:message/user:
+06:message/user:
     Inspect the skills after resuming.
-09:function_call/wait_for_environment:{"environment_id":"skills-executor"}
-10:function_call_output:{"environment_id":"skills-executor","status":"ready"}
-11:message/user:
+07:function_call/wait_for_environment:{"environment_id":"skills-executor"}
+08:function_call_output:{"environment_id":"skills-executor","status":"ready"}
+09:message/user:
     <ENVIRONMENT_CONTEXT>
-12:message/developer:
+10:message/developer:
     <SKILLS_INSTRUCTIONS>

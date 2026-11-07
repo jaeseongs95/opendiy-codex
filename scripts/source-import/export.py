@@ -9,8 +9,8 @@ import subprocess
 import tarfile
 
 OFFICIAL='086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a'
-PATCHED='230567050d3f4bdce4315a2b3e0393bbe17431a6'
-PREVIOUS_PUBLIC='1662744ae8a5437a37eba56a5c893a1562d36a03'
+PATCHED='c4399dce957bb63fe1fdc276aa4306c06f6cf47f'
+PREVIOUS_PUBLIC='e54da9ee059278403684061bb86e1e7072c16165'
 PREFIXES=['codex-rs', 'third_party', 'patches', '.cargo/config.toml', 'tools/windows-cli', '.gitattributes', 'docs/native-cli-r27.ko.md', 'docs/native-cli-cron.ko.md', 'docs/native-cli-r33-cache-observation.ko.md', 'docs/native-cli-r35.ko.md', 'docs/native-cli-r36.ko.md', 'docs/r36-cleanup.ko.md', 'docs/r36-cloud-ci.ko.md', 'docs/r36-fast-compaction.ko.md', 'docs/r37-agent-selection-cases.ko.md', 'docs/r37-cold-cleanup-cases.ko.md', 'docs/r37-config-cases.ko.md', 'docs/r37-daemon-cases.ko.md', 'docs/r37-memory-cases.ko.md', 'docs/r37-memory-transport-cases.ko.md', 'docs/r37-plugin-cache-cases.ko.md', 'docs/r37-replay-compact-cases.ko.md', 'sdk/python/src/openai_codex/generated/v2_all.py', 'docs/native-cli-r38.ko.md', 'docs/r38-daemon-test-cases.ko.md', 'docs/r38-plugin-cache-test-cases.ko.md', 'docs/r38-stop-hook-test-cases.ko.md', 'scripts/install/normalize_stop_hook_config.py', 'scripts/install/test_normalize_stop_hook_config.py', 'docs/r38-agent-main-return-test-cases.ko.md']
 PROTECTED=['LICENSE','NOTICE','README.md','README.ko.md']
 DATE='2026-11-01'
@@ -536,6 +536,24 @@ NOTICE_OVERRIDES.update({path: ('R38', '2026-11-06') for path in (
 
 NOTICE_OVERRIDES.update({path: ('R38', '2026-11-06') for path in (
     'codex-rs/codex-mcp/src/connection_pool_tests.rs',
+)})
+
+# R39 compact-only followup: snapshots and runtime prompts stay exact bytes.
+NOTICE_OVERRIDES.update({path: ('R39', '2026-11-07') for path in (
+    'codex-rs/Cargo.lock',
+    'codex-rs/Cargo.toml',
+    'codex-rs/core/src/compact.rs',
+    'codex-rs/core/src/compact_remote_v2.rs',
+    'codex-rs/core/src/compact_remote_v2_attempt.rs',
+    'codex-rs/core/tests/common/context_snapshot/normalize.rs',
+    'codex-rs/core/tests/suite/compact.rs',
+    'codex-rs/core/tests/suite/compact_remote.rs',
+    'codex-rs/core/tests/suite/compact_resume_fork.rs',
+    'codex-rs/core/tests/suite/direct_tool_metadata.rs',
+    'codex-rs/core/tests/suite/guardian_history.rs',
+    'codex-rs/core/tests/suite/guardian_retained_context.rs',
+    'codex-rs/core/tests/suite/pending_input.rs',
+    'codex-rs/core/tests/suite/scenarios.rs',
 )})
 
 def sha(data):return hashlib.sha256(data).hexdigest()
